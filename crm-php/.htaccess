@@ -1,0 +1,5 @@
+Options -Indexes
+<FilesMatch "^config\.php$">
+  # config.php precisa continuar acessível ao PHP (não bloquear execução),
+  # isto só impede listagem de diretório.
+</FilesMatch>

@@ -1,0 +1,6 @@
+/* Ajustes finos além do Tailwind (via CDN) */
+table { border-collapse: collapse; }
+@media print {
+  a, form input[type="month"], .no-print { display: none !important; }
+  body { background: #fff !important; }
+}
