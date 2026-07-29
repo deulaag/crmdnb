@@ -8,9 +8,9 @@
  */
 
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'troque_pelo_nome_do_banco');
-define('DB_USER', 'troque_pelo_usuario');
-define('DB_PASS', 'troque_pela_senha');
+define('DB_NAME', 'dnbai6685943_crmdnb');
+define('DB_USER', 'dnbai6685943_dnbcrm');
+define('DB_PASS', 'h*nz04!x~.tfw~lb');
 define('DB_CHARSET', 'utf8mb4');
 
 /**
