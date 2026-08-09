@@ -36,6 +36,8 @@ jobs:
             **/.git*/**
             **/.github/**
             **/node_modules/**
+            **/tests/**
             recovered_schema.txt
+            config.local.php
             **/*.sql
             **/*.md

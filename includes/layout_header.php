@@ -3,18 +3,23 @@
  * Shell responsivo da aplicação - UI DNB v2.0.
  * Espera (opcionais): $tabAtual (string), $mes (string YYYY-MM)
  */
+require_once __DIR__ . '/rbac.php';
+require_once __DIR__ . '/notifications.php';
 $tabAtual = $tabAtual ?? '';
 $mes = $mes ?? mesAtual();
 $usuario = usuarioLogado();
 
 $abas = [
-    ['painel', 'Painel', 'painel.php', 'dashboard'],
-    ['orc', 'Orçamentos', 'orcamentos.php', 'quotes'],
-    ['ped', 'Pedidos', 'pedidos.php', 'orders'],
-    ['vis', 'Visitas', 'visitas.php', 'visits'],
-    ['cad', 'Cadência', 'cadencia.php', 'cadence'],
-    ['com', 'Comissões', 'comissoes.php', 'commissions'],
-    ['cfg', 'Configurações', 'configuracoes.php', 'settings'],
+    ['painel', 'Painel', 'painel.php', 'dashboard', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['orc', 'Orçamentos', 'orcamentos.php', 'quotes', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['ped', 'Pedidos', 'pedidos.php', 'orders', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['vis', 'Visitas', 'visitas.php', 'visits', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['cad', 'Cadência', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+    ['ia', 'IA central', 'ia.php', 'ai', PAPEIS_CRM],
+    ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
+    ['usr', 'Usuários', 'usuarios.php', 'users', [PAPEL_ADMINISTRADOR]],
+    ['cfg', 'Configurações', 'configuracoes.php', 'settings', [PAPEL_ADMINISTRADOR]],
 ];
 
 $paginas = [
@@ -24,10 +29,15 @@ $paginas = [
     'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
     'cad' => ['Cadência', 'Priorize contatos e mantenha o ritmo dos follow-ups.'],
     'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
+    'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
+    'cas' => ['Casos de atendimento', 'Faça a triagem dos atendimentos transbordados pela IA.'],
+    'usr' => ['Gestão de usuários', 'Administre papéis, vínculos e equipes comerciais.'],
     'cfg' => ['Configurações', 'Administre políticas, usuários e dados do CRM.'],
 ];
 [$tituloPagina, $descricaoPagina] = $paginas[$tabAtual] ?? ['CRM Comercial', 'Gestão comercial DNB em um só lugar.'];
 $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 'D';
+$notificacoes = $usuario ? listarNotificacoes(db(), (int) $usuario['id']) : [];
+$notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuario['id']) : 0;
 ?><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -39,7 +49,7 @@ $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.0.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -54,7 +64,8 @@ $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 
 
     <nav class="dnb-nav">
       <span class="dnb-nav__eyebrow">Menu principal</span>
-      <?php foreach ($abas as [$k, $l, $href, $icone]):
+      <?php foreach ($abas as [$k, $l, $href, $icone, $papeis]):
+          if (!in_array(papelAtual(), $papeis, true)) continue;
           $ativo = $tabAtual === $k;
           $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
       ?>
@@ -67,7 +78,7 @@ $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 
 
     <div class="dnb-sidebar__footer">
       <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-      <small>Interface DNB v2.0</small>
+      <small>CRM DNB v3.0</small>
     </div>
   </aside>
 
@@ -90,9 +101,17 @@ $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 
           <input id="dnb-mes" type="month" name="mes" value="<?= e($mes) ?>" class="<?= INPUT_CLS ?>" onchange="this.form.submit()">
         </form>
         <?php if ($usuario): ?>
+          <details class="dnb-notifications">
+            <summary class="dnb-icon-button" aria-label="Notificações"><?= dnbIcon('bell') ?><?php if ($notificacoesNaoLidas): ?><span class="dnb-notification-badge"><?= min(99, $notificacoesNaoLidas) ?></span><?php endif; ?></summary>
+            <div class="dnb-notifications__panel">
+              <strong>Notificações</strong>
+              <?php foreach ($notificacoes as $n): ?><a href="<?= e($n['link'] ?: '#') ?>" class="<?= $n['read_at'] ? '' : 'is-unread' ?>"><span><?= e($n['title']) ?></span><small><?= e($n['message']) ?></small></a><?php endforeach; ?>
+              <?php if (!$notificacoes): ?><p>Nenhuma notificação.</p><?php endif; ?>
+            </div>
+          </details>
           <div class="dnb-user">
             <span class="dnb-user__avatar" aria-hidden="true"><?= e($iniciais) ?></span>
-            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small>Conta ativa</small></span>
+            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small><?= e(papelAtual()) ?></small></span>
             <a class="dnb-icon-button" href="/logout.php" title="Sair" aria-label="Sair da conta"><?= dnbIcon('logout') ?></a>
           </div>
         <?php endif; ?>

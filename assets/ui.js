@@ -1,4 +1,4 @@
-/** DNB CRM - interações de interface v2.0 */
+/** DNB CRM - interações de interface v3.0 */
 (function () {
   const app = document.querySelector('[data-dnb-app]');
   const openButton = document.querySelector('[data-sidebar-open]');
@@ -34,6 +34,47 @@
     if (!field.id) field.id = 'dnb-field-' + (++generatedFieldId);
     label.htmlFor = field.id;
   });
+
+  const aiForm = document.querySelector('[data-ai-form]');
+  if (aiForm) {
+    aiForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      const status = aiForm.querySelector('[data-ai-status]');
+      const resultBox = document.querySelector('[data-ai-result]');
+      const data = new FormData(aiForm);
+      if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+      if (status) status.textContent = 'Processando com segurança na VPS…';
+      if (resultBox) { resultBox.hidden = true; resultBox.classList.remove('is-error'); }
+      try {
+        const response = await fetch(aiForm.dataset.endpoint, {
+          method: 'POST', credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': aiForm.dataset.csrf},
+          body: JSON.stringify({lead_id: Number(data.get('lead_id')), message: data.get('message')})
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.erro || 'Não foi possível processar a solicitação.');
+        if (resultBox) {
+          const title = document.createElement('strong'); title.textContent = 'Resposta · ' + payload.result.route;
+          const answer = document.createElement('p'); answer.textContent = payload.result.response || 'A IA não retornou texto.';
+          resultBox.replaceChildren(title, answer);
+          if (payload.result.score !== null) {
+            const score = document.createElement('p'); score.textContent = 'Score ' + payload.result.score + '/100 · ' + (payload.result.score_justification || 'Sem justificativa.'); resultBox.appendChild(score);
+          }
+          if (payload.case_id) {
+            const link = document.createElement('a'); link.href = '/casos.php?caso=' + payload.case_id; link.textContent = 'Abrir caso de atendimento #' + payload.case_id; resultBox.appendChild(link);
+          }
+          resultBox.hidden = false;
+        }
+        if (status) status.textContent = payload.case_id ? 'Transbordado para atendimento humano.' : 'Processamento concluído.';
+      } catch (error) {
+        if (status) status.textContent = error.message;
+        if (resultBox) { resultBox.hidden = false; resultBox.textContent = error.message; resultBox.classList.add('is-error'); }
+      } finally {
+        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+      }
+    });
+  }
 
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', (event) => {

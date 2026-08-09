@@ -16,8 +16,9 @@ function db(): PDO
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
         } catch (PDOException $e) {
+            error_log('DNB CRM database connection failed: ' . $e->getMessage());
             http_response_code(500);
-            die('Não foi possível conectar ao banco de dados. Verifique config.php. Detalhe técnico: ' . htmlspecialchars($e->getMessage()));
+            die('Não foi possível conectar ao banco de dados. Verifique a configuração do servidor.');
         }
     }
     return $pdo;

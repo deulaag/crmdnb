@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = obterVendedores($pdo);
+$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $calc = calcularMes($pdo, $mes, $vendedores);
 $politicasArr = politicas();
 

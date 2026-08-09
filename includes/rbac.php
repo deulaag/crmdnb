@@ -1,0 +1,162 @@
+<?php
+/**
+ * Controle de acesso hierárquico do DNB CRM.
+ * O ADMINISTRADOR enxerga tudo; o SUPERVISOR enxerga sua equipe; o VENDEDOR,
+ * somente registros atribuídos a ele; o SUPORTE atua nos casos transbordados.
+ */
+require_once __DIR__ . '/auth.php';
+
+const PAPEL_ADMINISTRADOR = 'ADMINISTRADOR';
+const PAPEL_SUPERVISOR = 'SUPERVISOR';
+const PAPEL_VENDEDOR = 'VENDEDOR';
+const PAPEL_SUPORTE = 'SUPORTE';
+const PAPEIS_CRM = [PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR, PAPEL_SUPORTE];
+
+function papelAtual(): string
+{
+    $papel = strtoupper((string) (usuarioLogado()['role'] ?? PAPEL_ADMINISTRADOR));
+    return in_array($papel, PAPEIS_CRM, true) ? $papel : PAPEL_VENDEDOR;
+}
+
+function temPapel(string ...$papeis): bool
+{
+    return in_array(papelAtual(), $papeis, true);
+}
+
+function exigirPapel(string ...$papeis): void
+{
+    exigirLogin();
+    if (!temPapel(...$papeis)) {
+        http_response_code(403);
+        require_once __DIR__ . '/helpers.php';
+        $titulo = 'Acesso não autorizado';
+        $mensagem = 'Seu perfil não possui permissão para acessar este módulo.';
+        include __DIR__ . '/forbidden.php';
+        exit;
+    }
+}
+
+function idsUsuariosDaEquipe(PDO $pdo, ?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario) return [];
+    $papel = strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR));
+    if ($papel === PAPEL_ADMINISTRADOR) return [];
+    if ($papel === PAPEL_SUPERVISOR) {
+        $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE status='active' AND (id=? OR supervisor_id=?)");
+        $stmt->execute([(int) $usuario['id'], (int) $usuario['id']]);
+        return array_map('intval', array_column($stmt->fetchAll(), 'id'));
+    }
+    return [(int) $usuario['id']];
+}
+
+/** Retorna SQL e parâmetros para uma coluna assigned_to_user_id. */
+function filtroEscopoAtribuicao(PDO $pdo, string $coluna = 'assigned_to_user_id', ?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario || strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) {
+        return ['1=1', []];
+    }
+    $ids = idsUsuariosDaEquipe($pdo, $usuario);
+    if (!$ids) return ['1=0', []];
+    return [$coluna . ' IN (' . implode(',', array_fill(0, count($ids), '?')) . ')', $ids];
+}
+
+function idsVendedoresDaEquipe(PDO $pdo, ?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario) return [];
+    if (strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) {
+        return array_column($pdo->query("SELECT id FROM vendedores WHERE ativo=1")->fetchAll(), 'id');
+    }
+    $ids = idsUsuariosDaEquipe($pdo, $usuario);
+    if (!$ids) return [];
+    $stmt = $pdo->prepare('SELECT vendedor_id FROM usuarios WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') AND vendedor_id IS NOT NULL');
+    $stmt->execute($ids);
+    return array_values(array_filter(array_column($stmt->fetchAll(), 'vendedor_id')));
+}
+
+function filtrarVendedoresDaEquipe(PDO $pdo, array $vendedores, ?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario || strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) return $vendedores;
+    $permitidos = array_flip(idsVendedoresDaEquipe($pdo, $usuario));
+    return array_values(array_filter($vendedores, fn(array $v): bool => isset($permitidos[$v['id']])));
+}
+
+function usuarioIdPorVendedor(PDO $pdo, ?string $vendedorId): ?int
+{
+    if (!$vendedorId) return null;
+    $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE vendedor_id=? AND status='active' ORDER BY id LIMIT 1");
+    $stmt->execute([$vendedorId]);
+    $id = $stmt->fetchColumn();
+    return $id ? (int) $id : null;
+}
+
+function podeAcessarRegistroAtribuido(PDO $pdo, string $tabela, int $id): bool
+{
+    if (!in_array($tabela, ['orcamentos','pedidos','visitas'], true)) return false;
+    if (temPapel(PAPEL_ADMINISTRADOR)) return true;
+    [$filtro, $params] = filtroEscopoAtribuicao($pdo, 'assigned_to_user_id');
+    $params[] = $id;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM {$tabela} WHERE {$filtro} AND id=?");
+    $stmt->execute($params);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function podeAcessarLead(PDO $pdo, int $leadId, ?array $usuario = null): bool
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario) return false;
+    if (strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) return true;
+
+    [$filtro, $params] = filtroEscopoAtribuicao($pdo, 'assigned_to_user_id', $usuario);
+    $params[] = $leadId;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM orcamentos WHERE {$filtro} AND id=?");
+    $stmt->execute($params);
+    if ((int) $stmt->fetchColumn() > 0) return true;
+
+    if (strtoupper((string) ($usuario['role'] ?? '')) === PAPEL_SUPORTE) {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM support_cases WHERE lead_id=?');
+        $stmt->execute([$leadId]);
+        return (int) $stmt->fetchColumn() > 0;
+    }
+    return false;
+}
+
+function podeReatribuirLead(): bool
+{
+    return temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR);
+}
+
+function podeGerenciarCasos(): bool
+{
+    return temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPORTE);
+}
+
+function paginaInicialPorPapel(): string
+{
+    return papelAtual() === PAPEL_SUPORTE ? '/casos.php' : '/painel.php';
+}
+
+function csrfToken(): string
+{
+    if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    return $_SESSION['csrf_token'];
+}
+
+function csrfInput(): string
+{
+    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') . '">';
+}
+
+function exigirCsrf(): void
+{
+    $recebido = (string) ($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if ($recebido === '' || !hash_equals(csrfToken(), $recebido)) {
+        http_response_code(419);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'erro' => 'Sessão expirada. Recarregue a página e tente novamente.']);
+        exit;
+    }
+}
