@@ -1,13 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/helpers.php';
+require_once __DIR__ . '/includes/rbac.php';
 
 if (!existeAlgumUsuario()) {
     header('Location: /setup.php');
     exit;
 }
 if (usuarioLogado()) {
-    header('Location: /painel.php');
+    header('Location: ' . paginaInicialPorPapel());
     exit;
 }
 
@@ -16,8 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $senha = (string) ($_POST['senha'] ?? '');
     if (autenticar($email, $senha)) {
-        $voltar = $_GET['voltar'] ?? '/painel.php';
-        header('Location: ' . ($voltar !== '' ? $voltar : '/painel.php'));
+        $voltar = isset($_GET['voltar']) ? destinoAposLogin($_GET['voltar']) : paginaInicialPorPapel();
+        header('Location: ' . $voltar);
         exit;
     }
     $erro = 'E-mail ou senha inválidos.';
@@ -32,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.0.0">
 </head>
 <body class="dnb-body">
 <main class="dnb-auth">
@@ -69,6 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
   </section>
 </main>
-<script src="/assets/ui.js?v=2.0.0"></script>
+<script src="/assets/ui.js?v=3.0.0"></script>
 </body>
 </html>

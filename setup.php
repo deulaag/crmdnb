@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($senha !== $senha2) {
         $erro = 'As senhas não coincidem.';
     } else {
-        $stmt = db()->prepare('INSERT INTO usuarios (nome, email, senha_hash, ativo) VALUES (?, ?, ?, 1)');
+        $stmt = db()->prepare("INSERT INTO usuarios (nome,email,senha_hash,role,status,ativo,criado_em,atualizado_em) VALUES (?,?,?,'ADMINISTRADOR','active',1,NOW(),NOW())");
         $stmt->execute([$nome, $email, password_hash($senha, PASSWORD_DEFAULT)]);
         header('Location: /login.php?criado=1');
         exit;
@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.0.0">
 </head>
 <body class="dnb-body">
 <main class="dnb-auth">
@@ -86,6 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
   </section>
 </main>
-<script src="/assets/ui.js?v=2.0.0"></script>
+<script src="/assets/ui.js?v=3.0.0"></script>
 </body>
 </html>

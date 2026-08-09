@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = obterVendedores($pdo);
+$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $linhas = array_column($pdo->query('SELECT nome FROM linhas ORDER BY ordem ASC')->fetchAll(), 'nome');
 
 function pedRedirect(string $msg = ''): void
@@ -24,25 +25,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $cliente = trim($_POST['cliente'] ?? '');
         $valor = (float) ($_POST['valor'] ?? 0);
         if ($cliente === '' || $valor <= 0) pedRedirect('Informe cliente e valor.');
+        $vendedorId = $_POST['vendedor_id'] ?: null;
+        if ($vendedorId && !in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
+        $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
         $modalidade = $_POST['modalidade'] === 'agenciada' ? 'agenciada' : 'revenda';
         $dataFat = $_POST['data_fat'] ?: null;
-        $stmt = $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,margem,modalidade,comissao_dnb,faturado,data_fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt = $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,margem,modalidade,comissao_dnb,faturado,data_fat,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([
             trim($_POST['numero'] ?? ''), $_POST['data'] ?: hoje(), $cliente,
-            $_POST['vendedor_id'] ?: null, $_POST['suporte_id'] ?: null, $_POST['linha'] ?? '',
+            $vendedorId, $_POST['suporte_id'] ?: null, $_POST['linha'] ?? '',
             $valor, $_POST['margem'] !== '' ? (float) $_POST['margem'] : null, $modalidade,
             $modalidade === 'agenciada' ? (float) ($_POST['comissao_dnb'] ?? 0) : 0,
-            $dataFat ? 1 : 0, $dataFat,
+            $dataFat ? 1 : 0, $dataFat, $assignedTo,
         ]);
         pedRedirect('Pedido registrado.');
     }
 
     if ($acao === 'faturar') {
+        if (!podeAcessarRegistroAtribuido($pdo, 'pedidos', (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('UPDATE pedidos SET faturado=1, data_fat=COALESCE(data_fat, ?) WHERE id=?')->execute([hoje(), (int) $_POST['id']]);
         pedRedirect();
     }
 
     if ($acao === 'excluir') {
+        if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
+        if (!podeAcessarRegistroAtribuido($pdo, 'pedidos', (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('DELETE FROM pedidos WHERE id=?')->execute([(int) $_POST['id']]);
         pedRedirect();
     }
@@ -50,7 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $msg = $_SESSION['flash'] ?? '';
 unset($_SESSION['flash']);
-$pedidos = $pdo->query('SELECT * FROM pedidos ORDER BY data DESC, id DESC')->fetchAll();
+[$filtro, $params] = filtroEscopoAtribuicao($pdo);
+$stmt = $pdo->prepare("SELECT * FROM pedidos WHERE {$filtro} ORDER BY data DESC,id DESC");
+$stmt->execute($params); $pedidos = $stmt->fetchAll();
 
 $tabAtual = 'ped';
 include __DIR__ . '/includes/layout_header.php';
@@ -121,7 +130,7 @@ include __DIR__ . '/includes/layout_header.php';
               <?php if ($p['faturado']): ?><?= tag('Faturado ' . $p['data_fat'], 'green') ?>
               <?php else: ?><form method="post" class="inline"><input type="hidden" name="acao" value="faturar"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?>">Marcar faturado</button></form><?php endif; ?>
             </td>
-            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir este pedido?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir pedido" title="Excluir pedido"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form></td>
+            <td class="text-right"><?php if (temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)): ?><form method="post" class="inline" onsubmit="return confirm('Excluir este pedido?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir pedido" title="Excluir pedido"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form><?php endif; ?></td>
           </tr>
           <?php endforeach; ?>
           <?php if (!count($pedidos)): ?><tr><td colspan="10" class="py-6 text-center text-slate-400 text-sm">Nenhum pedido registrado.</td></tr><?php endif; ?>

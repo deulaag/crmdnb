@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = obterVendedores($pdo);
+$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 
 function visRedirect(string $msg = ''): void
 {
@@ -23,8 +24,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $cliente = trim($_POST['cliente'] ?? '');
         $vendedorId = $_POST['vendedor_id'] ?: null;
         if ($cliente === '' || !$vendedorId) visRedirect('Informe cliente e responsável.');
-        $stmt = $pdo->prepare('INSERT INTO visitas (os,data,cliente,vendedor_id,tipo,contato,setor,resumo,oportunidade) VALUES (?,?,?,?,?,?,?,?,?)');
-        $stmt->execute([$_POST['os'] ?? '', $_POST['data'] ?: hoje(), $cliente, $vendedorId, $_POST['tipo'] === 'prospeccao' ? 'prospeccao' : 'visita', $_POST['contato'] ?? '', $_POST['setor'] ?? '', '', $_POST['oportunidade'] ?? '']);
+        if (!in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
+        $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR) ? (int) usuarioLogado()['id'] : null);
+        $stmt = $pdo->prepare('INSERT INTO visitas (os,data,cliente,vendedor_id,tipo,contato,setor,resumo,oportunidade,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([$_POST['os'] ?? '', $_POST['data'] ?: hoje(), $cliente, $vendedorId, $_POST['tipo'] === 'prospeccao' ? 'prospeccao' : 'visita', $_POST['contato'] ?? '', $_POST['setor'] ?? '', '', $_POST['oportunidade'] ?? '', $assignedTo]);
         visRedirect('Atividade registrada.');
     }
 
@@ -43,8 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($nomeVend !== '' && ($vn === $nomeVend || explode(' ', $vn)[0] === explode(' ', $nomeVend)[0])) { $vendId = $vv['id']; break; }
                 }
                 $tipo = str_starts_with(mb_strtolower($v['tipo'] ?? 'visita'), 'prosp') ? 'prospeccao' : 'visita';
-                $pdo->prepare('INSERT INTO visitas (os,data,cliente,vendedor_id,tipo,contato,setor,resumo,oportunidade) VALUES (?,?,?,?,?,?,?,?,?)')
-                    ->execute([$v['os'] ?? '', $v['data'] ?? hoje(), $cliente, $vendId, $tipo, $v['contato'] ?? '', $v['setor'] ?? '', '', $v['oportunidade'] ?? ($v['comentario'] ?? '')]);
+                $assignedTo = usuarioIdPorVendedor($pdo, $vendId) ?: (temPapel(PAPEL_VENDEDOR) ? (int) usuarioLogado()['id'] : null);
+                $pdo->prepare('INSERT INTO visitas (os,data,cliente,vendedor_id,tipo,contato,setor,resumo,oportunidade,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                    ->execute([$v['os'] ?? '', $v['data'] ?? hoje(), $cliente, $vendId, $tipo, $v['contato'] ?? '', $v['setor'] ?? '', '', $v['oportunidade'] ?? ($v['comentario'] ?? ''), $assignedTo]);
                 $n++;
             }
             visRedirect("$n visita(s) importada(s).");
@@ -54,6 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($acao === 'excluir') {
+        if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
+        if (!podeAcessarRegistroAtribuido($pdo, 'visitas', (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('DELETE FROM visitas WHERE id=?')->execute([(int) $_POST['id']]);
         visRedirect();
     }
@@ -61,7 +67,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $msg = $_SESSION['flash'] ?? '';
 unset($_SESSION['flash']);
-$visitas = $pdo->query('SELECT * FROM visitas ORDER BY data DESC, id DESC')->fetchAll();
+[$filtro, $params] = filtroEscopoAtribuicao($pdo);
+$stmt = $pdo->prepare("SELECT * FROM visitas WHERE {$filtro} ORDER BY data DESC,id DESC");
+$stmt->execute($params); $visitas = $stmt->fetchAll();
 
 $tabAtual = 'vis';
 include __DIR__ . '/includes/layout_header.php';
@@ -124,7 +132,7 @@ include __DIR__ . '/includes/layout_header.php';
             <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><?= e($v['cliente']) ?><div class="text-xs font-normal text-slate-400"><?= e($v['contato']) ?></div></td>
             <td class="pr-2"><?= e(nomeVendedor($vendedores, $v['vendedor_id'])) ?></td>
             <td class="pr-2 text-xs text-slate-600 max-w-[280px]"><?= e($v['oportunidade'] ?: '—') ?></td>
-            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir esta atividade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $v['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir atividade" title="Excluir atividade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form></td>
+            <td class="text-right"><?php if (temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)): ?><form method="post" class="inline" onsubmit="return confirm('Excluir esta atividade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $v['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir atividade" title="Excluir atividade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form><?php endif; ?></td>
           </tr>
           <?php endforeach; ?>
           <?php if (!count($visitas)): ?><tr><td colspan="7" class="py-6 text-center text-slate-400 text-sm">Nenhuma atividade registrada.</td></tr><?php endif; ?>

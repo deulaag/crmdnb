@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = obterVendedores($pdo);
+$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $funisArr = funis();
 $cadArr = cadencias();
 
@@ -75,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $acao = $_POST['acao'] ?? '';
 
     if ($acao === 'pausar') {
+        if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('UPDATE orcamentos SET cad_pausada=? WHERE id=?')->execute([(int) $_POST['pausar'], (int) $_POST['id']]);
         cadRedirect();
     }
@@ -82,11 +84,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($acao === 'gerar' || $acao === 'rodar_dia') {
         $logMap = mapaCadLog($pdo);
         if ($acao === 'gerar') {
+            if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
             $stmt = $pdo->prepare('SELECT * FROM orcamentos WHERE id=?');
             $stmt->execute([(int) $_POST['id']]);
             $alvo = array_filter([$stmt->fetch()]);
         } else {
-            $todas = $pdo->query("SELECT * FROM orcamentos WHERE status='Aberta' AND cad_pausada=0")->fetchAll();
+            [$filtro, $params] = filtroEscopoAtribuicao($pdo);
+            $stmt = $pdo->prepare("SELECT * FROM orcamentos WHERE status='Aberta' AND cad_pausada=0 AND {$filtro}");
+            $stmt->execute($params); $todas = $stmt->fetchAll();
             $alvo = array_values(array_filter($todas, function ($o) use ($logMap, $cadArr) {
                 $lg = $logMap[$o['id']] ?? ['c' => 0, 'ultima' => null];
                 return statusCadencia($o, $lg['c'], $lg['ultima'], $cadArr)['devido'];
@@ -113,7 +118,9 @@ $previews = $_SESSION['cad_preview'] ?? [];
 unset($_SESSION['cad_preview']);
 
 $logMap = mapaCadLog($pdo);
-$orcAbertas = $pdo->query("SELECT * FROM orcamentos WHERE status='Aberta'")->fetchAll();
+[$filtro, $params] = filtroEscopoAtribuicao($pdo);
+$stmt = $pdo->prepare("SELECT * FROM orcamentos WHERE status='Aberta' AND {$filtro}");
+$stmt->execute($params); $orcAbertas = $stmt->fetchAll();
 $ativas = array_values(array_filter($orcAbertas, fn($o) => empty($o['cad_pausada'])));
 $pausadas = array_values(array_filter($orcAbertas, fn($o) => !empty($o['cad_pausada'])));
 $comStatus = function (array $o) use ($logMap, $cadArr) {

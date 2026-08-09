@@ -1,9 +1,10 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/seed.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
@@ -67,6 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'carregar_demo') {
         carregarDadosDemo($pdo);
+        $pdo->exec('UPDATE orcamentos o JOIN usuarios u ON u.vendedor_id=o.vendedor_id SET o.assigned_to_user_id=u.id WHERE o.assigned_to_user_id IS NULL');
+        $pdo->exec('UPDATE pedidos p JOIN usuarios u ON u.vendedor_id=p.vendedor_id SET p.assigned_to_user_id=u.id WHERE p.assigned_to_user_id IS NULL');
+        $pdo->exec('UPDATE visitas v JOIN usuarios u ON u.vendedor_id=v.vendedor_id SET v.assigned_to_user_id=u.id WHERE v.assigned_to_user_id IS NULL');
         cfgRedirect('Simulação de jul/2026 carregada.');
     }
 
@@ -75,25 +79,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cfgRedirect('Base zerada — equipe restaurada ao padrão.');
     }
 
-    if ($acao === 'add_usuario') {
-        $nome = trim($_POST['nome'] ?? ''); $email = trim($_POST['email'] ?? ''); $senha = (string) ($_POST['senha'] ?? '');
-        if ($nome === '' || $email === '' || strlen($senha) < 8) {
-            cfgRedirect('Preencha nome, e-mail e senha (mín. 8 caracteres).');
-        }
-        try {
-            $pdo->prepare('INSERT INTO usuarios (nome, email, senha_hash) VALUES (?,?,?)')->execute([$nome, $email, password_hash($senha, PASSWORD_DEFAULT)]);
-            cfgRedirect('Usuário criado.');
-        } catch (Throwable $e) {
-            cfgRedirect('Não foi possível criar (e-mail já cadastrado?).');
-        }
-    }
-
-    if ($acao === 'remover_usuario') {
-        if ((int) $_POST['id'] !== (int) usuarioLogado()['id']) {
-            $pdo->prepare('DELETE FROM usuarios WHERE id=?')->execute([(int) $_POST['id']]);
-        }
-        cfgRedirect();
-    }
 }
 
 $msg = $_SESSION['flash'] ?? '';
@@ -104,7 +89,6 @@ $stmtAp = $pdo->prepare('SELECT vendedor_id, ocorrencias FROM apuracao WHERE mes
 $stmtAp->execute([$mes]);
 $apuracaoMes = [];
 foreach ($stmtAp->fetchAll() as $a) $apuracaoMes[$a['vendedor_id']] = (int) $a['ocorrencias'];
-$usuarios = $pdo->query('SELECT id, nome, email, ativo FROM usuarios ORDER BY nome')->fetchAll();
 
 function numField(array $pes, string $k, string $label): void
 {
@@ -249,35 +233,6 @@ include __DIR__ . '/includes/layout_header.php';
   </div>
 </div>
 
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-  <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Usuários com acesso ao sistema</span></div>
-  <div class="p-4">
-    <table class="w-full text-sm mb-3">
-      <thead><tr class="text-left text-xs text-slate-500 border-b border-slate-200"><th class="py-2 pr-2">Nome</th><th class="pr-2">E-mail</th><th></th></tr></thead>
-      <tbody>
-        <?php foreach ($usuarios as $u): ?>
-          <tr class="border-b border-slate-100">
-            <td class="py-2 pr-2 font-semibold" style="color:<?= NAVY ?>;"><?= e($u['nome']) ?></td>
-            <td class="pr-2"><?= e($u['email']) ?></td>
-            <td class="text-right">
-              <?php if ((int) $u['id'] !== (int) usuarioLogado()['id']): ?>
-                <form method="post" class="inline" onsubmit="return confirm('Remover este usuário?');"><input type="hidden" name="acao" value="remover_usuario"><input type="hidden" name="id" value="<?= $u['id'] ?>"><button class="<?= BTN_S ?>">Remover</button></form>
-              <?php else: ?><span class="text-xs text-slate-400">você</span><?php endif; ?>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-    <form method="post" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-      <input type="hidden" name="acao" value="add_usuario">
-      <div><label class="block text-xs font-semibold text-slate-600 mb-1">Nome</label><input name="nome" class="<?= INPUT_CLS ?>"></div>
-      <div><label class="block text-xs font-semibold text-slate-600 mb-1">E-mail</label><input type="email" name="email" class="<?= INPUT_CLS ?>"></div>
-      <div><label class="block text-xs font-semibold text-slate-600 mb-1">Senha (mín. 8)</label><input type="password" name="senha" class="<?= INPUT_CLS ?>"></div>
-      <button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;">Adicionar usuário</button>
-    </form>
-  </div>
-</div>
-
-<div class="text-xs text-slate-400">Dados comerciais compartilhados entre todos os usuários com login neste CRM.</div>
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4"><div class="p-4 flex items-center justify-between gap-4 flex-wrap"><div><h2 class="dnb-section-title">Acesso e hierarquia</h2><p class="text-sm text-slate-500">Papéis, supervisores, vínculos comerciais e status são administrados em um módulo dedicado.</p></div><a href="/usuarios.php" class="<?= BTN_P ?> inline-flex">Gerenciar usuários</a></div></div>
 
 <?php include __DIR__ . '/includes/layout_footer.php'; ?>

@@ -1,12 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/rbac.php';
+require_once __DIR__ . '/includes/lead_service.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
-exigirLogin();
+exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = obterVendedores($pdo);
+$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $linhas = array_column($pdo->query('SELECT nome FROM linhas ORDER BY ordem ASC')->fetchAll(), 'nome');
 $funisArr = funis();
 
@@ -28,39 +30,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($cliente === '' || $valor <= 0) orcRedirect('Informe ao menos cliente e valor.');
         if ($linha === '') orcRedirect('Linha de Produto é obrigatória — regra: uma oportunidade por linha.');
         $vendedorId = $_POST['vendedor_id'] ?: null;
+        if ($vendedorId && !in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
+        $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
         $suporteId = $_POST['suporte_id'] ?: null;
         $data = $_POST['data'] ?: hoje();
         $funil = funilDe($linha);
         $numero = trim($_POST['numero'] ?? '') ?: gerarNumeroProposta($pdo, $vendedores, $vendedorId, $suporteId, $data);
-        $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual']);
+        $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo]);
+        registrarTimeline($pdo, (int) $pdo->lastInsertId(), 'created', 'Oportunidade criada manualmente.');
         orcRedirect('Oportunidade ' . $numero . ' registrada no funil ' . $funisArr[$funil]['label'] . '.');
     }
 
     if ($acao === 'set_etapa') {
+        if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $stmt = $pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?');
         $stmt->execute([$_POST['etapa'], (int) $_POST['id']]);
+        registrarTimeline($pdo, (int) $_POST['id'], 'funnel_update', 'Etapa atualizada para ' . $_POST['etapa'] . '.');
         orcRedirect();
     }
 
     if ($acao === 'set_valor') {
+        if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $stmt = $pdo->prepare('UPDATE orcamentos SET valor=? WHERE id=?');
         $stmt->execute([(float) $_POST['valor'], (int) $_POST['id']]);
         orcRedirect();
     }
 
     if ($acao === 'set_status') {
+        if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
+        if (!in_array($_POST['status'] ?? '', ['Aberta','Ganha','Perdida'], true)) { http_response_code(422); exit; }
         $stmt = $pdo->prepare('UPDATE orcamentos SET status=? WHERE id=?');
         $stmt->execute([$_POST['status'], (int) $_POST['id']]);
         orcRedirect();
     }
 
     if ($acao === 'excluir') {
+        if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
+        if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('DELETE FROM orcamentos WHERE id=?')->execute([(int) $_POST['id']]);
         orcRedirect();
     }
 
     if ($acao === 'importar_json') {
+        if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
         try {
             $arr = json_decode($_POST['json_imp'] ?? '', true, 512, JSON_THROW_ON_ERROR);
             $lista = array_is_list($arr) ? $arr : [$arr];
@@ -73,9 +86,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($nomeVend !== '' && ($vn === $nomeVend || explode(' ', $vn)[0] === explode(' ', $nomeVend)[0])) { $vendId = $v['id']; break; }
                 }
                 $linha = in_array($o['linha'] ?? '', $linhas, true) ? $o['linha'] : mapLinha(($o['linha'] ?? '') ?: ($o['tipo'] ?? ''));
-                $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,status,origem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+                $assignedTo = usuarioIdPorVendedor($pdo, $vendId) ?: (temPapel(PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
+                $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 $funil = funilDe($linha);
-                $stmt->execute([$o['numero'] ?? '', $o['data'] ?? hoje(), $o['cliente'] ?? '', $vendId, null, $linha, $o['tipo'] ?? 'Peças', $funil, $funisArr[$funil]['etapas'][0], (float) ($o['valor'] ?? 0), 'Aberta', 'cotador']);
+                $stmt->execute([$o['numero'] ?? '', $o['data'] ?? hoje(), $o['cliente'] ?? '', $vendId, null, $linha, $o['tipo'] ?? 'Peças', $funil, $funisArr[$funil]['etapas'][0], (float) ($o['valor'] ?? 0), 'Aberta', 'cotador', $assignedTo]);
                 $n++;
             }
             orcRedirect("$n proposta(s) importada(s) do Cotador.");
@@ -85,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($acao === 'importar_sf_csv' && !empty($_FILES['arquivo']['tmp_name'])) {
+        if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
         $novos = 0; $atualizados = 0;
         if (($h = fopen($_FILES['arquivo']['tmp_name'], 'r')) !== false) {
             $header = fgetcsv($h, 0, ',');
@@ -122,16 +137,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $vn = mb_strtolower($v['nome']);
                         if ($dono !== '' && ($vn === $dono || explode(' ', $vn)[0] === explode(' ', $dono)[0])) { $vendId = $v['id']; break; }
                     }
+                    $assignedTo = usuarioIdPorVendedor($pdo, $vendId) ?: (temPapel(PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
                     $ex = $pdo->prepare('SELECT id FROM orcamentos WHERE sf_id=?');
                     $ex->execute([$sfId]);
                     $exId = $ex->fetchColumn();
                     if ($exId) {
-                        $pdo->prepare('UPDATE orcamentos SET valor=IF(?>0,?,valor), status=?, etapa=IF(?="Aberta",?,etapa), comissao_dnb_estimada=IF(?>0,?,comissao_dnb_estimada), vendedor_id=COALESCE(vendedor_id,?) WHERE id=?')
-                            ->execute([$valor, $valor, $status, $status, $etapa, $comEst, $comEst, $vendId, $exId]);
+                        if (!podeAcessarLead($pdo, (int) $exId)) continue;
+                        $pdo->prepare('UPDATE orcamentos SET valor=IF(?>0,?,valor), status=?, etapa=IF(?="Aberta",?,etapa), comissao_dnb_estimada=IF(?>0,?,comissao_dnb_estimada), vendedor_id=COALESCE(vendedor_id,?), assigned_to_user_id=COALESCE(assigned_to_user_id,?) WHERE id=?')
+                            ->execute([$valor, $valor, $status, $status, $etapa, $comEst, $comEst, $vendId, $assignedTo, $exId]);
                         $atualizados++;
                     } else {
-                        $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'salesforce']);
+                        $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'salesforce', $assignedTo]);
                         $novos++;
                     }
                 }
@@ -143,6 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'promover_lead') {
         $vid = (int) $_POST['visita_id'];
+        if (!podeAcessarRegistroAtribuido($pdo, 'visitas', $vid)) { http_response_code(403); exit; }
         $stmt = $pdo->prepare('SELECT * FROM visitas WHERE id=?');
         $stmt->execute([$vid]);
         $v = $stmt->fetch();
@@ -150,8 +168,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $linha = mapLinha(($v['oportunidade'] ?? '') . ' ' . ($v['setor'] ?? ''));
             $funil = funilDe($linha);
             $numero = gerarNumeroProposta($pdo, $vendedores, $v['vendedor_id'], null, hoje());
-            $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs) VALUES (?,?,?,?,?,?,?,?,0,?,?,?)')
-                ->execute([$numero, hoje(), $v['cliente'], $v['vendedor_id'], $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], 'Aberta', 'lead-visita', 'Lead da OS ' . $v['os'] . ' (' . $v['data'] . '): ' . $v['oportunidade']]);
+            $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?)')
+                ->execute([$numero, hoje(), $v['cliente'], $v['vendedor_id'], $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], 'Aberta', 'lead-visita', 'Lead da OS ' . $v['os'] . ' (' . $v['data'] . '): ' . $v['oportunidade'], $v['assigned_to_user_id']]);
             $pdo->prepare('UPDATE visitas SET lead_status=? WHERE id=?')->execute(['promovida', $vid]);
             orcRedirect("Lead promovido: $numero · {$v['cliente']} · $linha — confirme a linha e preencha o valor na tabela.");
         }
@@ -159,20 +177,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($acao === 'descartar_lead') {
+        if (!podeAcessarRegistroAtribuido($pdo, 'visitas', (int) $_POST['visita_id'])) { http_response_code(403); exit; }
         $pdo->prepare('UPDATE visitas SET lead_status=? WHERE id=?')->execute(['descartada', (int) $_POST['visita_id']]);
         orcRedirect();
     }
 
     if ($acao === 'confirmar_pedido') {
         $oid = (int) $_POST['orcamento_id'];
+        if (!podeAcessarLead($pdo, $oid)) { http_response_code(403); exit; }
         $stmt = $pdo->prepare('SELECT * FROM orcamentos WHERE id=?');
         $stmt->execute([$oid]);
         $o = $stmt->fetch();
         if ($o) {
             $pdo->prepare('UPDATE orcamentos SET status=? WHERE id=?')->execute(['Ganha', $oid]);
             $modalidade = ehAgenciamento($o['linha']) ? 'agenciada' : 'revenda';
-            $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id) VALUES (?,?,?,?,?,?,?,?,?,0,?)')
-                ->execute([$_POST['ped_numero'], $_POST['ped_data'], $o['cliente'], $o['vendedor_id'], $o['suporte_id'], $o['linha'], (float) $_POST['ped_valor'], $modalidade, $modalidade === 'agenciada' ? (float) $o['comissao_dnb_estimada'] : 0]);
+            $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?)')
+                ->execute([$_POST['ped_numero'], $_POST['ped_data'], $o['cliente'], $o['vendedor_id'], $o['suporte_id'], $o['linha'], (float) $_POST['ped_valor'], $modalidade, $modalidade === 'agenciada' ? (float) $o['comissao_dnb_estimada'] : 0, $o['assigned_to_user_id']]);
             orcRedirect("Pedido {$_POST['ped_numero']} gerado — confirme o faturamento na aba Pedidos.");
         }
         orcRedirect();
@@ -182,10 +202,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $msg = $_SESSION['flash'] ?? '';
 unset($_SESSION['flash']);
 
-$orcamentos = $pdo->query('SELECT * FROM orcamentos ORDER BY data DESC, id DESC')->fetchAll();
-$leadsPendentes = $pdo->query("SELECT * FROM visitas WHERE CHAR_LENGTH(TRIM(COALESCE(oportunidade,''))) > 15 AND lead_status IS NULL ORDER BY data DESC")->fetchAll();
+$orcamentos = listarLeadsAcessiveis($pdo);
+[$filtroVis, $paramsVis] = filtroEscopoAtribuicao($pdo);
+$stmt = $pdo->prepare("SELECT * FROM visitas WHERE {$filtroVis} AND CHAR_LENGTH(TRIM(COALESCE(oportunidade,''))) > 15 AND lead_status IS NULL ORDER BY data DESC");
+$stmt->execute($paramsVis); $leadsPendentes = $stmt->fetchAll();
 $convertendo = null;
 if (!empty($_GET['converter'])) {
+    if (!podeAcessarLead($pdo, (int) $_GET['converter'])) { http_response_code(403); exit; }
     $stmt = $pdo->prepare('SELECT * FROM orcamentos WHERE id=?');
     $stmt->execute([(int) $_GET['converter']]);
     $convertendo = $stmt->fetch();
@@ -286,6 +309,7 @@ include __DIR__ . '/includes/layout_header.php';
   </div>
 </div>
 
+<?php if (temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)): ?>
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
     <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Importar do Cotador DNB (JSON)</span>
@@ -313,6 +337,7 @@ include __DIR__ . '/includes/layout_header.php';
     </form>
   </div>
 </div>
+<?php endif; ?>
 
 <?php if ($convertendo): ?>
 <div class="bg-white rounded-xl border-2 border-slate-300 shadow-sm mb-4">
@@ -355,7 +380,7 @@ include __DIR__ . '/includes/layout_header.php';
           <tr class="border-b border-slate-100">
             <td class="py-2 pr-2 text-slate-500"><?= e($o['data']) ?></td>
             <td class="pr-2 font-mono text-xs"><?= e($o['numero']) ?></td>
-            <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><?= e($o['cliente']) ?></td>
+            <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><a href="/lead.php?id=<?= (int) $o['id'] ?>"><?= e($o['cliente']) ?></a><?php if ($o['lead_score'] !== null): ?><div class="text-xs font-normal text-slate-400">Score <?= (int) $o['lead_score'] ?>/100</div><?php endif; ?></td>
             <td class="pr-2"><?= e(nomeVendedor($vendedores, $o['vendedor_id'])) ?></td>
             <td class="pr-2 text-xs"><?= e($o['linha']) ?><div class="text-xs text-slate-400"><?= e($funisArr[$fk]['label']) ?></div></td>
             <td class="pr-2">
@@ -385,7 +410,7 @@ include __DIR__ . '/includes/layout_header.php';
                 <a href="/orcamentos.php?converter=<?= $o['id'] ?><?= !empty($_GET['mes']) ? '&mes=' . urlencode($_GET['mes']) : '' ?>" class="<?= BTN_S ?> mr-1">→ Pedido</a>
                 <form method="post" class="inline"><input type="hidden" name="acao" value="set_status"><input type="hidden" name="id" value="<?= $o['id'] ?>"><input type="hidden" name="status" value="Perdida"><button class="<?= BTN_S ?> mr-1">Perdida</button></form>
               <?php endif; ?>
-              <form method="post" class="inline" onsubmit="return confirm('Excluir esta oportunidade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir oportunidade" title="Excluir oportunidade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form>
+              <?php if (temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)): ?><form method="post" class="inline" onsubmit="return confirm('Excluir esta oportunidade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir oportunidade" title="Excluir oportunidade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form><?php endif; ?>
             </td>
           </tr>
           <?php endforeach; ?>
