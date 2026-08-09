@@ -124,7 +124,7 @@ include __DIR__ . '/includes/layout_header.php';
             <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><?= e($v['cliente']) ?><div class="text-xs font-normal text-slate-400"><?= e($v['contato']) ?></div></td>
             <td class="pr-2"><?= e(nomeVendedor($vendedores, $v['vendedor_id'])) ?></td>
             <td class="pr-2 text-xs text-slate-600 max-w-[280px]"><?= e($v['oportunidade'] ?: '—') ?></td>
-            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir esta atividade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $v['id'] ?>"><button class="<?= BTN_S ?>">✕</button></form></td>
+            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir esta atividade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $v['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir atividade" title="Excluir atividade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form></td>
           </tr>
           <?php endforeach; ?>
           <?php if (!count($visitas)): ?><tr><td colspan="7" class="py-6 text-center text-slate-400 text-sm">Nenhuma atividade registrada.</td></tr><?php endif; ?>

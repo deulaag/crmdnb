@@ -121,7 +121,7 @@ include __DIR__ . '/includes/layout_header.php';
               <?php if ($p['faturado']): ?><?= tag('Faturado ' . $p['data_fat'], 'green') ?>
               <?php else: ?><form method="post" class="inline"><input type="hidden" name="acao" value="faturar"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?>">Marcar faturado</button></form><?php endif; ?>
             </td>
-            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir este pedido?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?>">✕</button></form></td>
+            <td class="text-right"><form method="post" class="inline" onsubmit="return confirm('Excluir este pedido?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $p['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir pedido" title="Excluir pedido"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form></td>
           </tr>
           <?php endforeach; ?>
           <?php if (!count($pedidos)): ?><tr><td colspan="10" class="py-6 text-center text-slate-400 text-sm">Nenhum pedido registrado.</td></tr><?php endif; ?>
