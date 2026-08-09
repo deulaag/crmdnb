@@ -117,7 +117,7 @@ include __DIR__ . '/includes/layout_header.php';
             $mf = is_callable($k['fmt']) ? call_user_func($k['fmt'], $k['meta']) : $k['meta'];
           ?>
             <div class="flex items-center justify-between text-xs py-1 border-b border-slate-100">
-              <span class="<?= $k['ok'] ? 'text-slate-600' : 'text-red-700 font-semibold' ?>"><?= $k['ok'] ? '✓' : '✕' ?> <?= e($k['nome']) ?></span>
+              <span class="<?= $k['ok'] ? 'text-slate-600' : 'text-red-700 font-semibold' ?>"><?= dnbIcon($k['ok'] ? 'check-circle' : 'x-circle', 'dnb-status-icon') ?><?= e($k['nome']) ?></span>
               <span class="text-slate-500"><?= e((string) $vf) ?> / <?= e((string) $mf) ?></span>
             </div>
           <?php endforeach; ?>

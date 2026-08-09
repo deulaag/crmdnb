@@ -25,27 +25,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#003060">
 <title>Entrar · DNB CRM</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
 </head>
-<body class="min-h-screen flex items-center justify-center" style="background:#f0f4f8;font-family:Arial, sans-serif;">
-  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 w-full max-w-sm">
-    <div class="text-lg font-bold mb-1" style="color:#1F3864;">DNB · CRM Comercial</div>
-    <div class="text-sm text-slate-500 mb-4">Entre com seu e-mail e senha.</div>
-    <?php if (!empty($_GET['criado'])): ?><div class="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-2 mb-3">Administrador criado — faça login.</div><?php endif; ?>
-    <?php if ($erro): ?><div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 mb-3"><?= e($erro) ?></div><?php endif; ?>
-    <form method="post" class="flex flex-col gap-3">
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
-        <input type="email" name="email" required autofocus class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" value="<?= e($_POST['email'] ?? '') ?>">
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">Senha</label>
-        <input type="password" name="senha" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-      </div>
-      <button class="px-4 py-2 rounded-lg text-sm font-bold text-white hover:opacity-90 transition" style="background:#1F3864;">Entrar</button>
-    </form>
-  </div>
+<body class="dnb-body">
+<main class="dnb-auth">
+  <section class="dnb-auth__brand" aria-label="DNB CRM Comercial">
+    <img class="dnb-auth__logo" src="/assets/dnb-logo-white.png" width="190" height="66" alt="DNB">
+    <div class="dnb-auth__intro">
+      <span>CRM Comercial</span>
+      <h1>Gestão que transforma oportunidades em resultados.</h1>
+      <p>Metas, funil, pedidos, visitas e comissões reunidos para dar clareza à operação comercial.</p>
+    </div>
+    <div class="dnb-auth__signature">Dados integrados para decisões mais rápidas.</div>
+  </section>
+
+  <section class="dnb-auth__panel">
+    <div class="dnb-auth__card">
+      <img class="dnb-auth__mobile-logo" src="/assets/dnb-logo-blue.png" width="150" height="53" alt="DNB">
+      <span class="dnb-auth__eyebrow">Acesso seguro</span>
+      <h2>Bem-vindo</h2>
+      <p class="dnb-auth__lead">Entre com suas credenciais para acessar o CRM.</p>
+      <?php if (!empty($_GET['criado'])): ?><div class="dnb-alert dnb-alert--success" role="status">Administrador criado. Faça seu primeiro acesso.</div><?php endif; ?>
+      <?php if ($erro): ?><div class="dnb-alert dnb-alert--error" role="alert"><?= e($erro) ?></div><?php endif; ?>
+      <form method="post" class="dnb-auth__form">
+        <div class="dnb-auth__field">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" name="email" required autofocus autocomplete="username" inputmode="email" value="<?= e($_POST['email'] ?? '') ?>">
+        </div>
+        <div class="dnb-auth__field">
+          <label for="senha">Senha</label>
+          <input id="senha" type="password" name="senha" required autocomplete="current-password">
+        </div>
+        <button class="dnb-button dnb-button--primary dnb-auth__button" type="submit">Entrar no CRM</button>
+      </form>
+      <div class="dnb-auth__security">Conexão protegida e acesso restrito à equipe DNB.</div>
+    </div>
+  </section>
+</main>
+<script src="/assets/ui.js?v=2.0.0"></script>
 </body>
 </html>

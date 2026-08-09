@@ -385,7 +385,7 @@ include __DIR__ . '/includes/layout_header.php';
                 <a href="/orcamentos.php?converter=<?= $o['id'] ?><?= !empty($_GET['mes']) ? '&mes=' . urlencode($_GET['mes']) : '' ?>" class="<?= BTN_S ?> mr-1">→ Pedido</a>
                 <form method="post" class="inline"><input type="hidden" name="acao" value="set_status"><input type="hidden" name="id" value="<?= $o['id'] ?>"><input type="hidden" name="status" value="Perdida"><button class="<?= BTN_S ?> mr-1">Perdida</button></form>
               <?php endif; ?>
-              <form method="post" class="inline" onsubmit="return confirm('Excluir esta oportunidade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?>">✕</button></form>
+              <form method="post" class="inline" onsubmit="return confirm('Excluir esta oportunidade?');"><input type="hidden" name="acao" value="excluir"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?> dnb-button--danger" aria-label="Excluir oportunidade" title="Excluir oportunidade"><?= dnbIcon('trash', 'dnb-danger-icon') ?></button></form>
             </td>
           </tr>
           <?php endforeach; ?>

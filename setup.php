@@ -35,34 +35,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#003060">
 <title>Configuração inicial · DNB CRM</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
 </head>
-<body class="min-h-screen flex items-center justify-center" style="background:#f0f4f8;font-family:Arial, sans-serif;">
-  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 w-full max-w-sm">
-    <div class="text-lg font-bold mb-1" style="color:#1F3864;">DNB · CRM Comercial</div>
-    <div class="text-sm text-slate-500 mb-4">Primeiro acesso — crie o usuário administrador.</div>
-    <?php if ($erro): ?><div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 mb-3"><?= e($erro) ?></div><?php endif; ?>
-    <form method="post" class="flex flex-col gap-3">
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">Nome</label>
-        <input name="nome" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" value="<?= e($_POST['nome'] ?? '') ?>">
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
-        <input type="email" name="email" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" value="<?= e($_POST['email'] ?? '') ?>">
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">Senha (mín. 8 caracteres)</label>
-        <input type="password" name="senha" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">Confirmar senha</label>
-        <input type="password" name="senha2" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-      </div>
-      <button class="px-4 py-2 rounded-lg text-sm font-bold text-white hover:opacity-90 transition" style="background:#1F3864;">Criar administrador</button>
-    </form>
-  </div>
+<body class="dnb-body">
+<main class="dnb-auth">
+  <section class="dnb-auth__brand" aria-label="DNB CRM Comercial">
+    <img class="dnb-auth__logo" src="/assets/dnb-logo-white.png" width="190" height="66" alt="DNB">
+    <div class="dnb-auth__intro">
+      <span>Configuração inicial</span>
+      <h1>Prepare o CRM para sua equipe comercial.</h1>
+      <p>Crie a conta administradora que dará início à operação no ambiente DNB.</p>
+    </div>
+    <div class="dnb-auth__signature">Esta etapa será desativada após a criação da conta.</div>
+  </section>
+
+  <section class="dnb-auth__panel">
+    <div class="dnb-auth__card">
+      <img class="dnb-auth__mobile-logo" src="/assets/dnb-logo-blue.png" width="150" height="53" alt="DNB">
+      <span class="dnb-auth__eyebrow">Primeiro acesso</span>
+      <h2>Criar administrador</h2>
+      <p class="dnb-auth__lead">Informe os dados da pessoa responsável pelo sistema.</p>
+      <?php if ($erro): ?><div class="dnb-alert dnb-alert--error" role="alert"><?= e($erro) ?></div><?php endif; ?>
+      <form method="post" class="dnb-auth__form">
+        <div class="dnb-auth__field">
+          <label for="nome">Nome completo</label>
+          <input id="nome" name="nome" required autocomplete="name" value="<?= e($_POST['nome'] ?? '') ?>">
+        </div>
+        <div class="dnb-auth__field">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" name="email" required autocomplete="username" inputmode="email" value="<?= e($_POST['email'] ?? '') ?>">
+        </div>
+        <div class="dnb-auth__field">
+          <label for="senha">Senha <span>(mínimo de 8 caracteres)</span></label>
+          <input id="senha" type="password" name="senha" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="dnb-auth__field">
+          <label for="senha2">Confirmar senha</label>
+          <input id="senha2" type="password" name="senha2" required minlength="8" autocomplete="new-password">
+        </div>
+        <button class="dnb-button dnb-button--primary dnb-auth__button" type="submit">Criar administrador</button>
+      </form>
+      <div class="dnb-auth__security">As credenciais são armazenadas com proteção criptográfica.</div>
+    </div>
+  </section>
+</main>
+<script src="/assets/ui.js?v=2.0.0"></script>
 </body>
 </html>

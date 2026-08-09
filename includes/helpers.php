@@ -14,8 +14,10 @@ if (!function_exists('array_is_list')) {
     }
 }
 
-const NAVY = '#1F3864';
-const NAVY2 = '#2E5EA6';
+// Identidade visual oficial DNB (Manual da Marca).
+const NAVY = '#003060';
+const NAVY2 = '#A4C8FF';
+const SLATE_BRAND = '#5F6E7C';
 
 /* ---------- Presets de política (parâmetros editáveis por pessoa) ---------- */
 function politicas(): array
@@ -239,9 +241,30 @@ function e(?string $v): string
     return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 }
 
-const INPUT_CLS = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-800 bg-white';
-const BTN_P = 'px-4 py-2 rounded-lg text-sm font-bold text-white hover:opacity-90 transition';
-const BTN_S = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-slate-100 transition';
+const INPUT_CLS = 'dnb-input w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white';
+const BTN_P = 'dnb-button dnb-button--primary px-4 py-2 rounded-lg text-sm font-bold text-white transition';
+const BTN_S = 'dnb-button dnb-button--secondary px-3 py-1.5 rounded-lg text-xs font-bold border transition';
+
+/** Ícones SVG locais para manter consistência sem adicionar dependências ao PHP puro. */
+function dnbIcon(string $nome, string $classe = ''): string
+{
+    $paths = [
+        'dashboard' => '<path d="M3 3h7v7H3V3Zm11 0h7v4h-7V3ZM3 14h7v7H3v-7Zm11-3h7v10h-7V11Z"/>',
+        'quotes' => '<path d="M4 5h16v14H4V5Zm0 4h16M9 5v14"/><path d="m13 13 2 2 4-4"/>',
+        'orders' => '<path d="M6 3h12v18H6V3Zm3 4h6M9 11h6M9 15h4"/>',
+        'visits' => '<path d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z"/><circle cx="12" cy="10" r="2"/>',
+        'cadence' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+        'commissions' => '<path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/>',
+        'settings' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
+        'menu' => '<path d="M4 7h16M4 12h16M4 17h16"/>',
+        'logout' => '<path d="M10 17l5-5-5-5m5 5H3m11-9h6v18h-6"/>',
+        'check-circle' => '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+        'x-circle' => '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>',
+        'trash' => '<path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"/>',
+    ];
+    $conteudo = $paths[$nome] ?? $paths['dashboard'];
+    return '<svg class="dnb-icon ' . e($classe) . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $conteudo . '</svg>';
+}
 
 function tag(string $texto, string $tone = 'slate'): string
 {

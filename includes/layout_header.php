@@ -1,6 +1,6 @@
 <?php
 /**
- * Cabeçalho comum a todas as páginas internas.
+ * Shell responsivo da aplicação - UI DNB v2.0.
  * Espera (opcionais): $tabAtual (string), $mes (string YYYY-MM)
  */
 $tabAtual = $tabAtual ?? '';
@@ -8,51 +8,95 @@ $mes = $mes ?? mesAtual();
 $usuario = usuarioLogado();
 
 $abas = [
-    ['painel', 'Painel', 'painel.php'],
-    ['orc', 'Orçamentos', 'orcamentos.php'],
-    ['ped', 'Pedidos', 'pedidos.php'],
-    ['vis', 'Visitas', 'visitas.php'],
-    ['cad', 'Cadência', 'cadencia.php'],
-    ['com', 'Comissões', 'comissoes.php'],
-    ['cfg', 'Configurações', 'configuracoes.php'],
+    ['painel', 'Painel', 'painel.php', 'dashboard'],
+    ['orc', 'Orçamentos', 'orcamentos.php', 'quotes'],
+    ['ped', 'Pedidos', 'pedidos.php', 'orders'],
+    ['vis', 'Visitas', 'visitas.php', 'visits'],
+    ['cad', 'Cadência', 'cadencia.php', 'cadence'],
+    ['com', 'Comissões', 'comissoes.php', 'commissions'],
+    ['cfg', 'Configurações', 'configuracoes.php', 'settings'],
 ];
+
+$paginas = [
+    'painel' => ['Visão geral', 'Acompanhe metas, desempenho e indicadores comerciais.'],
+    'orc' => ['Orçamentos', 'Gerencie oportunidades e avance negociações no funil.'],
+    'ped' => ['Pedidos', 'Acompanhe vendas, faturamento e entregas comerciais.'],
+    'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
+    'cad' => ['Cadência', 'Priorize contatos e mantenha o ritmo dos follow-ups.'],
+    'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
+    'cfg' => ['Configurações', 'Administre políticas, usuários e dados do CRM.'],
+];
+[$tituloPagina, $descricaoPagina] = $paginas[$tabAtual] ?? ['CRM Comercial', 'Gestão comercial DNB em um só lugar.'];
+$iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 'D';
 ?><!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e(APP_NOME) ?></title>
+<meta name="theme-color" content="#003060">
+<title><?= e($tituloPagina) ?> | <?= e(APP_NOME) ?></title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/style.css?v=2.0.0">
 </head>
-<body class="min-h-screen" style="background:#f0f4f8;font-family:Arial, sans-serif;">
+<body class="dnb-body min-h-screen">
+<a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
 
-<div class="px-5 pt-5 pb-3 flex items-end justify-between flex-wrap gap-3" style="border-bottom:3px solid <?= NAVY ?>;">
-  <div>
-    <div class="text-lg font-bold" style="color:<?= NAVY ?>;">DNB · CRM Comercial</div>
-    <div class="text-xs text-slate-500">Políticas de comissão vigentes · metas derivadas por conversão · dados compartilhados entre a equipe</div>
-  </div>
-  <div class="flex items-end gap-3 flex-wrap">
-    <form method="get" class="flex flex-col">
-      <label class="block text-xs font-semibold text-slate-600 mb-1">Mês de referência</label>
-      <input type="month" name="mes" value="<?= e($mes) ?>" class="<?= INPUT_CLS ?>" onchange="this.form.submit()">
-    </form>
-    <?php if ($usuario): ?>
-      <div class="text-xs text-slate-500 pb-2">
-        <?= e($usuario['nome']) ?> · <a href="/logout.php" class="underline">sair</a>
+<div class="dnb-app" data-dnb-app>
+  <div class="dnb-sidebar-backdrop" data-sidebar-close aria-hidden="true"></div>
+  <aside class="dnb-sidebar" id="dnb-sidebar" aria-label="Navegação principal">
+    <div class="dnb-sidebar__brand">
+      <img src="/assets/dnb-logo-white.png" width="156" height="54" alt="DNB">
+      <span>CRM Comercial</span>
+    </div>
+
+    <nav class="dnb-nav">
+      <span class="dnb-nav__eyebrow">Menu principal</span>
+      <?php foreach ($abas as [$k, $l, $href, $icone]):
+          $ativo = $tabAtual === $k;
+          $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
+      ?>
+        <a href="<?= e($href . $qs) ?>" class="dnb-nav__link<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>
+          <?= dnbIcon($icone) ?>
+          <span><?= e($l) ?></span>
+        </a>
+      <?php endforeach; ?>
+    </nav>
+
+    <div class="dnb-sidebar__footer">
+      <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
+      <small>Interface DNB v2.0</small>
+    </div>
+  </aside>
+
+  <div class="dnb-shell">
+    <header class="dnb-topbar">
+      <div class="dnb-topbar__title">
+        <button class="dnb-icon-button dnb-menu-button" type="button" data-sidebar-open aria-controls="dnb-sidebar" aria-expanded="false" aria-label="Abrir menu">
+          <?= dnbIcon('menu') ?>
+        </button>
+        <div>
+          <span class="dnb-eyebrow">DNB CRM</span>
+          <h1><?= e($tituloPagina) ?></h1>
+          <p><?= e($descricaoPagina) ?></p>
+        </div>
       </div>
-    <?php endif; ?>
-  </div>
-</div>
 
-<div class="px-5 pt-3 flex gap-2 flex-wrap">
-  <?php foreach ($abas as [$k, $l, $href]):
-      $ativo = $tabAtual === $k;
-      $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
-  ?>
-    <a href="<?= e($href . $qs) ?>" class="px-4 py-2 rounded-t-lg text-sm font-bold transition"
-       style="<?= $ativo ? ('background:' . NAVY . ';color:#fff;') : 'background:#fff;color:#64748b;border:1px solid #e2e8f0;' ?>"><?= e($l) ?></a>
-  <?php endforeach; ?>
-</div>
+      <div class="dnb-topbar__actions">
+        <form method="get" class="dnb-period-filter">
+          <label for="dnb-mes">Mês de referência</label>
+          <input id="dnb-mes" type="month" name="mes" value="<?= e($mes) ?>" class="<?= INPUT_CLS ?>" onchange="this.form.submit()">
+        </form>
+        <?php if ($usuario): ?>
+          <div class="dnb-user">
+            <span class="dnb-user__avatar" aria-hidden="true"><?= e($iniciais) ?></span>
+            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small>Conta ativa</small></span>
+            <a class="dnb-icon-button" href="/logout.php" title="Sair" aria-label="Sair da conta"><?= dnbIcon('logout') ?></a>
+          </div>
+        <?php endif; ?>
+      </div>
+    </header>
 
-<div class="p-5 max-w-6xl">
+    <main class="dnb-content" id="conteudo-principal" tabindex="-1">

@@ -1,13 +1,11 @@
+    </main>
+    <footer class="dnb-footer">
+      <span>DNB CRM Comercial</span>
+      <span>Dados compartilhados com segurança entre a equipe.</span>
+    </footer>
+  </div>
 </div>
-<script>
-function dnbCopiar(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  navigator.clipboard.writeText(el.innerText).then(() => {
-    const btn = document.getElementById('btn-' + id);
-    if (btn) { const t = btn.innerText; btn.innerText = 'Copiado!'; setTimeout(() => btn.innerText = t, 1500); }
-  });
-}
-</script>
+
+<script src="/assets/ui.js?v=2.0.0"></script>
 </body>
 </html>
