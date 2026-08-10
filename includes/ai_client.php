@@ -55,14 +55,27 @@ function validarPayloadIa(array $payload): void
     if ((int) ($payload['requested_by']['id'] ?? 0) <= 0) throw new InvalidArgumentException('Solicitante ausente no payload de IA.');
 }
 
-function enviarParaIaVps(array $payload): array
+function validarPayloadFollowupIa(array $payload): void
 {
-    validarPayloadIa($payload);
+    if (($payload['contract_version'] ?? '') !== '1.0') throw new InvalidArgumentException('Versão do contrato de follow-up inválida.');
+    if ((int) ($payload['lead']['id'] ?? 0) <= 0) throw new InvalidArgumentException('Lead ausente no payload de follow-up.');
+    if (($payload['followup']['channel'] ?? '') !== 'whatsapp') throw new InvalidArgumentException('Canal de follow-up inválido.');
+    if ((int) ($payload['followup']['rule_id'] ?? 0) <= 0) throw new InvalidArgumentException('Regra ausente no payload de follow-up.');
+    if ((int) ($payload['followup']['attempt_number'] ?? 0) <= 0) throw new InvalidArgumentException('Tentativa ausente no payload de follow-up.');
+    if (!isset($payload['history']) || !is_array($payload['history'])) throw new InvalidArgumentException('Histórico inválido no payload de follow-up.');
+    if (count($payload['history']) > 20) throw new InvalidArgumentException('Histórico de follow-up excede o limite.');
+    if ((int) ($payload['requested_by']['id'] ?? 0) <= 0) throw new InvalidArgumentException('Solicitante ausente no payload de follow-up.');
+}
+
+/** @return array<string,mixed> */
+function enviarJsonIaVps(string $caminho, array $payload): array
+{
     if (!iaConfigurada()) {
         throw new AiClientException('Integração com a VPS ainda não configurada no cPanel.');
     }
     validarEndpointIa(AI_VPS_ENDPOINT);
-    $url = rtrim(AI_VPS_ENDPOINT, '/') . '/api/v1/ai/route-and-process';
+    if (!str_starts_with($caminho, '/api/')) throw new AiClientException('Caminho interno da VPS inválido.');
+    $url = rtrim(AI_VPS_ENDPOINT, '/') . $caminho;
     $correlationId = (string) ($payload['correlation_id'] ?? bin2hex(random_bytes(16)));
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $headers = [
@@ -70,7 +83,7 @@ function enviarParaIaVps(array $payload): array
         'Content-Type: application/json',
         'Accept: application/json',
         'X-Correlation-ID: ' . $correlationId,
-        'User-Agent: DNB-CRM-cPanel/3.0',
+        'User-Agent: DNB-CRM-cPanel/3.2',
     ];
 
     if (function_exists('curl_init')) {
@@ -109,5 +122,31 @@ function enviarParaIaVps(array $payload): array
     }
     $dados = json_decode((string) $body, true, 512, JSON_THROW_ON_ERROR);
     if (!is_array($dados)) throw new AiClientException('Resposta inválida recebida da VPS.');
-    return normalizarRespostaIa($dados);
+    return $dados;
+}
+
+function enviarParaIaVps(array $payload): array
+{
+    validarPayloadIa($payload);
+    return normalizarRespostaIa(enviarJsonIaVps('/api/v1/ai/route-and-process', $payload));
+}
+
+/** @return array{message:string,blocked:bool,escalated:bool,reason:string,raw:array<string,mixed>} */
+function gerarFollowupComIa(array $payload): array
+{
+    validarPayloadFollowupIa($payload);
+    $dados = enviarJsonIaVps('/api/v1/ai/generate-followup', $payload);
+    $guardrail = $dados['guardrail'] ?? [];
+    if (!is_array($guardrail)) $guardrail = ['status'=>(string)$guardrail];
+    $status = strtolower((string)($guardrail['status'] ?? $dados['guardrail_status'] ?? 'approved'));
+    $mensagem = trim((string)($dados['message'] ?? $dados['response'] ?? $dados['followup']['message'] ?? ''));
+    $bloqueado = in_array($status,['blocked','rejected','denied'],true);
+    if (!$bloqueado && mb_strlen($mensagem) > 4000) $mensagem = mb_substr($mensagem,0,4000);
+    return [
+        'message'=>$mensagem,
+        'blocked'=>$bloqueado,
+        'escalated'=>filter_var($dados['escalated'] ?? false,FILTER_VALIDATE_BOOL),
+        'reason'=>mb_substr((string)($guardrail['reason'] ?? $dados['reason_blocked'] ?? ''),0,1000),
+        'raw'=>$dados,
+    ];
 }

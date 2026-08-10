@@ -28,3 +28,9 @@ jobs:
           php tests/whatsapp_buffer_test.php
           php tests/whatsapp_human_lock_test.php
           php tests/whatsapp_webhook_test.php
+      - name: Testar motor automático de follow-up
+        run: |
+          php tests/followup_rules_test.php
+          php tests/followup_interruption_test.php
+          php tests/followup_payload_test.php
+          php tests/followup_idempotency_test.php

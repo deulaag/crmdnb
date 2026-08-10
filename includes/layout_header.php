@@ -51,7 +51,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.1.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.2.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -80,7 +80,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 
     <div class="dnb-sidebar__footer">
       <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-      <small>CRM DNB v3.1</small>
+      <small>CRM DNB v3.2</small>
     </div>
   </aside>
 
