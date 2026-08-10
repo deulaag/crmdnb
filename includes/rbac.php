@@ -134,6 +134,58 @@ function podeGerenciarCasos(): bool
     return temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPORTE);
 }
 
+/**
+ * Regra pura usada também pelos testes do Live Chat.
+ *
+ * @param int[] $idsEquipeSupervisor
+ */
+function papelPodeVisualizarConversaWhatsapp(
+    string $papel,
+    int $usuarioId,
+    ?int $responsavelLeadId,
+    array $idsEquipeSupervisor = [],
+    bool $suportePossuiCasoAberto = false,
+    bool $leadAtivo = true
+): bool {
+    $papel = strtoupper($papel);
+    if ($papel === PAPEL_ADMINISTRADOR) return true;
+    if (!$responsavelLeadId) return false;
+    if ($papel === PAPEL_SUPERVISOR) return in_array($responsavelLeadId, array_map('intval', $idsEquipeSupervisor), true);
+    if ($papel === PAPEL_VENDEDOR) return $leadAtivo && $responsavelLeadId === $usuarioId;
+    if ($papel === PAPEL_SUPORTE) return $suportePossuiCasoAberto;
+    return false;
+}
+
+/** Retorna SQL e parâmetros para o escopo de uma conversa WhatsApp. */
+function filtroEscopoWhatsapp(PDO $pdo, string $alias = 'wc', ?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario) return ['1=0', []];
+    $papel = strtoupper((string) ($usuario['role'] ?? PAPEL_VENDEDOR));
+    if ($papel === PAPEL_ADMINISTRADOR) return ['1=1', []];
+    if ($papel === PAPEL_SUPERVISOR) {
+        $ids = idsUsuariosDaEquipe($pdo, $usuario);
+        if (!$ids) return ['1=0', []];
+        return ["EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id IN (" . implode(',', array_fill(0, count($ids), '?')) . '))', $ids];
+    }
+    if ($papel === PAPEL_VENDEDOR) {
+        return ["EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id=? AND dnb_wo.status='Aberta')", [(int) $usuario['id']]];
+    }
+    if ($papel === PAPEL_SUPORTE) {
+        return ["EXISTS (SELECT 1 FROM support_cases dnb_sc WHERE dnb_sc.lead_id={$alias}.lead_id AND dnb_sc.status IN ('open','in_progress'))", []];
+    }
+    return ['1=0', []];
+}
+
+function podeAcessarConversaWhatsapp(PDO $pdo, int $conversationId, ?array $usuario = null): bool
+{
+    [$filtro, $params] = filtroEscopoWhatsapp($pdo, 'wc', $usuario);
+    $params[] = $conversationId;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM whatsapp_conversations wc WHERE {$filtro} AND wc.id=?");
+    $stmt->execute($params);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
 function paginaInicialPorPapel(): string
 {
     return papelAtual() === PAPEL_SUPORTE ? '/casos.php' : '/painel.php';

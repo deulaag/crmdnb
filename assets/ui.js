@@ -76,6 +76,106 @@
     });
   }
 
+  const whatsapp = document.querySelector('[data-whatsapp-chat]');
+  if (whatsapp && Number(whatsapp.dataset.conversationId) > 0) {
+    const conversationId = Number(whatsapp.dataset.conversationId);
+    const csrf = whatsapp.dataset.csrf || '';
+    const messagesBox = whatsapp.querySelector('[data-chat-messages]');
+    const sendForm = whatsapp.querySelector('[data-chat-send-form]');
+    const statusBox = whatsapp.querySelector('[data-chat-status]');
+    let lastMessageId = Number(whatsapp.dataset.lastMessageId || 0);
+    let polling = false;
+
+    const scrollToEnd = () => {
+      if (messagesBox) messagesBox.scrollTop = messagesBox.scrollHeight;
+    };
+
+    const createMessage = (message) => {
+      const article = document.createElement('article');
+      article.className = 'dnb-chat-message dnb-chat-message--' + (message.direction === 'outgoing' ? 'outgoing' : 'incoming');
+      article.dataset.messageId = String(message.id);
+      const bubble = document.createElement('div');
+      if (message.message_body) {
+        const text = document.createElement('p'); text.textContent = message.message_body; bubble.appendChild(text);
+      }
+      if (message.media_url) {
+        const media = document.createElement('a'); media.href = message.media_url; media.target = '_blank'; media.rel = 'noopener noreferrer'; media.textContent = 'Abrir mídia recebida'; bubble.appendChild(media);
+      }
+      const meta = document.createElement('small');
+      meta.textContent = (message.sender_user_name || (message.sender_type === 'ai' ? 'IA DNB' : (message.direction === 'incoming' ? 'Cliente' : 'Sistema'))) + ' · ' + String(message.created_at || '').slice(0, 16) + ' · ' + message.status;
+      bubble.appendChild(meta); article.appendChild(bubble);
+      return article;
+    };
+
+    const loadMessages = async () => {
+      if (polling || document.hidden) return;
+      polling = true;
+      try {
+        const response = await fetch('/api/v1/whatsapp/messages.php?conversation_id=' + conversationId + '&after_id=' + lastMessageId, {credentials: 'same-origin'});
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao atualizar o chat.');
+        if (messagesBox && payload.messages.length) {
+          const empty = messagesBox.querySelector('[data-chat-empty]'); if (empty) empty.remove();
+          payload.messages.forEach((message) => { messagesBox.appendChild(createMessage(message)); lastMessageId = Math.max(lastMessageId, Number(message.id)); });
+          scrollToEnd();
+        }
+      } catch (error) {
+        if (statusBox) statusBox.textContent = error.message;
+      } finally { polling = false; }
+    };
+
+    if (sendForm) {
+      sendForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const field = sendForm.querySelector('[name="message"]');
+        const button = event.submitter;
+        const message = field ? field.value.trim() : '';
+        if (!message) return;
+        if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+        if (statusBox) statusBox.textContent = 'Enviando e ativando o Human Lock…';
+        try {
+          const response = await fetch('/api/v1/whatsapp/send.php', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({conversation_id: conversationId, message})
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao enviar a mensagem.');
+          if (field) field.value = '';
+          if (statusBox) statusBox.textContent = 'Mensagem enviada. Atendimento humano ativo.';
+          await loadMessages();
+        } catch (error) {
+          if (statusBox) statusBox.textContent = error.message;
+        } finally {
+          if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+        }
+      });
+    }
+
+    whatsapp.querySelectorAll('[data-chat-assign]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true; button.setAttribute('aria-busy', 'true');
+        if (statusBox) statusBox.textContent = button.dataset.chatAssign === 'release' ? 'Liberando atendimento…' : 'Assumindo atendimento…';
+        try {
+          const response = await fetch('/api/v1/whatsapp/assign.php', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({conversation_id: conversationId, action: button.dataset.chatAssign})
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao atualizar o atendimento.');
+          window.location.reload();
+        } catch (error) {
+          if (statusBox) statusBox.textContent = error.message;
+          button.disabled = false; button.removeAttribute('aria-busy');
+        }
+      });
+    });
+
+    scrollToEnd();
+    window.setInterval(loadMessages, 4000);
+  }
+
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', (event) => {
       const button = event.submitter;

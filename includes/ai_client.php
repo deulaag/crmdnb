@@ -2,6 +2,13 @@
 /** Cliente HTTP autenticado para a VPS de IA. */
 require_once __DIR__ . '/../config.php';
 
+// Compatibilidade com instalações cujo config.php histórico contém somente o
+// banco: a IA continua configurável por variáveis do ambiente do cPanel.
+if (!defined('AI_VPS_ENDPOINT')) define('AI_VPS_ENDPOINT', getenv('DNB_AI_VPS_ENDPOINT') ?: '');
+if (!defined('AI_VPS_TOKEN')) define('AI_VPS_TOKEN', getenv('DNB_AI_VPS_TOKEN') ?: '');
+if (!defined('AI_REQUEST_TIMEOUT')) define('AI_REQUEST_TIMEOUT', max(5, (int) (getenv('DNB_AI_TIMEOUT') ?: 45)));
+if (!defined('AI_MAX_PROMPT_LENGTH')) define('AI_MAX_PROMPT_LENGTH', 8000);
+
 class AiClientException extends RuntimeException {}
 
 function iaConfigurada(): bool

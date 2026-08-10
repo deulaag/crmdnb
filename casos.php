@@ -38,6 +38,14 @@ $stmt->execute($params); $casos = $stmt->fetchAll();
 $selecionadoId = (int) ($_GET['caso'] ?? ($casos[0]['id'] ?? 0));
 $selecionado = null;
 foreach ($casos as $c) if ((int) $c['id'] === $selecionadoId) { $selecionado = $c; break; }
+$conversasWhatsapp = [];
+if ($selecionado) {
+    $stmt = $pdo->prepare('SELECT wc.id,ct.phone,ct.display_name,wc.last_message_at FROM whatsapp_conversations wc JOIN whatsapp_contacts ct ON ct.id=wc.contact_id WHERE wc.lead_id=? ORDER BY wc.last_message_at DESC');
+    $stmt->execute([(int) $selecionado['lead_id']]);
+    foreach ($stmt->fetchAll() as $conversaWhatsapp) {
+        if (podeAcessarConversaWhatsapp($pdo, (int) $conversaWhatsapp['id'])) $conversasWhatsapp[] = $conversaWhatsapp;
+    }
+}
 if ($selecionado) $pdo->prepare("UPDATE notifications SET read_at=COALESCE(read_at,NOW()) WHERE user_id=? AND link=?")->execute([(int) usuarioLogado()['id'], '/casos.php?caso=' . $selecionadoId]);
 $tabAtual = 'cas';
 include __DIR__ . '/includes/layout_header.php';
@@ -59,6 +67,7 @@ include __DIR__ . '/includes/layout_header.php';
       <?php if ($selecionado): ?>
         <div class="flex items-start justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Caso #<?= (int)$selecionado['id'] ?></span><h2 class="dnb-section-title"><?= e($selecionado['cliente']) ?></h2><p class="text-sm text-slate-500">Lead <a href="/lead.php?id=<?= (int)$selecionado['lead_id'] ?>">#<?= (int)$selecionado['lead_id'] ?> · <?= e($selecionado['numero']) ?></a></p></div><?= tag($selecionado['status'], $selecionado['status']==='resolved'?'green':($selecionado['status']==='in_progress'?'blue':'amber')) ?></div>
         <dl class="dnb-detail-list"><div><dt>Responsável comercial</dt><dd><?= e($selecionado['owner_name'] ?: 'Não atribuído') ?></dd></div><div><dt>Agente de suporte</dt><dd><?= e($selecionado['agent_name'] ?: 'Aguardando triagem') ?></dd></div><div><dt>Motivo do bloqueio</dt><dd><?= nl2br(e($selecionado['reason_blocked'] ?: 'Não informado pela IA')) ?></dd></div><div><dt>Solicitação do cliente</dt><dd><?= nl2br(e($selecionado['customer_query'])) ?></dd></div></dl>
+        <?php if ($conversasWhatsapp): ?><div class="dnb-insight mt-4"><b>Conversas do WhatsApp</b><?php foreach ($conversasWhatsapp as $wpp): ?><p><a href="/chat.php?conversation=<?= (int) $wpp['id'] ?>">Abrir <?= e($wpp['display_name'] ?: $wpp['phone']) ?></a> · <?= e($wpp['last_message_at']) ?></p><?php endforeach; ?></div><?php endif; ?>
         <?php if (podeGerenciarCasos()): ?><form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="id" value="<?= (int)$selecionado['id'] ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Atualizar status</label><select name="status" class="<?= INPUT_CLS ?>"><option value="open">Aberto</option><option value="in_progress" <?= $selecionado['status']==='in_progress'?'selected':'' ?>>Em atendimento</option><option value="resolved" <?= $selecionado['status']==='resolved'?'selected':'' ?>>Resolvido</option></select></div><button class="<?= BTN_P ?>">Salvar</button></form><?php endif; ?>
       <?php else: ?><div class="dnb-empty-state"><h2>Selecione um caso</h2><p>Os transbordos da IA aparecem aqui para triagem.</p></div><?php endif; ?>
     </div>

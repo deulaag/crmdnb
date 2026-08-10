@@ -17,6 +17,7 @@ $abas = [
     ['cad', 'Cadência', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
     ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
     ['ia', 'IA central', 'ia.php', 'ai', PAPEIS_CRM],
+    ['wpp', 'WhatsApp', 'chat.php', 'whatsapp', PAPEIS_CRM],
     ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
     ['usr', 'Usuários', 'usuarios.php', 'users', [PAPEL_ADMINISTRADOR]],
     ['cfg', 'Configurações', 'configuracoes.php', 'settings', [PAPEL_ADMINISTRADOR]],
@@ -30,6 +31,7 @@ $paginas = [
     'cad' => ['Cadência', 'Priorize contatos e mantenha o ritmo dos follow-ups.'],
     'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
     'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
+    'wpp' => ['WhatsApp', 'Atenda conversas dentro do seu escopo comercial com Human Lock.'],
     'cas' => ['Casos de atendimento', 'Faça a triagem dos atendimentos transbordados pela IA.'],
     'usr' => ['Gestão de usuários', 'Administre papéis, vínculos e equipes comerciais.'],
     'cfg' => ['Configurações', 'Administre políticas, usuários e dados do CRM.'],
@@ -49,7 +51,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.0.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.1.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -78,7 +80,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 
     <div class="dnb-sidebar__footer">
       <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-      <small>CRM DNB v3.0</small>
+      <small>CRM DNB v3.1</small>
     </div>
   </aside>
 

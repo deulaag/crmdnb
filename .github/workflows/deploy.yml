@@ -39,5 +39,6 @@ jobs:
             **/tests/**
             recovered_schema.txt
             config.local.php
+            whatsapp.local.php
             **/*.sql
             **/*.md
