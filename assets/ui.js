@@ -38,10 +38,11 @@
   // Navegação por abas. A aba ativa sobrevive ao PRG dos formulários (hash) e
   // ao recarregamento manual da página (localStorage).
   const tabsRoot = document.querySelector('[data-dnb-tabs]');
-  if (tabsRoot) {
+  const tabs = tabsRoot ? Array.from(tabsRoot.querySelectorAll('[data-tab-target]')) : [];
+  const panels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+  // Sem abas ou sem painéis nada é escondido: o conteúdo continua empilhado.
+  if (tabsRoot && tabs.length && panels.length) {
     const storageKey = tabsRoot.dataset.dnbTabs || 'dnb-tabs';
-    const tabs = Array.from(tabsRoot.querySelectorAll('[data-tab-target]'));
-    const panels = Array.from(document.querySelectorAll('[data-tab-panel]'));
     const keys = tabs.map((tab) => tab.dataset.tabTarget);
 
     function readStored() {
@@ -75,6 +76,7 @@
       });
     });
 
+    tabsRoot.classList.add('is-ready');
     const fromHash = (window.location.hash || '').replace(/^#tab-/, '');
     const stored = readStored();
     const inicial = keys.indexOf(fromHash) !== -1 ? fromHash

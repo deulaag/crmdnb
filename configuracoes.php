@@ -167,7 +167,9 @@ $instancias = $instanciasDisponiveis
     ? $pdo->query('SELECT id, external_instance_id, name, provider, status FROM whatsapp_instances ORDER BY name')->fetchAll()
     : [];
 
-$abas = [
+// Nome propositalmente específico: layout_header.php declara um $abas próprio
+// (o menu lateral) no mesmo escopo e sobrescreveria qualquer variável homônima.
+$abasConfig = [
     'simulacao'   => 'Simulação & Demonstração',
     'apuracao'    => 'Apuração Mensal',
     'politicas'   => 'Políticas por Pessoa',
@@ -179,12 +181,10 @@ $tabAtual = 'cfg';
 include __DIR__ . '/includes/layout_header.php';
 ?>
 
-<noscript><style>.dnb-tabs{display:none}.dnb-tabs__panel[hidden]{display:block}</style></noscript>
-
 <?php if ($msg): ?><div class="dnb-alert dnb-alert--success"><?= e($msg) ?></div><?php endif; ?>
 
 <div class="dnb-tabs" role="tablist" aria-label="Seções de configuração" data-dnb-tabs="dnb-cfg-tab">
-  <?php foreach ($abas as $chave => $rotulo): ?>
+  <?php foreach ($abasConfig as $chave => $rotulo): ?>
     <button type="button" role="tab" class="dnb-tabs__tab<?= $chave === 'simulacao' ? ' is-active' : '' ?>" id="tabbtn-<?= e($chave) ?>" aria-controls="tab-<?= e($chave) ?>" aria-selected="<?= $chave === 'simulacao' ? 'true' : 'false' ?>" tabindex="<?= $chave === 'simulacao' ? '0' : '-1' ?>" data-tab-target="<?= e($chave) ?>"><?= e($rotulo) ?></button>
   <?php endforeach; ?>
 </div>
@@ -204,12 +204,22 @@ include __DIR__ . '/includes/layout_header.php';
 
 </section>
 
-<section class="dnb-tabs__panel" role="tabpanel" id="tab-apuracao" aria-labelledby="tabbtn-apuracao" data-tab-panel="apuracao" hidden>
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-apuracao" aria-labelledby="tabbtn-apuracao" data-tab-panel="apuracao">
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Apuração mensal · <?= e(rotuloMes($mes)) ?> (ocorrências operacionais)</span></div>
   <div class="p-4">
     <div class="text-xs text-slate-500 mb-2">Os KPIs de bonificação são apurados automaticamente pelos dados do CRM (veja o Painel). Aqui a diretoria lança apenas desconformidades documentais — cada ocorrência reduz a bonificação em 5%, cumulativa com as reduções automáticas, limitada a 100%.</div>
+
+    <form method="get" class="flex items-end gap-2 flex-wrap mb-4 border-b border-slate-200 pb-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1" for="mes-apuracao">Mês de apuração</label>
+        <input id="mes-apuracao" type="month" name="mes" value="<?= e($mes) ?>" class="<?= INPUT_CLS ?>">
+      </div>
+      <button class="<?= BTN_S ?>">Carregar mês</button>
+      <span class="text-xs text-slate-500">Exibindo <b><?= e(rotuloMes($mes)) ?></b>.</span>
+    </form>
+
     <form method="post">
       <?= csrfInput() ?>
       <input type="hidden" name="acao" value="salvar_apuracao">
@@ -232,7 +242,7 @@ include __DIR__ . '/includes/layout_header.php';
 
 </section>
 
-<section class="dnb-tabs__panel" role="tabpanel" id="tab-politicas" aria-labelledby="tabbtn-politicas" data-tab-panel="politicas" hidden>
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-politicas" aria-labelledby="tabbtn-politicas" data-tab-panel="politicas">
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Políticas por pessoa (parâmetros editáveis)</span></div>
@@ -338,7 +348,7 @@ include __DIR__ . '/includes/layout_header.php';
 
 </section>
 
-<section class="dnb-tabs__panel" role="tabpanel" id="tab-integracoes" aria-labelledby="tabbtn-integracoes" data-tab-panel="integracoes" hidden>
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-integracoes" aria-labelledby="tabbtn-integracoes" data-tab-panel="integracoes">
 
 <?php
   $waUrl = whatsappEnv('DNB_WHATSAPP_SEND_URL');
@@ -433,7 +443,7 @@ include __DIR__ . '/includes/layout_header.php';
 
 </section>
 
-<section class="dnb-tabs__panel" role="tabpanel" id="tab-acesso" aria-labelledby="tabbtn-acesso" data-tab-panel="acesso" hidden>
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-acesso" aria-labelledby="tabbtn-acesso" data-tab-panel="acesso">
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4"><div class="p-4 flex items-center justify-between gap-4 flex-wrap"><div><h2 class="dnb-section-title">Acesso e hierarquia</h2><p class="text-sm text-slate-500">Papéis, supervisores, vínculos comerciais e status são administrados em um módulo dedicado.</p></div><a href="/usuarios.php" class="<?= BTN_P ?> inline-flex">Gerenciar usuários</a></div></div>
 

@@ -6,6 +6,6 @@
   </div>
 </div>
 
-<script src="/assets/ui.js?v=3.1.0"></script>
+<script src="/assets/ui.js?v=3.4.0"></script>
 </body>
 </html>
