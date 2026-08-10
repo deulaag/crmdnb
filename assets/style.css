@@ -391,7 +391,11 @@ td { color: #34495b; }
 
 /* Navegação por abas · Configurações */
 .dnb-alert--warning { border-color: #e6cf95; background: #fdf7e7; color: var(--dnb-warning); }
-.dnb-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--dnb-border); margin-bottom: 18px; }
+/* A barra só aparece depois que o JS assume o controle dos painéis. Sem JS (ou
+ * com um bundle antigo em cache) a página degrada para as seções empilhadas,
+ * nunca para uma tela vazia. */
+.dnb-tabs { display: none; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--dnb-border); margin-bottom: 18px; }
+.dnb-tabs.is-ready { display: flex; }
 .dnb-tabs__tab {
   border: 1px solid transparent;
   border-bottom: 0;

@@ -51,7 +51,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.4.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -69,7 +69,9 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
       <?php foreach ($abas as [$k, $l, $href, $icone, $papeis]):
           if (!array_intersect(papeisAtuais(), $papeis)) continue;
           $ativo = $tabAtual === $k;
-          $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
+          // Configurações não é uma tela de período: só a aba de apuração usa o mês,
+          // e ela tem seletor próprio. Não polui a URL com ?mes= vindo do menu.
+          $qs = ($mes && $k !== 'cfg') ? ('?mes=' . urlencode($mes)) : '';
       ?>
         <a href="<?= e($href . $qs) ?>" class="dnb-nav__link<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>
           <?= dnbIcon($icone) ?>
