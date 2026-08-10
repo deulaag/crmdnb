@@ -37,9 +37,10 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
    - Em seguida, ainda no phpMyAdmin, importe `sql/migrations/20260809_crm_ia_rbac.sql` para adicionar RBAC e IA.
    - Depois, importe `sql/migrations/20260809_whatsapp_rbac.sql` para adicionar WhatsApp, fila, buffer e Human Lock da v3.1.
    - Depois, importe `sql/migrations/20260809_followup_engine.sql` para adicionar catálogo de etapas, regras, auditoria e idempotência do motor v3.2.
-   - Por último, importe `sql/migrations/20260810_crm_ia_rbac_cargos.sql` para adicionar pessoas vinculadas, múltiplos cargos e comissão por cargo da v3.3.
+   - Depois, importe `sql/migrations/20260810_crm_ia_rbac_cargos.sql` para adicionar pessoas vinculadas, múltiplos cargos e comissão por cargo da v3.3.
+   - Por último, importe `sql/migrations/20260810_system_integrations.sql` para permitir editar tokens e APIs pela tela e integrar a RD Station na v3.5.
 
-   **Instalação existente na v3.2:** não importe o schema completo nem repita migrações anteriores. Faça backup e importe somente `sql/migrations/20260810_crm_ia_rbac_cargos.sql` antes de publicar os arquivos da v3.3.
+   **Instalação existente na v3.2:** não importe o schema completo nem repita migrações anteriores. Faça backup e importe somente `sql/migrations/20260810_crm_ia_rbac_cargos.sql` e `sql/migrations/20260810_system_integrations.sql` antes de publicar os arquivos novos.
 
 3. **Enviar os arquivos**
    - Envie **todo o conteúdo** desta pasta (exceto `sql/`, que fica só como referência — mas não tem problema subir também, está protegida por `.htaccess`) para a pasta pública do seu domínio/subdomínio no cPanel (geralmente `public_html` ou `public_html/crm`, dependendo de onde você quer o sistema).
@@ -61,6 +62,7 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
    - Preencha `DNB_WHATSAPP_CRON_TOKEN` com outro segredo longo para chamadas HTTP do processador.
    - Preencha `DNB_WHATSAPP_SEND_URL` com o endpoint HTTPS de envio do seu provedor e `DNB_WHATSAPP_API_TOKEN` com o token da API.
    - Alternativamente, defina essas mesmas chaves como variáveis de ambiente no cPanel. O arquivo `whatsapp.local.php` é ignorado pelo Git e excluído do deploy FTPS.
+   - Preencha também `DNB_CONFIG_KEY` com uma chave gerada uma única vez (`php -r "echo bin2hex(random_bytes(32));"`). Ela cifra os tokens gravados pela tela de Configurações e precisa viver fora do banco. **Nunca troque essa chave depois:** trocá-la torna ilegíveis todos os segredos já gravados, que teriam de ser recadastrados.
    - Configure o provedor para enviar `POST` para `https://seu-dominio/api/webhooks/whatsapp/`, usando `Authorization: Bearer SEU_TOKEN` ou `X-DNB-Webhook-Token: SEU_TOKEN`.
    - O webhook aceita como contrato mínimo `instance_id`, `message_id`, `phone` e `text`; também reconhece campos aninhados comuns de provedores e aceita `lead_id` para vínculo automático. Sem `lead_id`, o Administrador pode vincular a conversa pela tela de detalhe do lead.
    - O adaptador padrão envia JSON com `instance_id`, `to`, `message` e, quando existir, `media_url`. Caso o contrato do provedor seja diferente, ajuste somente `includes/whatsapp_provider.php`.
@@ -75,7 +77,16 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
    - Troque `USUARIO` e `public_html` pelo caminho real mostrado no cPanel. Se o executável PHP for diferente, use o caminho informado pela hospedagem.
    - O buffer é rearmado para cinco segundos após cada nova mensagem. Em PHP-FPM, o webhook tenta processá-lo em segundo plano após esses cinco segundos; o Cron Job recupera qualquer item pendente e funciona como garantia operacional.
 
-8. **Criar o primeiro usuário**
+8. **Conectar a RD Station (opcional)**
+   - Em **Configurações → Integrações e Tokens** há duas fontes independentes de coleta: RD Station Marketing e RD Station CRM. Os dados fluem da RD para o CRM; nada é escrito de volta.
+   - Cada fonte tem sua própria URL de callback, já pré-preenchida com o domínio de onde o CRM está sendo servido:
+     - Marketing: `https://SEU-DOMINIO/integrations/rdstation/callback`
+     - CRM: `https://SEU-DOMINIO/integrations/rdstation/crm/callback`
+   - No portal do desenvolvedor da RD Station, crie a aplicação e cadastre a URL correspondente. Depois cole `Client ID` e `Client Secret` na tela e clique em **Conectar**.
+   - `access_token` e `refresh_token` são gravados cifrados e renovados automaticamente quando vencem.
+   - Se a aplicação criada na RD entregar um **token estático de instância** em vez do fluxo OAuth (caso comum no RD Station CRM), use o campo *Token estático* da mesma seção — ele dispensa o botão Conectar.
+
+9. **Criar o primeiro usuário**
    - Acesse `https://seudominio.com.br/setup.php` — essa página só funciona enquanto não existir um usuário ativo. Crie o administrador (nome, e-mail, senha); o sistema vinculará a pessoa ao cargo `ADMINISTRADOR`.
    - Depois disso, `/setup.php` se desativa sozinho e redireciona para o login.
 
@@ -131,12 +142,17 @@ includes/whatsapp_service.php    → idempotência, buffer, fila e integração 
 includes/whatsapp_provider.php   → adaptador isolado do provedor de WhatsApp
 includes/followup_service.php    → regras, seleção, IA, idempotência, envio e interrupção
 includes/cargo_service.php       → cargos, grupos de acesso e elegibilidade de comissão
+includes/settings_service.php    → tokens e APIs editáveis, cifrados em AES-256-GCM
+includes/rdstation_service.php   → OAuth 2.0 e tokens das duas fontes RD Station
+integrations/rdstation/callback/ → callback OAuth do RD Station Marketing
+integrations/rdstation/crm/callback/ → callback OAuth do RD Station CRM
 includes/                        → conexão PDO, autenticação, funções auxiliares, motor de comissão, seed
 sql/schema.sql                      → schema legado + dados iniciais da equipe
 sql/migrations/20260809_crm_ia_rbac.sql → atualização segura de instalações existentes
 sql/migrations/20260809_whatsapp_rbac.sql → tabelas do WhatsApp da v3.1
 sql/migrations/20260809_followup_engine.sql → catálogo, regras e logs da v3.2
 sql/migrations/20260810_crm_ia_rbac_cargos.sql → pessoas, múltiplos cargos e comissão da v3.3
+sql/migrations/20260810_system_integrations.sql → tokens e APIs editáveis da v3.5
 assets/style.css                      → ajustes finos (o layout usa Tailwind via CDN)
 ```
 
@@ -186,10 +202,11 @@ Ordem obrigatória para atualizar uma instalação existente:
 4. Confirmar que `sql/migrations/20260809_followup_engine.sql` já foi instalado.
 5. Baixar `sql/migrations/20260810_crm_ia_rbac_cargos.sql` e executá-lo no phpMyAdmin.
 6. Entrar no phpMyAdmin e confirmar as tabelas `cargos`, `user_cargos` e as colunas `usuarios.pessoa_id`, `orcamentos.cargo_id` e `pedidos.cargo_id`.
-7. Confirmar `whatsapp.local.php`, os endpoints da VPS e os Cron Jobs existentes; `config.php` e `sql/schema.sql` não precisam de alteração.
-8. Publicar/mesclar a versão v3.3 para disparar o deploy FTPS.
-9. Entrar em **Usuários**, revisar pessoas importadas, múltiplos cargos, supervisores e credenciais inativas antes de ativá-las.
-10. Criar uma proposta controlada e confirmar que o cargo escolhido aparece no registro e somente cargos elegíveis alimentam **Comissões**.
+7. Executar `sql/migrations/20260810_system_integrations.sql` e acrescentar `DNB_CONFIG_KEY` ao `whatsapp.local.php` do servidor antes de editar tokens pela tela.
+8. Confirmar `whatsapp.local.php`, os endpoints da VPS e os Cron Jobs existentes; `config.php` e `sql/schema.sql` não precisam de alteração. Enquanto a nova tabela estiver vazia, tudo continua lendo esses arquivos — a migração para o banco acontece campo a campo, conforme você salva pela tela.
+9. Publicar/mesclar a versão para disparar o deploy FTPS.
+10. Entrar em **Usuários**, revisar pessoas importadas, múltiplos cargos, supervisores e credenciais inativas antes de ativá-las.
+11. Criar uma proposta controlada e confirmar que o cargo escolhido aparece no registro e somente cargos elegíveis alimentam **Comissões**.
 
 ## Segurança
 
@@ -201,6 +218,9 @@ Ordem obrigatória para atualizar uma instalação existente:
 - Webhook e processador HTTP recusam chamadas sem token; mensagens repetidas são eliminadas pelo ID do provedor.
 - O motor de follow-up só roda por CLI, reserva cada tentativa com chave única e não repete automaticamente um envio cujo resultado ficou incerto.
 - `whatsapp.local.php` nunca deve ser enviado ao GitHub nem compartilhado no navegador.
+- Tokens gravados pela tela de Configurações são cifrados em **AES-256-GCM** na tabela `system_integrations`, com chave derivada de `DNB_CONFIG_KEY` por HKDF-SHA256. A chave vive fora do banco: quem obtiver um dump do MySQL não consegue ler os segredos. Sem `DNB_CONFIG_KEY` definida, o CRM se recusa a gravar segredos em vez de deixá-los em texto puro.
+- A tela nunca reimprime um token gravado: mostra apenas os últimos quatro caracteres. Deixar o campo em branco preserva o valor atual; marcar *remover* devolve a configuração ao arquivo local do servidor.
+- Os callbacks OAuth da RD Station exigem cargo `ADMINISTRADOR` e validam o parâmetro `state` contra a sessão, recusando callbacks forjados.
 
 ## Próximos passos possíveis (fora do escopo desta entrega)
 

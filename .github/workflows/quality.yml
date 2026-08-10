@@ -14,7 +14,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
-          extensions: mbstring, json, curl, pdo_mysql
+          extensions: mbstring, json, curl, pdo_mysql, openssl
           coverage: none
       - name: Validar sintaxe PHP
         run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -print0 | xargs -0 -n1 php -l
@@ -34,6 +34,8 @@ jobs:
           php tests/followup_interruption_test.php
           php tests/followup_payload_test.php
           php tests/followup_idempotency_test.php
+      - name: Testar integrações editáveis e criptografia de tokens
+        run: php tests/system_integrations_test.php
       - name: Testar múltiplos cargos, pessoas e comissões
         run: |
           php tests/cargos_test.php

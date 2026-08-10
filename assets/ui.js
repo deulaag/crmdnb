@@ -85,6 +85,18 @@
     activate(inicial, false);
   }
 
+  // Mostrar/ocultar campos de token na aba de Integrações.
+  document.querySelectorAll('[data-toggle-secret]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const campo = document.getElementById(botao.dataset.toggleSecret);
+      if (!campo) return;
+      const revelado = campo.type === 'text';
+      campo.type = revelado ? 'password' : 'text';
+      botao.textContent = revelado ? 'Mostrar' : 'Ocultar';
+      botao.setAttribute('aria-pressed', String(!revelado));
+    });
+  });
+
   const aiForm = document.querySelector('[data-ai-form]');
   if (aiForm) {
     aiForm.addEventListener('submit', async (event) => {

@@ -6,9 +6,30 @@ class WhatsappProviderException extends RuntimeException {}
 
 $whatsappLocal = __DIR__ . '/../whatsapp.local.php';
 if (is_file($whatsappLocal)) require_once $whatsappLocal;
+require_once __DIR__ . '/settings_service.php';
 
+/** Constante local correspondente a cada chave gravável pela tela de Configurações. */
+const WHATSAPP_CHAVES_EDITAVEIS = [
+    'DNB_WHATSAPP_SEND_URL' => 'send_url',
+    'DNB_WHATSAPP_API_TOKEN' => 'api_token',
+    'DNB_WHATSAPP_WEBHOOK_TOKEN' => 'webhook_token',
+    'DNB_WHATSAPP_CRON_TOKEN' => 'cron_token',
+    'DNB_WHATSAPP_TIMEOUT' => 'timeout',
+];
+
+/**
+ * Valor efetivo de uma configuração do WhatsApp. O que estiver gravado em
+ * system_integrations vence; na ausência dele valem a constante local e o ambiente,
+ * exatamente como antes. Único ponto de leitura do provedor, do webhook e do cron.
+ */
 function whatsappEnv(string $nome, string $padrao = ''): string
 {
+    $chave = WHATSAPP_CHAVES_EDITAVEIS[$nome] ?? '';
+    if ($chave !== '') {
+        $valor = integracaoValor('whatsapp', $chave, $nome, $padrao);
+        if ($valor !== '') return $valor;
+        return $padrao;
+    }
     if (defined($nome)) return trim((string) constant($nome));
     $valor = getenv($nome);
     return $valor === false ? $padrao : trim((string) $valor);
