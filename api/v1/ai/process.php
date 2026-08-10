@@ -47,7 +47,8 @@ try {
             'status' => $lead['status'], 'value' => (float) $lead['valor'], 'notes' => $lead['obs'],
         ],
         'request' => ['message' => $consulta],
-        'requested_by' => ['id' => (int) $usuario['id'], 'name' => $usuario['nome'], 'role' => papelAtual()],
+        'requested_by' => ['id' => (int) $usuario['id'], 'name' => $usuario['nome'], 'role' => papelAtual(),
+            'roles' => papeisAtuais(), 'cargos' => array_values((array) ($usuario['cargo_titles'] ?? []))],
     ];
 
     $resposta = enviarParaIaVps($payload);

@@ -1,4 +1,4 @@
-# DNB · CRM Comercial v3.2 — PHP + MySQL no cPanel
+# DNB · CRM Comercial v3.3 — PHP + MySQL no cPanel
 
 > **Ambiente oficial de produção:** servidor de hospedagem **cPanel**, com PHP 8.1+ e MySQL/MariaDB. O CRM continua em PHP puro, sem Composer ou SSH. A VPS é usada somente para o processamento externo de IA por HTTPS; ela não hospeda o CRM nem o banco de dados.
 
@@ -9,7 +9,7 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
 - **cPanel:** aplicação PHP, autenticação, RBAC, Live Chat do WhatsApp, webhooks, filas, motor de follow-up por Cron Job e banco MySQL/MariaDB.
 - **VPS de IA:** RAG, roteamento multiagente, guardrails, lead scoring e geração contextual de follow-up.
 - **Comunicação:** o PHP no cPanel chama `POST /api/v1/ai/route-and-process` e `POST /api/v1/ai/generate-followup` na VPS com Bearer Token e HTTPS.
-- **Dados oficiais:** usuários, oportunidades, scores, timeline, interações, casos, notificações, regras de follow-up e histórico do WhatsApp permanecem no MySQL do cPanel.
+- **Dados oficiais:** pessoas, usuários, cargos, oportunidades, scores, timeline, interações, casos, notificações, regras de follow-up e histórico do WhatsApp permanecem no MySQL do cPanel.
 
 ## O que mudou em relação à versão original
 
@@ -19,6 +19,8 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
 - **Human Lock.** Quando uma pessoa assume ou responde no Live Chat, a IA é pausada naquela conversa sem trocar o responsável comercial do lead.
 - **Follow-up automático com IA.** Um Cron Job seleciona leads inativos conforme etapa, score e limite de tentativas; a VPS gera a mensagem e o cPanel a envia pelo WhatsApp com idempotência e auditoria.
 - **Interrupção imediata.** Qualquer mensagem recebida do lead pausa a cadência automática; Human Lock, pausa manual e guardrail bloqueado também impedem novos envios.
+- **Múltiplos cargos por pessoa.** O acesso é derivado dos vínculos em `user_cargos`; uma pessoa pode acumular funções comerciais, de supervisão e de suporte.
+- **Comissão por cargo efetivo.** Propostas e pedidos registram `cargo_id`. Apenas cargos com `has_commission=1` entram na apuração, e Administradores são sempre isentos.
 - **Sincronização Salesforce por CSV** (em vez de CSV/XLSX). Exporte o relatório do Salesforce como CSV.
 - **Cadência manual preservada.** Os modelos de e-mail e o botão "Copiar texto" continuam disponíveis, separados do novo motor automático por WhatsApp.
 - Todo o **motor de cálculo de comissão** (as 7 políticas: Vendedor IR, Vendedor Externo, Suporte IR, Interno Sênior, Representante, Consultor Sênior, Sem política) foi portado linha a linha para PHP (`includes/calc.php`) — os números devem bater exatamente com a versão original para os mesmos dados.
@@ -34,9 +36,10 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
    - Isso cria as tabelas legadas e já popula a equipe (vendedores/políticas) e as linhas de produto.
    - Em seguida, ainda no phpMyAdmin, importe `sql/migrations/20260809_crm_ia_rbac.sql` para adicionar RBAC e IA.
    - Depois, importe `sql/migrations/20260809_whatsapp_rbac.sql` para adicionar WhatsApp, fila, buffer e Human Lock da v3.1.
-   - Por último, importe `sql/migrations/20260809_followup_engine.sql` para adicionar catálogo de etapas, regras, auditoria e idempotência do motor v3.2.
+   - Depois, importe `sql/migrations/20260809_followup_engine.sql` para adicionar catálogo de etapas, regras, auditoria e idempotência do motor v3.2.
+   - Por último, importe `sql/migrations/20260810_crm_ia_rbac_cargos.sql` para adicionar pessoas vinculadas, múltiplos cargos e comissão por cargo da v3.3.
 
-   **Instalação existente:** não importe o schema completo. Faça backup do banco, confirme que as migrações de RBAC/IA e WhatsApp já foram executadas e importe somente `sql/migrations/20260809_followup_engine.sql` antes de publicar os arquivos da v3.2.
+   **Instalação existente na v3.2:** não importe o schema completo nem repita migrações anteriores. Faça backup e importe somente `sql/migrations/20260810_crm_ia_rbac_cargos.sql` antes de publicar os arquivos da v3.3.
 
 3. **Enviar os arquivos**
    - Envie **todo o conteúdo** desta pasta (exceto `sql/`, que fica só como referência — mas não tem problema subir também, está protegida por `.htaccess`) para a pasta pública do seu domínio/subdomínio no cPanel (geralmente `public_html` ou `public_html/crm`, dependendo de onde você quer o sistema).
@@ -73,7 +76,7 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
    - O buffer é rearmado para cinco segundos após cada nova mensagem. Em PHP-FPM, o webhook tenta processá-lo em segundo plano após esses cinco segundos; o Cron Job recupera qualquer item pendente e funciona como garantia operacional.
 
 8. **Criar o primeiro usuário**
-   - Acesse `https://seudominio.com.br/setup.php` — essa página só funciona uma vez (enquanto não existir nenhum usuário). Crie o administrador (nome, e-mail, senha).
+   - Acesse `https://seudominio.com.br/setup.php` — essa página só funciona enquanto não existir um usuário ativo. Crie o administrador (nome, e-mail, senha); o sistema vinculará a pessoa ao cargo `ADMINISTRADOR`.
    - Depois disso, `/setup.php` se desativa sozinho e redireciona para o login.
 
 9. **Entrar**
@@ -114,7 +117,7 @@ pedidos.php                  → pedidos de venda e faturamento
 visitas.php                   → visitas/prospecções + importação JSON
 comissoes.php                  → relatório mensal (imprimir/PDF pelo navegador)
 configuracoes.php                → políticas por pessoa, apuração, simulação, usuários
-usuarios.php                     → CRUD de usuários, papéis e supervisão
+usuarios.php                     → pessoas, credenciais, múltiplos cargos e supervisão
 ia.php                           → roteador central e histórico de IA
 casos.php                        → triagem de transbordos para atendimento humano
 lead.php                         → score, responsável e linha do tempo da oportunidade
@@ -127,24 +130,26 @@ api/v1/whatsapp/                 → conversas, mensagens, atribuição e envio 
 includes/whatsapp_service.php    → idempotência, buffer, fila e integração com a IA
 includes/whatsapp_provider.php   → adaptador isolado do provedor de WhatsApp
 includes/followup_service.php    → regras, seleção, IA, idempotência, envio e interrupção
-includes/                          → conexão PDO, autenticação, funções auxiliares, motor de comissão, seed
+includes/cargo_service.php       → cargos, grupos de acesso e elegibilidade de comissão
+includes/                        → conexão PDO, autenticação, funções auxiliares, motor de comissão, seed
 sql/schema.sql                      → schema legado + dados iniciais da equipe
 sql/migrations/20260809_crm_ia_rbac.sql → atualização segura de instalações existentes
 sql/migrations/20260809_whatsapp_rbac.sql → tabelas do WhatsApp da v3.1
 sql/migrations/20260809_followup_engine.sql → catálogo, regras e logs da v3.2
+sql/migrations/20260810_crm_ia_rbac_cargos.sql → pessoas, múltiplos cargos e comissão da v3.3
 assets/style.css                      → ajustes finos (o layout usa Tailwind via CDN)
 ```
 
-## Papéis e escopo de acesso
+## Cargos e escopo de acesso
 
-| Papel | Escopo |
-|---|---|
-| `ADMINISTRADOR` | Todo o CRM, usuários, IA, casos e configurações. |
-| `SUPERVISOR` | Leads, propostas, pedidos, visitas e indicadores dos vendedores ligados diretamente a ele; pode reatribuir leads dentro da equipe. |
-| `VENDEDOR` | Somente registros com `assigned_to_user_id` igual ao próprio usuário; pode evoluir funil, registrar notas e gerar propostas. |
-| `SUPORTE` | Casos transbordados pela IA, triagem e leads relacionados aos casos. |
+| Grupo derivado | Cargos | Escopo |
+|---|---|---|
+| `ADMINISTRADOR` | `ADMINISTRADOR` | Todo o CRM, usuários, IA, instâncias, casos e configurações; nunca gera comissão. |
+| `SUPERVISOR` | `SUPERVISOR` | Leads, propostas, pedidos, visitas e indicadores da equipe; pode reatribuir leads. |
+| `VENDEDOR` | Representante, Vendedor Interno Sênior, Vendedor Externo, Vendedor JR e Consultor Comercial Sênior | Somente registros atribuídos ao usuário; pode evoluir funil, registrar interações e emitir propostas. |
+| `SUPORTE` | Suporte em Vendas JR | Casos transbordados pela IA, triagem e leads relacionados aos casos. |
 
-O primeiro usuário criado em `setup.php` recebe automaticamente o papel `ADMINISTRADOR`. Os demais usuários e vínculos são mantidos em **Usuários**.
+Uma pessoa pode acumular cargos e, portanto, combinar os grupos autorizados. `usuarios.role` e `usuarios.vendedor_id` permanecem somente como compatibilidade legada; o RBAC usa `user_cargos` e o vínculo de pessoa usa `usuarios.pessoa_id`.
 
 No Live Chat do WhatsApp, o `ADMINISTRADOR` vê todas as conversas; o `SUPERVISOR`, as conversas dos leads atribuídos à própria equipe; o `VENDEDOR`, apenas as dos próprios leads; e o `SUPORTE`, somente conversas ligadas a casos abertos ou em atendimento.
 
@@ -163,6 +168,10 @@ php tests/followup_rules_test.php
 php tests/followup_interruption_test.php
 php tests/followup_payload_test.php
 php tests/followup_idempotency_test.php
+php tests/cargos_test.php
+php tests/rbac_multicargo_test.php
+php tests/comissao_cargo_test.php
+php tests/pessoas_sync_test.php
 ```
 
 ## Atualização de produção no cPanel
@@ -174,12 +183,13 @@ Ordem obrigatória para atualizar uma instalação existente:
 1. Fazer backup do banco e dos arquivos atuais no cPanel.
 2. Confirmar que `sql/migrations/20260809_crm_ia_rbac.sql` já foi instalado.
 3. Confirmar que `sql/migrations/20260809_whatsapp_rbac.sql` já foi instalado.
-4. Baixar `sql/migrations/20260809_followup_engine.sql` do GitHub e executá-lo no phpMyAdmin.
-5. Confirmar `whatsapp.local.php`, o webhook e os tokens já usados pela v3.1; `config.php` não precisa ser alterado.
-6. Disponibilizar `POST /api/v1/ai/generate-followup` na VPS e criar o Cron Job de 15 minutos no cPanel.
-7. Publicar/mesclar a versão v3.2 para disparar o deploy FTPS.
-8. Entrar em **Cadência**, revisar as regras e ativá-las gradualmente.
-9. Testar um lead controlado; depois responder pelo WhatsApp e confirmar que a cadência foi pausada imediatamente.
+4. Confirmar que `sql/migrations/20260809_followup_engine.sql` já foi instalado.
+5. Baixar `sql/migrations/20260810_crm_ia_rbac_cargos.sql` e executá-lo no phpMyAdmin.
+6. Entrar no phpMyAdmin e confirmar as tabelas `cargos`, `user_cargos` e as colunas `usuarios.pessoa_id`, `orcamentos.cargo_id` e `pedidos.cargo_id`.
+7. Confirmar `whatsapp.local.php`, os endpoints da VPS e os Cron Jobs existentes; `config.php` e `sql/schema.sql` não precisam de alteração.
+8. Publicar/mesclar a versão v3.3 para disparar o deploy FTPS.
+9. Entrar em **Usuários**, revisar pessoas importadas, múltiplos cargos, supervisores e credenciais inativas antes de ativá-las.
+10. Criar uma proposta controlada e confirmar que o cargo escolhido aparece no registro e somente cargos elegíveis alimentam **Comissões**.
 
 ## Segurança
 

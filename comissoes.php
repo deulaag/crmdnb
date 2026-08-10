@@ -7,7 +7,7 @@ exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
-$vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
+$vendedores = filtrarPessoasElegiveisComissao($pdo, filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo)));
 $calc = calcularMes($pdo, $mes, $vendedores);
 $politicasArr = politicas();
 

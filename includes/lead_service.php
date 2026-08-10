@@ -4,10 +4,15 @@ require_once __DIR__ . '/rbac.php';
 
 function buscarLead(PDO $pdo, int $leadId): ?array
 {
-    $stmt = $pdo->prepare("SELECT o.*, u.nome assigned_to_name, u.email assigned_to_email,
+    $stmt = $pdo->prepare("SELECT o.*, COALESCE(v.nome,u.nome) assigned_to_name, u.email assigned_to_email,
+        v.id assigned_to_pessoa_id,
+        rc.title registro_cargo_title,rc.has_commission registro_cargo_comissionavel,
+        (SELECT GROUP_CONCAT(c.title ORDER BY c.id SEPARATOR ', ') FROM user_cargos uc JOIN cargos c ON c.id=uc.cargo_id WHERE uc.user_id=u.id) assigned_to_cargos,
         ls.score lead_score, ls.justification score_justification, ls.updated_at score_updated_at
         FROM orcamentos o
         LEFT JOIN usuarios u ON u.id=o.assigned_to_user_id
+        LEFT JOIN vendedores v ON v.id=COALESCE(u.pessoa_id,u.vendedor_id)
+        LEFT JOIN cargos rc ON rc.id=o.cargo_id
         LEFT JOIN lead_scores ls ON ls.lead_id=o.id
         WHERE o.id=? LIMIT 1");
     $stmt->execute([$leadId]);
@@ -22,21 +27,27 @@ function buscarLeadAutorizado(PDO $pdo, int $leadId): ?array
 
 function listarLeadsAcessiveis(PDO $pdo, bool $somenteAbertos = false): array
 {
-    if (papelAtual() === PAPEL_SUPORTE) {
+    $somenteSuporte = temPapel(PAPEL_SUPORTE) && !temPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR);
+    if ($somenteSuporte) {
         $status = $somenteAbertos ? " AND o.status='Aberta'" : '';
-        $stmt = $pdo->query("SELECT DISTINCT o.*,u.nome assigned_to_name,ls.score lead_score
+        $stmt = $pdo->query("SELECT DISTINCT o.*,u.nome assigned_to_name,ls.score lead_score,rc.title registro_cargo_title
             FROM orcamentos o JOIN support_cases sc ON sc.lead_id=o.id
             LEFT JOIN usuarios u ON u.id=o.assigned_to_user_id
             LEFT JOIN lead_scores ls ON ls.lead_id=o.id
+            LEFT JOIN cargos rc ON rc.id=o.cargo_id
             WHERE 1=1{$status} ORDER BY o.data DESC,o.id DESC");
         return $stmt->fetchAll();
     }
     [$filtro, $params] = filtroEscopoAtribuicao($pdo, 'o.assigned_to_user_id');
+    if (temPapel(PAPEL_SUPORTE) && !temPapel(PAPEL_ADMINISTRADOR)) {
+        $filtro = '(' . $filtro . " OR EXISTS (SELECT 1 FROM support_cases sc WHERE sc.lead_id=o.id AND sc.status IN ('open','in_progress')))";
+    }
     $status = $somenteAbertos ? " AND o.status='Aberta'" : '';
-    $stmt = $pdo->prepare("SELECT o.*, u.nome assigned_to_name, ls.score lead_score
+    $stmt = $pdo->prepare("SELECT o.*, u.nome assigned_to_name, ls.score lead_score,rc.title registro_cargo_title
         FROM orcamentos o
         LEFT JOIN usuarios u ON u.id=o.assigned_to_user_id
         LEFT JOIN lead_scores ls ON ls.lead_id=o.id
+        LEFT JOIN cargos rc ON rc.id=o.cargo_id
         WHERE {$filtro}{$status} ORDER BY o.data DESC, o.id DESC");
     $stmt->execute($params);
     return $stmt->fetchAll();
@@ -45,7 +56,8 @@ function listarLeadsAcessiveis(PDO $pdo, bool $somenteAbertos = false): array
 function registrarTimeline(PDO $pdo, int $leadId, string $tipo, string $descricao, ?array $ator = null): void
 {
     $ator = $ator ?? usuarioLogado();
-    $nomeAtor = $ator ? ($ator['nome'] . ' (' . ($ator['role'] ?? 'USUARIO') . ')') : 'Sistema';
+    $contexto = $ator ? resumoTitulosCargos((array) ($ator['cargos'] ?? [])) : '';
+    $nomeAtor = $ator ? ($ator['nome'] . ' (' . ($contexto !== 'Sem cargo' ? $contexto : ($ator['role'] ?? 'USUARIO')) . ')') : 'Sistema';
     $stmt = $pdo->prepare('INSERT INTO lead_timeline (lead_id,event_type,description,actor,created_at) VALUES (?,?,?,?,NOW())');
     $stmt->execute([$leadId, mb_substr($tipo, 0, 60), mb_substr($descricao, 0, 4000), mb_substr($nomeAtor, 0, 180)]);
 }

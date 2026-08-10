@@ -11,8 +11,9 @@ function criarNotificacao(PDO $pdo, int $usuarioId, string $tipo, string $titulo
 function notificarTransbordo(PDO $pdo, int $casoId, int $leadId, string $cliente, ?int $responsavelId): void
 {
     $destinatarios = [];
-    $stmt = $pdo->query("SELECT id FROM usuarios WHERE status='active' AND role IN ('ADMINISTRADOR','SUPORTE')");
-    foreach ($stmt->fetchAll() as $u) $destinatarios[(int) $u['id']] = true;
+    foreach (idsUsuariosComPapeis($pdo, [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]) as $usuarioId) {
+        $destinatarios[$usuarioId] = true;
+    }
     if ($responsavelId) {
         $stmt = $pdo->prepare("SELECT supervisor_id FROM usuarios WHERE id=? AND status='active'");
         $stmt->execute([$responsavelId]);

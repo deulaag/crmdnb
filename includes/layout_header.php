@@ -33,7 +33,7 @@ $paginas = [
     'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
     'wpp' => ['WhatsApp', 'Atenda conversas dentro do seu escopo comercial com Human Lock.'],
     'cas' => ['Casos de atendimento', 'Faça a triagem dos atendimentos transbordados pela IA.'],
-    'usr' => ['Gestão de usuários', 'Administre papéis, vínculos e equipes comerciais.'],
+    'usr' => ['Gestão de usuários', 'Administre pessoas, múltiplos cargos, credenciais e equipes.'],
     'cfg' => ['Configurações', 'Administre políticas, usuários e dados do CRM.'],
 ];
 [$tituloPagina, $descricaoPagina] = $paginas[$tabAtual] ?? ['CRM Comercial', 'Gestão comercial DNB em um só lugar.'];
@@ -51,7 +51,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.2.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.3.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -67,7 +67,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
     <nav class="dnb-nav">
       <span class="dnb-nav__eyebrow">Menu principal</span>
       <?php foreach ($abas as [$k, $l, $href, $icone, $papeis]):
-          if (!in_array(papelAtual(), $papeis, true)) continue;
+          if (!array_intersect(papeisAtuais(), $papeis)) continue;
           $ativo = $tabAtual === $k;
           $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
       ?>
@@ -80,7 +80,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 
     <div class="dnb-sidebar__footer">
       <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-      <small>CRM DNB v3.2</small>
+      <small>CRM DNB v3.3</small>
     </div>
   </aside>
 
@@ -113,7 +113,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
           </details>
           <div class="dnb-user">
             <span class="dnb-user__avatar" aria-hidden="true"><?= e($iniciais) ?></span>
-            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small><?= e(papelAtual()) ?></small></span>
+            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small><?= e(resumoTitulosCargos((array)($usuario['cargos']??[]))) ?></small></span>
             <a class="dnb-icon-button" href="/logout.php" title="Sair" aria-label="Sair da conta"><?= dnbIcon('logout') ?></a>
           </div>
         <?php endif; ?>

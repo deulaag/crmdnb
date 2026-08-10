@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $where = '1=1'; $params = [];
-if (temPapel(PAPEL_SUPERVISOR)) {
+if (temPapel(PAPEL_SUPERVISOR) && !temPapel(PAPEL_ADMINISTRADOR)) {
     [$where, $params] = filtroEscopoAtribuicao($pdo, 'o.assigned_to_user_id');
 }
 $filtroStatus = $_GET['status'] ?? '';

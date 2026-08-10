@@ -64,12 +64,14 @@ function calcularMes(PDO $pdo, string $mes, array $vendedores): array
     $pol_presets = politicas();
 
     [$filtroEscopo, $paramsEscopo] = filtroEscopoAtribuicao($pdo);
-    $stmtEscopo = $pdo->prepare("SELECT * FROM pedidos WHERE {$filtroEscopo}");
+    $stmtEscopo = $pdo->prepare("SELECT pedidos.*,c.has_commission cargo_has_commission,c.title cargo_title FROM pedidos LEFT JOIN cargos c ON c.id=pedidos.cargo_id WHERE {$filtroEscopo}");
     $stmtEscopo->execute($paramsEscopo); $pedidos = $stmtEscopo->fetchAll();
-    $stmtEscopo = $pdo->prepare("SELECT * FROM orcamentos WHERE {$filtroEscopo}");
+    $stmtEscopo = $pdo->prepare("SELECT orcamentos.*,c.has_commission cargo_has_commission,c.title cargo_title FROM orcamentos LEFT JOIN cargos c ON c.id=orcamentos.cargo_id WHERE {$filtroEscopo}");
     $stmtEscopo->execute($paramsEscopo); $orcamentos = $stmtEscopo->fetchAll();
     $stmtEscopo = $pdo->prepare("SELECT * FROM visitas WHERE {$filtroEscopo}");
     $stmtEscopo->execute($paramsEscopo); $visitas = $stmtEscopo->fetchAll();
+    $pedidos = array_values(array_filter($pedidos, 'registroComissionavelPorCargo'));
+    $orcamentos = array_values(array_filter($orcamentos, 'registroComissionavelPorCargo'));
 
     // ids de orçamentos com pelo menos 1 toque de cadência registrado
     $comCadLog = array_column($pdo->query('SELECT DISTINCT orcamento_id FROM orcamento_cadencia_log')->fetchAll(), 'orcamento_id');

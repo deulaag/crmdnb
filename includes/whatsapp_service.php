@@ -141,7 +141,7 @@ function whatsappTravaHumanaAtiva(array $conversa): bool
 /** @param array<string,mixed> $conversa @param array<string,mixed> $usuario */
 function usuarioPodeAlterarTravaWhatsapp(array $conversa, array $usuario): bool
 {
-    return strtoupper((string) ($usuario['role'] ?? '')) === PAPEL_ADMINISTRADOR
+    return usuarioContextoTemPapel($usuario, PAPEL_ADMINISTRADOR)
         || empty($conversa['assigned_to_user_id'])
         || (int) $conversa['assigned_to_user_id'] === (int) ($usuario['id'] ?? 0);
 }
@@ -275,7 +275,7 @@ function alterarTravaHumanaWhatsapp(PDO $pdo, int $conversationId, string $acao,
     }
     if ($acao === 'release' && !whatsappTravaHumanaAtiva($conversa)) return $conversa;
     if ($acao === 'assume') {
-        if (strtoupper((string) ($usuario['role'] ?? '')) === PAPEL_ADMINISTRADOR) {
+        if (usuarioContextoTemPapel($usuario, PAPEL_ADMINISTRADOR)) {
             $stmt = $pdo->prepare('UPDATE whatsapp_conversations SET assigned_to_user_id=?,ai_paused=1,human_locked_at=NOW(),updated_at=NOW() WHERE id=?');
             $stmt->execute([(int) $usuario['id'], $conversationId]);
         } else {
@@ -285,7 +285,7 @@ function alterarTravaHumanaWhatsapp(PDO $pdo, int $conversationId, string $acao,
         if ($stmt->rowCount() === 0) throw new WhatsappServiceException('Outro atendente assumiu esta conversa. Atualize a página.');
         $descricao = 'Atendimento WhatsApp assumido por ' . $usuario['nome'] . '; IA pausada pelo Human Lock.';
     } elseif ($acao === 'release') {
-        if (strtoupper((string) ($usuario['role'] ?? '')) === PAPEL_ADMINISTRADOR) {
+        if (usuarioContextoTemPapel($usuario, PAPEL_ADMINISTRADOR)) {
             $stmt = $pdo->prepare('UPDATE whatsapp_conversations SET assigned_to_user_id=NULL,ai_paused=0,human_locked_at=NULL,updated_at=NOW() WHERE id=?');
             $stmt->execute([$conversationId]);
         } else {
@@ -399,10 +399,11 @@ function processarItemFilaWhatsapp(PDO $pdo, array $fila): array
     if (empty($resposta)) {
         $solicitanteId = (int) ($conversa['lead_owner_id'] ?? 0);
         if (!$solicitanteId) {
-            $solicitanteId = (int) $pdo->query("SELECT id FROM usuarios WHERE status='active' AND role='ADMINISTRADOR' ORDER BY id LIMIT 1")->fetchColumn();
+            $solicitanteId = idsUsuariosComPapeis($pdo, [PAPEL_ADMINISTRADOR])[0] ?? 0;
         }
         if (!$solicitanteId) throw new WhatsappServiceException('Nenhum usuário ativo disponível para registrar o processamento da IA.');
-        $stmt = $pdo->prepare('SELECT id,nome,role FROM usuarios WHERE id=?'); $stmt->execute([$solicitanteId]); $solicitante = $stmt->fetch();
+        $solicitante = buscarUsuarioComContextoCargos($pdo, $solicitanteId);
+        if (!$solicitante) throw new WhatsappServiceException('Usuário responsável pelo processamento não está ativo.');
         $interacaoId = registrarInteracaoIa($pdo, (int) $conversa['lead_id'], $solicitanteId, $texto);
         $pdo->prepare('UPDATE whatsapp_queue SET ai_interaction_id=? WHERE id=?')->execute([$interacaoId, (int) $fila['id']]);
         $payload = [
@@ -410,7 +411,7 @@ function processarItemFilaWhatsapp(PDO $pdo, array $fila): array
             'lead' => ['id'=>(int)$conversa['lead_id'],'number'=>$conversa['numero'],'customer'=>$conversa['cliente'],'product_line'=>$conversa['linha'],
                 'funnel'=>$conversa['funil'],'stage'=>$conversa['etapa'],'status'=>$conversa['lead_status'],'value'=>(float)$conversa['valor'],'notes'=>$conversa['obs']],
             'request' => ['message'=>$texto,'channel'=>'whatsapp','conversation_id'=>$conversationId],
-            'requested_by' => ['id'=>$solicitanteId,'name'=>$solicitante['nome'],'role'=>$solicitante['role']],
+            'requested_by' => ['id'=>$solicitanteId,'name'=>$solicitante['nome'],'role'=>$solicitante['role'],'roles'=>$solicitante['papeis'],'cargos'=>$solicitante['cargo_titles']],
         ];
         $resposta = enviarParaIaVps($payload);
         concluirInteracaoIa($pdo, $interacaoId, $resposta);

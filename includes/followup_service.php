@@ -112,6 +112,8 @@ function montarPayloadFollowup(array $lead, array $regra, int $tentativa, array 
             'id' => (int) $solicitante['id'],
             'name' => (string) ($solicitante['nome'] ?? 'Sistema'),
             'role' => (string) ($solicitante['role'] ?? 'SISTEMA'),
+            'roles' => array_values((array) ($solicitante['papeis'] ?? [])),
+            'cargos' => array_values((array) ($solicitante['cargo_titles'] ?? [])),
         ],
     ];
 }
@@ -183,11 +185,10 @@ function historicoWhatsappFollowup(PDO $pdo, int $conversationId): array
 function usuarioSistemaFollowup(PDO $pdo, ?int $ownerId): array
 {
     if ($ownerId) {
-        $stmt = $pdo->prepare("SELECT id,nome,role FROM usuarios WHERE id=? AND status='active' LIMIT 1");
-        $stmt->execute([$ownerId]);
-        if ($usuario = $stmt->fetch()) return $usuario;
+        if ($usuario = buscarUsuarioComContextoCargos($pdo, $ownerId)) return $usuario;
     }
-    $usuario = $pdo->query("SELECT id,nome,role FROM usuarios WHERE status='active' AND role='ADMINISTRADOR' ORDER BY id LIMIT 1")->fetch();
+    $adminId = idsUsuariosComPapeis($pdo, [PAPEL_ADMINISTRADOR])[0] ?? 0;
+    $usuario = $adminId ? buscarUsuarioComContextoCargos($pdo, $adminId) : null;
     if (!$usuario) throw new FollowupServiceException('Nenhum usuário ativo disponível para registrar o follow-up.');
     return $usuario;
 }

@@ -9,6 +9,16 @@ $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
 $vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $linhas = array_column($pdo->query('SELECT nome FROM linhas ORDER BY ordem ASC')->fetchAll(), 'nome');
+$idsPessoasVisiveis = array_column($vendedores, 'id');
+$cargosRegistro = [];
+if ($idsPessoasVisiveis) {
+    $marks = implode(',', array_fill(0, count($idsPessoasVisiveis), '?'));
+    $stmt = $pdo->prepare("SELECT u.nome,c.id cargo_id,c.title,c.has_commission FROM usuarios u JOIN user_cargos uc ON uc.user_id=u.id JOIN cargos c ON c.id=uc.cargo_id
+        WHERE u.status='active' AND COALESCE(u.pessoa_id,u.vendedor_id) IN ({$marks}) AND (c.has_commission=1 OR c.title='ADMINISTRADOR')
+          AND (c.title='ADMINISTRADOR' OR NOT EXISTS (SELECT 1 FROM user_cargos uca JOIN cargos ca ON ca.id=uca.cargo_id WHERE uca.user_id=u.id AND ca.title='ADMINISTRADOR'))
+        ORDER BY u.nome,c.id");
+    $stmt->execute($idsPessoasVisiveis); $cargosRegistro = $stmt->fetchAll();
+}
 
 function pedRedirect(string $msg = ''): void
 {
@@ -28,15 +38,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $vendedorId = $_POST['vendedor_id'] ?: null;
         if ($vendedorId && !in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
         $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
+        $cargoId = cargoParaRegistroComercial($pdo, $assignedTo, !empty($_POST['cargo_id']) ? (int) $_POST['cargo_id'] : null);
         $modalidade = $_POST['modalidade'] === 'agenciada' ? 'agenciada' : 'revenda';
         $dataFat = $_POST['data_fat'] ?: null;
-        $stmt = $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,margem,modalidade,comissao_dnb,faturado,data_fat,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt = $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,margem,modalidade,comissao_dnb,faturado,data_fat,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([
             trim($_POST['numero'] ?? ''), $_POST['data'] ?: hoje(), $cliente,
             $vendedorId, $_POST['suporte_id'] ?: null, $_POST['linha'] ?? '',
             $valor, $_POST['margem'] !== '' ? (float) $_POST['margem'] : null, $modalidade,
             $modalidade === 'agenciada' ? (float) ($_POST['comissao_dnb'] ?? 0) : 0,
-            $dataFat ? 1 : 0, $dataFat, $assignedTo,
+            $dataFat ? 1 : 0, $dataFat, $assignedTo, $cargoId,
         ]);
         pedRedirect('Pedido registrado.');
     }
@@ -57,8 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $msg = $_SESSION['flash'] ?? '';
 unset($_SESSION['flash']);
-[$filtro, $params] = filtroEscopoAtribuicao($pdo);
-$stmt = $pdo->prepare("SELECT * FROM pedidos WHERE {$filtro} ORDER BY data DESC,id DESC");
+[$filtro, $params] = filtroEscopoAtribuicao($pdo, 'p.assigned_to_user_id');
+$stmt = $pdo->prepare("SELECT p.*,c.title cargo_title FROM pedidos p LEFT JOIN cargos c ON c.id=p.cargo_id WHERE {$filtro} ORDER BY p.data DESC,p.id DESC");
 $stmt->execute($params); $pedidos = $stmt->fetchAll();
 
 $tabAtual = 'ped';
@@ -90,6 +101,7 @@ include __DIR__ . '/includes/layout_header.php';
           </select>
         </div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Valor (R$)</label><input type="number" step="0.01" name="valor" required class="<?= INPUT_CLS ?>"></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">Cargo da venda</label><select name="cargo_id" class="<?= INPUT_CLS ?>"><option value="">Automático pelo responsável</option><?php foreach($cargosRegistro as $cr): ?><option value="<?= (int)$cr['cargo_id'] ?>"><?= e($cr['nome']) ?> · <?= e($cr['title']) ?><?= $cr['has_commission']?'':' · sem comissão' ?></option><?php endforeach; ?></select></div>
         <div id="ped-comdnb" class="hidden"><label class="block text-xs font-semibold text-slate-600 mb-1">Comissão recebida pela DNB (R$)</label><input type="number" step="0.01" name="comissao_dnb" class="<?= INPUT_CLS ?> bg-blue-50"></div>
         <div id="ped-margem"><label class="block text-xs font-semibold text-slate-600 mb-1">Resultado / margem (R$)</label><input type="number" step="0.01" name="margem" class="<?= INPUT_CLS ?>" placeholder="p/ representante (5% s/ margem)"></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Data de faturamento (se já faturado)</label><input type="date" name="data_fat" class="<?= INPUT_CLS ?>"></div>
@@ -118,7 +130,7 @@ include __DIR__ . '/includes/layout_header.php';
             <td class="py-2 pr-2 text-slate-500"><?= e($p['data']) ?></td>
             <td class="pr-2 font-mono text-xs"><?= e($p['numero']) ?></td>
             <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><?= e($p['cliente']) ?></td>
-            <td class="pr-2"><?= e(nomeVendedor($vendedores, $p['vendedor_id'])) ?></td>
+            <td class="pr-2"><?= e(nomeVendedor($vendedores, $p['vendedor_id'])) ?><div class="text-xs text-slate-400"><?= e($p['cargo_title'] ?: 'sem cargo') ?></div></td>
             <td class="pr-2 text-xs"><?= $p['suporte_id'] ? e(nomeVendedor($vendedores, $p['suporte_id'])) : '—' ?></td>
             <td class="pr-2 text-xs"><?= e($p['linha']) ?></td>
             <td class="pr-2 text-xs">

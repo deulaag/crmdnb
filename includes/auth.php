@@ -4,6 +4,7 @@
  * Toda página protegida deve começar com: require_once __DIR__.'/includes/auth.php';
  */
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/cargo_service.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     $seguro = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
@@ -36,12 +37,13 @@ function usuarioLogado(): ?array
             unset($_SESSION['usuario']);
             return null;
         }
-        $_SESSION['usuario'] = [
+        $_SESSION['usuario'] = carregarContextoCargosUsuario(db(), [
             'id' => (int) $u['id'], 'nome' => $u['nome'], 'email' => $u['email'],
             'role' => $u['role'] ?? 'ADMINISTRADOR',
             'supervisor_id' => isset($u['supervisor_id']) ? (int) $u['supervisor_id'] : null,
+            'pessoa_id' => $u['pessoa_id'] ?? null,
             'vendedor_id' => $u['vendedor_id'] ?? null, 'status' => $status,
-        ];
+        ]);
     }
     return $_SESSION['usuario'];
 }
@@ -69,7 +71,7 @@ function destinoAposLogin(?string $destino): string
 
 function existeAlgumUsuario(): bool
 {
-    $n = db()->query('SELECT COUNT(*) c FROM usuarios')->fetch()['c'] ?? 0;
+    $n = db()->query("SELECT COUNT(*) c FROM usuarios WHERE ativo=1 AND COALESCE(status,'active')='active'")->fetch()['c'] ?? 0;
     return ((int) $n) > 0;
 }
 
@@ -82,15 +84,16 @@ function autenticar(string $email, string $senha): bool
     $status = $u['status'] ?? (!empty($u['ativo']) ? 'active' : 'inactive');
     if ($status === 'active' && password_verify($senha, $u['senha_hash'])) {
         session_regenerate_id(true);
-        $_SESSION['usuario'] = [
+        $_SESSION['usuario'] = carregarContextoCargosUsuario(db(), [
             'id' => (int) $u['id'],
             'nome' => $u['nome'],
             'email' => $u['email'],
             'role' => $u['role'] ?? 'ADMINISTRADOR',
             'supervisor_id' => isset($u['supervisor_id']) ? (int) $u['supervisor_id'] : null,
+            'pessoa_id' => $u['pessoa_id'] ?? null,
             'vendedor_id' => $u['vendedor_id'] ?? null,
             'status' => $status,
-        ];
+        ]);
         return true;
     }
     return false;

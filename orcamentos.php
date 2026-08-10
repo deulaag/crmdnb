@@ -11,6 +11,18 @@ $mes = $_GET['mes'] ?? mesAtual();
 $vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $linhas = array_column($pdo->query('SELECT nome FROM linhas ORDER BY ordem ASC')->fetchAll(), 'nome');
 $funisArr = funis();
+$idsPessoasVisiveis = array_column($vendedores, 'id');
+$cargosRegistro = [];
+if ($idsPessoasVisiveis) {
+    $marks = implode(',', array_fill(0, count($idsPessoasVisiveis), '?'));
+    $stmt = $pdo->prepare("SELECT u.id user_id,COALESCE(u.pessoa_id,u.vendedor_id) pessoa_id,u.nome,c.id cargo_id,c.title,c.has_commission
+        FROM usuarios u JOIN user_cargos uc ON uc.user_id=u.id JOIN cargos c ON c.id=uc.cargo_id
+        WHERE u.status='active' AND COALESCE(u.pessoa_id,u.vendedor_id) IN ({$marks})
+          AND (c.has_commission=1 OR c.title='ADMINISTRADOR')
+          AND (c.title='ADMINISTRADOR' OR NOT EXISTS (SELECT 1 FROM user_cargos uca JOIN cargos ca ON ca.id=uca.cargo_id WHERE uca.user_id=u.id AND ca.title='ADMINISTRADOR'))
+        ORDER BY u.nome,c.id");
+    $stmt->execute($idsPessoasVisiveis); $cargosRegistro = $stmt->fetchAll();
+}
 
 function orcRedirect(string $msg = ''): void
 {
@@ -32,12 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $vendedorId = $_POST['vendedor_id'] ?: null;
         if ($vendedorId && !in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
         $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
+        $cargoId = cargoParaRegistroComercial($pdo, $assignedTo, !empty($_POST['cargo_id']) ? (int) $_POST['cargo_id'] : null);
         $suporteId = $_POST['suporte_id'] ?: null;
         $data = $_POST['data'] ?: hoje();
         $funil = funilDe($linha);
         $numero = trim($_POST['numero'] ?? '') ?: gerarNumeroProposta($pdo, $vendedores, $vendedorId, $suporteId, $data);
-        $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo]);
+        $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo, $cargoId]);
         registrarTimeline($pdo, (int) $pdo->lastInsertId(), 'created', 'Oportunidade criada manualmente.');
         orcRedirect('Oportunidade ' . $numero . ' registrada no funil ' . $funisArr[$funil]['label'] . '.');
     }
@@ -87,9 +100,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $linha = in_array($o['linha'] ?? '', $linhas, true) ? $o['linha'] : mapLinha(($o['linha'] ?? '') ?: ($o['tipo'] ?? ''));
                 $assignedTo = usuarioIdPorVendedor($pdo, $vendId) ?: (temPapel(PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
-                $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+                $cargoId = cargoParaRegistroComercial($pdo, $assignedTo);
+                $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 $funil = funilDe($linha);
-                $stmt->execute([$o['numero'] ?? '', $o['data'] ?? hoje(), $o['cliente'] ?? '', $vendId, null, $linha, $o['tipo'] ?? 'Peças', $funil, $funisArr[$funil]['etapas'][0], (float) ($o['valor'] ?? 0), 'Aberta', 'cotador', $assignedTo]);
+                $stmt->execute([$o['numero'] ?? '', $o['data'] ?? hoje(), $o['cliente'] ?? '', $vendId, null, $linha, $o['tipo'] ?? 'Peças', $funil, $funisArr[$funil]['etapas'][0], (float) ($o['valor'] ?? 0), 'Aberta', 'cotador', $assignedTo, $cargoId]);
                 $n++;
             }
             orcRedirect("$n proposta(s) importada(s) do Cotador.");
@@ -138,17 +152,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($dono !== '' && ($vn === $dono || explode(' ', $vn)[0] === explode(' ', $dono)[0])) { $vendId = $v['id']; break; }
                     }
                     $assignedTo = usuarioIdPorVendedor($pdo, $vendId) ?: (temPapel(PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
+                    $cargoId = cargoParaRegistroComercial($pdo, $assignedTo);
                     $ex = $pdo->prepare('SELECT id FROM orcamentos WHERE sf_id=?');
                     $ex->execute([$sfId]);
                     $exId = $ex->fetchColumn();
                     if ($exId) {
                         if (!podeAcessarLead($pdo, (int) $exId)) continue;
-                        $pdo->prepare('UPDATE orcamentos SET valor=IF(?>0,?,valor), status=?, etapa=IF(?="Aberta",?,etapa), comissao_dnb_estimada=IF(?>0,?,comissao_dnb_estimada), vendedor_id=COALESCE(vendedor_id,?), assigned_to_user_id=COALESCE(assigned_to_user_id,?) WHERE id=?')
-                            ->execute([$valor, $valor, $status, $status, $etapa, $comEst, $comEst, $vendId, $assignedTo, $exId]);
+                        $pdo->prepare('UPDATE orcamentos SET valor=IF(?>0,?,valor), status=?, etapa=IF(?="Aberta",?,etapa), comissao_dnb_estimada=IF(?>0,?,comissao_dnb_estimada), vendedor_id=COALESCE(vendedor_id,?), assigned_to_user_id=COALESCE(assigned_to_user_id,?), cargo_id=COALESCE(cargo_id,?) WHERE id=?')
+                            ->execute([$valor, $valor, $status, $status, $etapa, $comEst, $comEst, $vendId, $assignedTo, $cargoId, $exId]);
                         $atualizados++;
                     } else {
-                        $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'salesforce', $assignedTo]);
+                        $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'salesforce', $assignedTo, $cargoId]);
                         $novos++;
                     }
                 }
@@ -168,8 +183,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $linha = mapLinha(($v['oportunidade'] ?? '') . ' ' . ($v['setor'] ?? ''));
             $funil = funilDe($linha);
             $numero = gerarNumeroProposta($pdo, $vendedores, $v['vendedor_id'], null, hoje());
-            $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?)')
-                ->execute([$numero, hoje(), $v['cliente'], $v['vendedor_id'], $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], 'Aberta', 'lead-visita', 'Lead da OS ' . $v['os'] . ' (' . $v['data'] . '): ' . $v['oportunidade'], $v['assigned_to_user_id']]);
+            $cargoId = cargoParaRegistroComercial($pdo, $v['assigned_to_user_id'] ? (int) $v['assigned_to_user_id'] : null);
+            $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?)')
+                ->execute([$numero, hoje(), $v['cliente'], $v['vendedor_id'], $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], 'Aberta', 'lead-visita', 'Lead da OS ' . $v['os'] . ' (' . $v['data'] . '): ' . $v['oportunidade'], $v['assigned_to_user_id'], $cargoId]);
             $pdo->prepare('UPDATE visitas SET lead_status=? WHERE id=?')->execute(['promovida', $vid]);
             orcRedirect("Lead promovido: $numero · {$v['cliente']} · $linha — confirme a linha e preencha o valor na tabela.");
         }
@@ -191,8 +207,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($o) {
             $pdo->prepare('UPDATE orcamentos SET status=? WHERE id=?')->execute(['Ganha', $oid]);
             $modalidade = ehAgenciamento($o['linha']) ? 'agenciada' : 'revenda';
-            $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?)')
-                ->execute([$_POST['ped_numero'], $_POST['ped_data'], $o['cliente'], $o['vendedor_id'], $o['suporte_id'], $o['linha'], (float) $_POST['ped_valor'], $modalidade, $modalidade === 'agenciada' ? (float) $o['comissao_dnb_estimada'] : 0, $o['assigned_to_user_id']]);
+            $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)')
+                ->execute([$_POST['ped_numero'], $_POST['ped_data'], $o['cliente'], $o['vendedor_id'], $o['suporte_id'], $o['linha'], (float) $_POST['ped_valor'], $modalidade, $modalidade === 'agenciada' ? (float) $o['comissao_dnb_estimada'] : 0, $oid, $o['assigned_to_user_id'], $o['cargo_id']]);
             orcRedirect("Pedido {$_POST['ped_numero']} gerado — confirme o faturamento na aba Pedidos.");
         }
         orcRedirect();
@@ -299,6 +315,7 @@ include __DIR__ . '/includes/layout_header.php';
           <select name="linha" required class="<?= INPUT_CLS ?>"><option value="">— selecione —</option><?php foreach ($linhas as $l): ?><option><?= e($l) ?></option><?php endforeach; ?></select>
         </div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Comissão DNB estimada (se agenciamento)</label><input type="number" step="0.01" name="comissao_dnb_estimada" class="<?= INPUT_CLS ?> bg-blue-50"></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">Cargo da proposta</label><select name="cargo_id" class="<?= INPUT_CLS ?>"><option value="">Automático pelo responsável</option><?php foreach($cargosRegistro as $cr): ?><option value="<?= (int)$cr['cargo_id'] ?>"><?= e($cr['nome']) ?> · <?= e($cr['title']) ?><?= $cr['has_commission']?'':' · sem comissão' ?></option><?php endforeach; ?></select></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Valor (R$)</label><input type="number" step="0.01" name="valor" required class="<?= INPUT_CLS ?>"></div>
       </div>
       <div class="mt-3 flex gap-2 items-center">
@@ -381,7 +398,7 @@ include __DIR__ . '/includes/layout_header.php';
             <td class="py-2 pr-2 text-slate-500"><?= e($o['data']) ?></td>
             <td class="pr-2 font-mono text-xs"><?= e($o['numero']) ?></td>
             <td class="pr-2 font-semibold" style="color:<?= NAVY ?>;"><a href="/lead.php?id=<?= (int) $o['id'] ?>"><?= e($o['cliente']) ?></a><?php if ($o['lead_score'] !== null): ?><div class="text-xs font-normal text-slate-400">Score <?= (int) $o['lead_score'] ?>/100</div><?php endif; ?></td>
-            <td class="pr-2"><?= e(nomeVendedor($vendedores, $o['vendedor_id'])) ?></td>
+            <td class="pr-2"><?= e(nomeVendedor($vendedores, $o['vendedor_id'])) ?><div class="text-xs text-slate-400"><?= e($o['registro_cargo_title'] ?: 'sem cargo') ?></div></td>
             <td class="pr-2 text-xs"><?= e($o['linha']) ?><div class="text-xs text-slate-400"><?= e($funisArr[$fk]['label']) ?></div></td>
             <td class="pr-2">
               <?php if ($o['status'] === 'Aberta'): ?>

@@ -28,17 +28,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $novoId = (int) ($_POST['assigned_to_user_id'] ?? 0);
         $permitidos = [];
         if (temPapel(PAPEL_ADMINISTRADOR)) {
-            $permitidos = array_map('intval', array_column($pdo->query("SELECT id FROM usuarios WHERE status='active' AND role IN ('VENDEDOR','SUPERVISOR')")->fetchAll(), 'id'));
+            $permitidos = array_map('intval', array_column(listarUsuariosComerciais($pdo), 'id'));
         } else {
-            $permitidos = idsUsuariosDaEquipe($pdo);
+            $permitidos = array_map('intval', array_column(listarUsuariosComerciais($pdo, idsUsuariosDaEquipe($pdo)), 'id'));
         }
         if (!$novoId || !in_array($novoId, $permitidos, true)) leadRedirect($leadId, 'Responsável fora do seu escopo.');
-        $stmt = $pdo->prepare('SELECT nome,vendedor_id FROM usuarios WHERE id=?'); $stmt->execute([$novoId]); $novo = $stmt->fetch();
-        $pdo->prepare('UPDATE orcamentos SET assigned_to_user_id=?,vendedor_id=COALESCE(?,vendedor_id) WHERE id=?')->execute([$novoId, $novo['vendedor_id'] ?: null, $leadId]);
+        $stmt = $pdo->prepare('SELECT nome,COALESCE(pessoa_id,vendedor_id) pessoa_id FROM usuarios WHERE id=?'); $stmt->execute([$novoId]); $novo = $stmt->fetch();
+        $pdo->prepare('UPDATE orcamentos SET assigned_to_user_id=?,vendedor_id=COALESCE(?,vendedor_id) WHERE id=?')->execute([$novoId, $novo['pessoa_id'] ?: null, $leadId]);
         registrarTimeline($pdo, $leadId, 'assignment', 'Lead atribuído a ' . $novo['nome'] . '.');
         leadRedirect($leadId, 'Responsável atualizado.');
     }
-    if ($acao === 'atualizar' && !temPapel(PAPEL_SUPORTE)) {
+    if ($acao === 'atualizar' && (!temPapel(PAPEL_SUPORTE) || temPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR))) {
         $status = in_array($_POST['status'] ?? '', ['Aberta','Ganha','Perdida'], true) ? $_POST['status'] : $lead['status'];
         $etapa = mb_substr(trim((string) ($_POST['etapa'] ?? $lead['etapa'])), 0, 80);
         $nota = trim((string) ($_POST['nota'] ?? ''));
@@ -65,9 +65,9 @@ if (temPapel(PAPEL_ADMINISTRADOR)) {
 }
 $followupResumo = resumoFollowupLead($pdo, $leadId);
 if (temPapel(PAPEL_ADMINISTRADOR)) {
-    $responsaveis = $pdo->query("SELECT id,nome,role FROM usuarios WHERE status='active' AND role IN ('VENDEDOR','SUPERVISOR') ORDER BY nome")->fetchAll();
+    $responsaveis = listarUsuariosComerciais($pdo);
 } elseif (temPapel(PAPEL_SUPERVISOR)) {
-    $ids = idsUsuariosDaEquipe($pdo); $marks = implode(',', array_fill(0,count($ids),'?')); $stmt=$pdo->prepare("SELECT id,nome,role FROM usuarios WHERE id IN ({$marks}) ORDER BY nome"); $stmt->execute($ids); $responsaveis=$stmt->fetchAll();
+    $responsaveis = listarUsuariosComerciais($pdo, idsUsuariosDaEquipe($pdo));
 } else $responsaveis=[];
 $funil = funis()[$lead['funil'] ?: funilDe($lead['linha'])] ?? null;
 $tabAtual = 'orc';
@@ -78,10 +78,10 @@ include __DIR__ . '/includes/layout_header.php';
   <section class="bg-white rounded-xl border border-slate-200 shadow-sm">
     <div class="p-4">
       <div class="flex items-start justify-between gap-4 flex-wrap"><div><span class="dnb-eyebrow">Lead #<?= $leadId ?> · <?= e($lead['numero']) ?></span><h2 class="dnb-section-title"><?= e($lead['cliente']) ?></h2><p class="text-sm text-slate-500"><?= e($lead['linha']) ?> · <?= fmtBRL($lead['valor']) ?></p></div><div class="dnb-score <?= ((int)($lead['lead_score']??0))>=70?'is-hot':'' ?>"><span>Score</span><strong><?= $lead['lead_score']!==null?(int)$lead['lead_score']:'—' ?></strong><small>/100</small></div></div>
-      <div class="dnb-lead-summary mt-4"><div><span>Status</span><strong><?= e($lead['status']) ?></strong></div><div><span>Etapa</span><strong><?= e($lead['etapa']) ?></strong></div><div><span>Responsável</span><strong><?= e($lead['assigned_to_name'] ?: 'Não atribuído') ?></strong></div><div><span>Origem</span><strong><?= e($lead['origem']) ?></strong></div></div>
+      <div class="dnb-lead-summary mt-4"><div><span>Status</span><strong><?= e($lead['status']) ?></strong></div><div><span>Etapa</span><strong><?= e($lead['etapa']) ?></strong></div><div><span>Responsável</span><strong><?= e($lead['assigned_to_name'] ?: 'Não atribuído') ?></strong><small><?= e($lead['assigned_to_cargos'] ?: '') ?></small></div><div><span>Cargo da proposta</span><strong><?= e($lead['registro_cargo_title'] ?: 'Sem contexto') ?></strong></div><div><span>Origem</span><strong><?= e($lead['origem']) ?></strong></div></div>
       <?php if ($lead['score_justification']): ?><div class="dnb-insight mt-4"><b>Justificativa do score</b><p><?= e($lead['score_justification']) ?></p></div><?php endif; ?>
-      <?php if (podeReatribuirLead()): ?><form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="reatribuir"><input type="hidden" name="id" value="<?= $leadId ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Reatribuir responsável</label><select name="assigned_to_user_id" class="<?= INPUT_CLS ?>" required><option value="">Selecione</option><?php foreach($responsaveis as $u):?><option value="<?= (int)$u['id'] ?>" <?= (int)$lead['assigned_to_user_id']===(int)$u['id']?'selected':'' ?>><?= e($u['nome']) ?> · <?= e($u['role']) ?></option><?php endforeach;?></select></div><button class="<?= BTN_P ?>">Reatribuir</button></form><?php endif; ?>
-      <?php if (!temPapel(PAPEL_SUPORTE)): ?><form method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="atualizar"><input type="hidden" name="id" value="<?= $leadId ?>"><div><label class="block text-xs font-semibold mb-1">Etapa</label><select name="etapa" class="<?= INPUT_CLS ?>"><?php foreach(($funil['etapas']??[$lead['etapa']]) as $et):?><option <?= $lead['etapa']===$et?'selected':'' ?>><?= e($et) ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Status</label><select name="status" class="<?= INPUT_CLS ?>"><?php foreach(['Aberta','Ganha','Perdida'] as $st):?><option <?= $lead['status']===$st?'selected':'' ?>><?= $st ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Nota na timeline</label><input name="nota" class="<?= INPUT_CLS ?>" placeholder="Contexto da atualização"></div><button class="<?= BTN_P ?> md:col-span-3">Salvar evolução</button></form><?php endif; ?>
+      <?php if (podeReatribuirLead()): ?><form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="reatribuir"><input type="hidden" name="id" value="<?= $leadId ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Reatribuir responsável</label><select name="assigned_to_user_id" class="<?= INPUT_CLS ?>" required><option value="">Selecione</option><?php foreach($responsaveis as $u):?><option value="<?= (int)$u['id'] ?>" <?= (int)$lead['assigned_to_user_id']===(int)$u['id']?'selected':'' ?>><?= e($u['nome']) ?> · <?= e($u['cargos']) ?></option><?php endforeach;?></select></div><button class="<?= BTN_P ?>">Reatribuir</button></form><?php endif; ?>
+      <?php if (!temPapel(PAPEL_SUPORTE) || temPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR)): ?><form method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="atualizar"><input type="hidden" name="id" value="<?= $leadId ?>"><div><label class="block text-xs font-semibold mb-1">Etapa</label><select name="etapa" class="<?= INPUT_CLS ?>"><?php foreach(($funil['etapas']??[$lead['etapa']]) as $et):?><option <?= $lead['etapa']===$et?'selected':'' ?>><?= e($et) ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Status</label><select name="status" class="<?= INPUT_CLS ?>"><?php foreach(['Aberta','Ganha','Perdida'] as $st):?><option <?= $lead['status']===$st?'selected':'' ?>><?= $st ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Nota na timeline</label><input name="nota" class="<?= INPUT_CLS ?>" placeholder="Contexto da atualização"></div><button class="<?= BTN_P ?> md:col-span-3">Salvar evolução</button></form><?php endif; ?>
       <div class="flex gap-2 mt-4"><a href="/ia.php?lead_id=<?= $leadId ?>" class="<?= BTN_P ?> inline-flex">Abrir na IA</a><a href="/orcamentos.php" class="<?= BTN_S ?> inline-flex">Voltar ao funil</a></div>
     </div>
   </section>

@@ -12,15 +12,23 @@ const PAPEL_VENDEDOR = 'VENDEDOR';
 const PAPEL_SUPORTE = 'SUPORTE';
 const PAPEIS_CRM = [PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR, PAPEL_SUPORTE];
 
+/** @return string[] */
+function papeisAtuais(?array $usuario = null): array
+{
+    $usuario = $usuario ?? usuarioLogado();
+    if (!$usuario) return [];
+    $papeis = $usuario['papeis'] ?? [strtoupper((string) ($usuario['role'] ?? PAPEL_VENDEDOR))];
+    return array_values(array_intersect(PAPEIS_CRM, array_values(array_unique(array_map('strtoupper', $papeis)))));
+}
+
 function papelAtual(): string
 {
-    $papel = strtoupper((string) (usuarioLogado()['role'] ?? PAPEL_ADMINISTRADOR));
-    return in_array($papel, PAPEIS_CRM, true) ? $papel : PAPEL_VENDEDOR;
+    return papelPrincipalDosPapeis(papeisAtuais());
 }
 
 function temPapel(string ...$papeis): bool
 {
-    return in_array(papelAtual(), $papeis, true);
+    return (bool) array_intersect(papeisAtuais(), array_map('strtoupper', $papeis));
 }
 
 function exigirPapel(string ...$papeis): void
@@ -40,9 +48,9 @@ function idsUsuariosDaEquipe(PDO $pdo, ?array $usuario = null): array
 {
     $usuario = $usuario ?? usuarioLogado();
     if (!$usuario) return [];
-    $papel = strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR));
-    if ($papel === PAPEL_ADMINISTRADOR) return [];
-    if ($papel === PAPEL_SUPERVISOR) {
+    $papeis = papeisAtuais($usuario);
+    if (in_array(PAPEL_ADMINISTRADOR, $papeis, true)) return [];
+    if (in_array(PAPEL_SUPERVISOR, $papeis, true)) {
         $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE status='active' AND (id=? OR supervisor_id=?)");
         $stmt->execute([(int) $usuario['id'], (int) $usuario['id']]);
         return array_map('intval', array_column($stmt->fetchAll(), 'id'));
@@ -54,7 +62,7 @@ function idsUsuariosDaEquipe(PDO $pdo, ?array $usuario = null): array
 function filtroEscopoAtribuicao(PDO $pdo, string $coluna = 'assigned_to_user_id', ?array $usuario = null): array
 {
     $usuario = $usuario ?? usuarioLogado();
-    if (!$usuario || strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) {
+    if (!$usuario || in_array(PAPEL_ADMINISTRADOR, papeisAtuais($usuario), true)) {
         return ['1=1', []];
     }
     $ids = idsUsuariosDaEquipe($pdo, $usuario);
@@ -66,12 +74,12 @@ function idsVendedoresDaEquipe(PDO $pdo, ?array $usuario = null): array
 {
     $usuario = $usuario ?? usuarioLogado();
     if (!$usuario) return [];
-    if (strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) {
+    if (in_array(PAPEL_ADMINISTRADOR, papeisAtuais($usuario), true)) {
         return array_column($pdo->query("SELECT id FROM vendedores WHERE ativo=1")->fetchAll(), 'id');
     }
     $ids = idsUsuariosDaEquipe($pdo, $usuario);
     if (!$ids) return [];
-    $stmt = $pdo->prepare('SELECT vendedor_id FROM usuarios WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') AND vendedor_id IS NOT NULL');
+    $stmt = $pdo->prepare('SELECT COALESCE(pessoa_id,vendedor_id) vendedor_id FROM usuarios WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') AND COALESCE(pessoa_id,vendedor_id) IS NOT NULL');
     $stmt->execute($ids);
     return array_values(array_filter(array_column($stmt->fetchAll(), 'vendedor_id')));
 }
@@ -79,7 +87,7 @@ function idsVendedoresDaEquipe(PDO $pdo, ?array $usuario = null): array
 function filtrarVendedoresDaEquipe(PDO $pdo, array $vendedores, ?array $usuario = null): array
 {
     $usuario = $usuario ?? usuarioLogado();
-    if (!$usuario || strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) return $vendedores;
+    if (!$usuario || in_array(PAPEL_ADMINISTRADOR, papeisAtuais($usuario), true)) return $vendedores;
     $permitidos = array_flip(idsVendedoresDaEquipe($pdo, $usuario));
     return array_values(array_filter($vendedores, fn(array $v): bool => isset($permitidos[$v['id']])));
 }
@@ -87,8 +95,8 @@ function filtrarVendedoresDaEquipe(PDO $pdo, array $vendedores, ?array $usuario 
 function usuarioIdPorVendedor(PDO $pdo, ?string $vendedorId): ?int
 {
     if (!$vendedorId) return null;
-    $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE vendedor_id=? AND status='active' ORDER BY id LIMIT 1");
-    $stmt->execute([$vendedorId]);
+    $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE (pessoa_id=? OR vendedor_id=?) AND status='active' ORDER BY pessoa_id IS NOT NULL DESC,id LIMIT 1");
+    $stmt->execute([$vendedorId, $vendedorId]);
     $id = $stmt->fetchColumn();
     return $id ? (int) $id : null;
 }
@@ -108,7 +116,8 @@ function podeAcessarLead(PDO $pdo, int $leadId, ?array $usuario = null): bool
 {
     $usuario = $usuario ?? usuarioLogado();
     if (!$usuario) return false;
-    if (strtoupper((string) ($usuario['role'] ?? PAPEL_ADMINISTRADOR)) === PAPEL_ADMINISTRADOR) return true;
+    $papeis = papeisAtuais($usuario);
+    if (in_array(PAPEL_ADMINISTRADOR, $papeis, true)) return true;
 
     [$filtro, $params] = filtroEscopoAtribuicao($pdo, 'assigned_to_user_id', $usuario);
     $params[] = $leadId;
@@ -116,7 +125,7 @@ function podeAcessarLead(PDO $pdo, int $leadId, ?array $usuario = null): bool
     $stmt->execute($params);
     if ((int) $stmt->fetchColumn() > 0) return true;
 
-    if (strtoupper((string) ($usuario['role'] ?? '')) === PAPEL_SUPORTE) {
+    if (in_array(PAPEL_SUPORTE, $papeis, true)) {
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM support_cases WHERE lead_id=?');
         $stmt->execute([$leadId]);
         return (int) $stmt->fetchColumn() > 0;
@@ -156,25 +165,48 @@ function papelPodeVisualizarConversaWhatsapp(
     return false;
 }
 
+/**
+ * Regra multi-cargo: basta um dos grupos permitir a conversa.
+ * @param string[] $papeis @param int[] $idsEquipeSupervisor
+ */
+function papeisPodemVisualizarConversaWhatsapp(
+    array $papeis,
+    int $usuarioId,
+    ?int $responsavelLeadId,
+    array $idsEquipeSupervisor = [],
+    bool $suportePossuiCasoAberto = false,
+    bool $leadAtivo = true
+): bool {
+    foreach ($papeis as $papel) {
+        if (papelPodeVisualizarConversaWhatsapp((string) $papel, $usuarioId, $responsavelLeadId, $idsEquipeSupervisor, $suportePossuiCasoAberto, $leadAtivo)) return true;
+    }
+    return false;
+}
+
 /** Retorna SQL e parâmetros para o escopo de uma conversa WhatsApp. */
 function filtroEscopoWhatsapp(PDO $pdo, string $alias = 'wc', ?array $usuario = null): array
 {
     $usuario = $usuario ?? usuarioLogado();
     if (!$usuario) return ['1=0', []];
-    $papel = strtoupper((string) ($usuario['role'] ?? PAPEL_VENDEDOR));
-    if ($papel === PAPEL_ADMINISTRADOR) return ['1=1', []];
-    if ($papel === PAPEL_SUPERVISOR) {
+    $papeis = papeisAtuais($usuario);
+    if (in_array(PAPEL_ADMINISTRADOR, $papeis, true)) return ['1=1', []];
+    $condicoes = [];
+    $params = [];
+    if (in_array(PAPEL_SUPERVISOR, $papeis, true)) {
         $ids = idsUsuariosDaEquipe($pdo, $usuario);
-        if (!$ids) return ['1=0', []];
-        return ["EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id IN (" . implode(',', array_fill(0, count($ids), '?')) . '))', $ids];
+        if ($ids) {
+            $condicoes[] = "EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id IN (" . implode(',', array_fill(0, count($ids), '?')) . '))';
+            $params = array_merge($params, $ids);
+        }
     }
-    if ($papel === PAPEL_VENDEDOR) {
-        return ["EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id=? AND dnb_wo.status='Aberta')", [(int) $usuario['id']]];
+    if (in_array(PAPEL_VENDEDOR, $papeis, true)) {
+        $condicoes[] = "EXISTS (SELECT 1 FROM orcamentos dnb_wo WHERE dnb_wo.id={$alias}.lead_id AND dnb_wo.assigned_to_user_id=? AND dnb_wo.status='Aberta')";
+        $params[] = (int) $usuario['id'];
     }
-    if ($papel === PAPEL_SUPORTE) {
-        return ["EXISTS (SELECT 1 FROM support_cases dnb_sc WHERE dnb_sc.lead_id={$alias}.lead_id AND dnb_sc.status IN ('open','in_progress'))", []];
+    if (in_array(PAPEL_SUPORTE, $papeis, true)) {
+        $condicoes[] = "EXISTS (SELECT 1 FROM support_cases dnb_sc WHERE dnb_sc.lead_id={$alias}.lead_id AND dnb_sc.status IN ('open','in_progress'))";
     }
-    return ['1=0', []];
+    return $condicoes ? ['(' . implode(' OR ', $condicoes) . ')', $params] : ['1=0', []];
 }
 
 function podeAcessarConversaWhatsapp(PDO $pdo, int $conversationId, ?array $usuario = null): bool
@@ -188,7 +220,7 @@ function podeAcessarConversaWhatsapp(PDO $pdo, int $conversationId, ?array $usua
 
 function paginaInicialPorPapel(): string
 {
-    return papelAtual() === PAPEL_SUPORTE ? '/casos.php' : '/painel.php';
+    return temPapel(PAPEL_SUPORTE) && !temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR) ? '/casos.php' : '/painel.php';
 }
 
 function csrfToken(): string

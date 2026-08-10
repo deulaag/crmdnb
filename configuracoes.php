@@ -18,6 +18,14 @@ function cfgRedirect(string $msg = ''): void
     exit;
 }
 
+function sincronizarVinculosPessoasUsuarios(PDO $pdo): void
+{
+    $pdo->exec('UPDATE usuarios u JOIN vendedores v ON v.id=COALESCE(u.pessoa_id,u.vendedor_id) SET u.pessoa_id=v.id,u.vendedor_id=v.id');
+    $pdo->exec('UPDATE orcamentos o JOIN usuarios u ON COALESCE(u.pessoa_id,u.vendedor_id)=o.vendedor_id SET o.assigned_to_user_id=u.id WHERE o.assigned_to_user_id IS NULL');
+    $pdo->exec('UPDATE pedidos p JOIN usuarios u ON COALESCE(u.pessoa_id,u.vendedor_id)=p.vendedor_id SET p.assigned_to_user_id=u.id WHERE p.assigned_to_user_id IS NULL');
+    $pdo->exec('UPDATE visitas v JOIN usuarios u ON COALESCE(u.pessoa_id,u.vendedor_id)=v.vendedor_id SET v.assigned_to_user_id=u.id WHERE v.assigned_to_user_id IS NULL');
+}
+
 // campos numéricos possíveis dentro de "pol" (união de todas as políticas)
 const CAMPOS_POL = [
     'metaRevenda', 'metaAgenciadas', 'pctPecasServ', 'pctAgenciada', 'visitasMes', 'prospecMes',
@@ -53,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dataContratacao = !empty($_POST['data_contratacao']) ? $_POST['data_contratacao'] . '-01' : null;
         $pdo->prepare('UPDATE vendedores SET funcao=?, vinculo_id=?, orientador_id=?, data_contratacao=?, pol=? WHERE id=?')
             ->execute([$funcao, $vinculoId, $orientadorId, $dataContratacao, json_encode($pol), $id]);
+        sincronizarVinculosPessoasUsuarios($pdo);
         cfgRedirect('Parâmetros de ' . $id . ' salvos.');
     }
 
@@ -68,9 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'carregar_demo') {
         carregarDadosDemo($pdo);
-        $pdo->exec('UPDATE orcamentos o JOIN usuarios u ON u.vendedor_id=o.vendedor_id SET o.assigned_to_user_id=u.id WHERE o.assigned_to_user_id IS NULL');
-        $pdo->exec('UPDATE pedidos p JOIN usuarios u ON u.vendedor_id=p.vendedor_id SET p.assigned_to_user_id=u.id WHERE p.assigned_to_user_id IS NULL');
-        $pdo->exec('UPDATE visitas v JOIN usuarios u ON u.vendedor_id=v.vendedor_id SET v.assigned_to_user_id=u.id WHERE v.assigned_to_user_id IS NULL');
+        sincronizarVinculosPessoasUsuarios($pdo);
         cfgRedirect('Simulação de jul/2026 carregada.');
     }
 

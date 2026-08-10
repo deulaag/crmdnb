@@ -26,10 +26,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($senha !== $senha2) {
         $erro = 'As senhas não coincidem.';
     } else {
-        $stmt = db()->prepare("INSERT INTO usuarios (nome,email,senha_hash,role,status,ativo,criado_em,atualizado_em) VALUES (?,?,?,'ADMINISTRADOR','active',1,NOW(),NOW())");
-        $stmt->execute([$nome, $email, password_hash($senha, PASSWORD_DEFAULT)]);
-        header('Location: /login.php?criado=1');
-        exit;
+        $pdo = db();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare('SELECT id,pessoa_id,vendedor_id FROM usuarios WHERE LOWER(email)=LOWER(?) LIMIT 1 FOR UPDATE');
+            $stmt->execute([$email]); $existente = $stmt->fetch();
+            $pessoaId = $existente['pessoa_id'] ?? $existente['vendedor_id'] ?? null;
+            if (!$pessoaId) {
+                $stmt = $pdo->prepare("SELECT id FROM vendedores WHERE LOWER(email)=LOWER(?) AND TRIM(email)<>'' LIMIT 1");
+                $stmt->execute([$email]); $pessoaId = $stmt->fetchColumn() ?: gerarPessoaId($pdo);
+            }
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM vendedores WHERE id=?'); $stmt->execute([$pessoaId]);
+            if (!(int) $stmt->fetchColumn()) {
+                $pdo->prepare("INSERT INTO vendedores (id,nome,email,fone,funcao,politica,pol,ativo,criado_em) VALUES (?,?,?,'','vendedor','sem_politica','{}',1,NOW())")
+                    ->execute([$pessoaId,$nome,$email]);
+            } else {
+                $pdo->prepare('UPDATE vendedores SET nome=?,email=?,ativo=1 WHERE id=?')->execute([$nome,$email,$pessoaId]);
+            }
+            if ($existente) {
+                $usuarioId = (int) $existente['id'];
+                $pdo->prepare("UPDATE usuarios SET nome=?,email=?,senha_hash=?,role='ADMINISTRADOR',status='active',ativo=1,pessoa_id=?,vendedor_id=?,atualizado_em=NOW() WHERE id=?")
+                    ->execute([$nome,$email,password_hash($senha,PASSWORD_DEFAULT),$pessoaId,$pessoaId,$usuarioId]);
+            } else {
+                $pdo->prepare("INSERT INTO usuarios (nome,email,senha_hash,role,status,ativo,pessoa_id,vendedor_id,criado_em,atualizado_em) VALUES (?,?,?,'ADMINISTRADOR','active',1,?,?,NOW(),NOW())")
+                    ->execute([$nome,$email,password_hash($senha,PASSWORD_DEFAULT),$pessoaId,$pessoaId]);
+                $usuarioId = (int) $pdo->lastInsertId();
+            }
+            $cargoAdminId = (int) $pdo->query("SELECT id FROM cargos WHERE title='ADMINISTRADOR' LIMIT 1")->fetchColumn();
+            if (!$cargoAdminId) throw new RuntimeException('Instale a migração de cargos antes do primeiro acesso.');
+            sincronizarCargosUsuario($pdo,$usuarioId,[$cargoAdminId]);
+            $pdo->commit();
+            header('Location: /login.php?criado=1');
+            exit;
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $erro = 'Não foi possível criar o administrador. Confirme a instalação da migração de cargos.';
+        }
     }
 }
 ?><!DOCTYPE html>
