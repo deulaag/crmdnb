@@ -15,6 +15,7 @@ if (!defined('AI_MAX_PROMPT_LENGTH')) define('AI_MAX_PROMPT_LENGTH', 8000);
 require_once __DIR__ . '/ai_client.php';
 require_once __DIR__ . '/lead_service.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/followup_service.php';
 
 const WHATSAPP_BUFFER_SECONDS = 5;
 const WHATSAPP_MAX_MESSAGE_LENGTH = 4000;
@@ -207,6 +208,7 @@ function registrarWebhookWhatsapp(PDO $pdo, array $evento): array
                 available_at=DATE_ADD(NOW(),INTERVAL 5 SECOND),attempts=IF(status IN ('completed','skipped','failed'),0,attempts),
                 locked_at=NULL,processed_at=NULL,error_message=NULL,ai_interaction_id=NULL,status='pending',updated_at=NOW()");
             $stmt->execute([$conversationId, $messageId, $messageId, $evento['created_at'], $evento['created_at']]);
+            if ($leadId) interromperFollowupPorMensagemRecebida($pdo, (int) $leadId, $messageId, (string) $evento['created_at']);
         }
         $pdo->commit();
         return ['duplicate' => false, 'message_id' => $messageId, 'conversation_id' => $conversationId, 'lead_id' => $leadId];
@@ -345,6 +347,7 @@ function vincularConversaWhatsappAoLead(PDO $pdo, int $conversationId, int $lead
                 VALUES (?,?,?,?,?,NOW(),'pending',0,NOW(),NOW()) ON DUPLICATE KEY UPDATE first_message_id=VALUES(first_message_id),last_message_id=VALUES(last_message_id),first_message_at=VALUES(first_message_at),last_message_at=VALUES(last_message_at),
                 available_at=NOW(),status='pending',attempts=0,locked_at=NULL,processed_at=NULL,error_message=NULL,ai_interaction_id=NULL,updated_at=NOW()")
                 ->execute([$conversationId, $datas['first_id'], $datas['last_id'], $datas['first_at'], $datas['last_at']]);
+            interromperFollowupPorMensagemRecebida($pdo, $leadId, (int) $datas['last_id'], (string) $datas['last_at']);
         }
         $pdo->commit();
     } catch (Throwable $e) {

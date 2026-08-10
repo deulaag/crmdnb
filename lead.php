@@ -63,6 +63,7 @@ $conversasSemLead = [];
 if (temPapel(PAPEL_ADMINISTRADOR)) {
     $conversasSemLead = $pdo->query("SELECT wc.id,wc.last_message_at,ct.phone,ct.display_name FROM whatsapp_conversations wc JOIN whatsapp_contacts ct ON ct.id=wc.contact_id WHERE wc.lead_id IS NULL ORDER BY wc.last_message_at DESC LIMIT 100")->fetchAll();
 }
+$followupResumo = resumoFollowupLead($pdo, $leadId);
 if (temPapel(PAPEL_ADMINISTRADOR)) {
     $responsaveis = $pdo->query("SELECT id,nome,role FROM usuarios WHERE status='active' AND role IN ('VENDEDOR','SUPERVISOR') ORDER BY nome")->fetchAll();
 } elseif (temPapel(PAPEL_SUPERVISOR)) {
@@ -97,6 +98,21 @@ include __DIR__ . '/includes/layout_header.php';
     <?php if (!$conversasWhatsapp): ?><p class="text-sm text-slate-500 mt-2">Nenhum contato do WhatsApp vinculado a este lead.</p><?php endif; ?>
     <?php if (temPapel(PAPEL_ADMINISTRADOR) && $conversasSemLead): ?>
       <form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="vincular_whatsapp"><input type="hidden" name="id" value="<?= $leadId ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Vincular conversa sem lead</label><select name="conversation_id" class="<?= INPUT_CLS ?>" required><option value="">Selecione</option><?php foreach ($conversasSemLead as $wpp): ?><option value="<?= (int) $wpp['id'] ?>"><?= e($wpp['display_name'] ?: $wpp['phone']) ?> · <?= e($wpp['last_message_at']) ?></option><?php endforeach; ?></select></div><button class="<?= BTN_P ?>">Vincular</button></form>
+    <?php endif; ?>
+  </div>
+</section>
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm mt-4">
+  <div class="p-4">
+    <div class="flex items-start justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Cadência v3.2</span><h2 class="dnb-section-title">Follow-up automático</h2></div><?php
+      $regraFollowup=$followupResumo['rule'];
+      $followupAtivo=$regraFollowup && !empty($regraFollowup['is_active']) && empty($lead['cad_pausada']);
+      echo tag($followupAtivo?'Ativo':(!empty($lead['cad_pausada'])?'Pausado':'Inativo'),$followupAtivo?'green':(!empty($lead['cad_pausada'])?'amber':'slate'));
+    ?></div>
+    <?php if (!$followupResumo['available']): ?><p class="text-sm text-slate-500 mt-3">A migração <code>20260809_followup_engine.sql</code> ainda não foi instalada.</p>
+    <?php elseif (!$regraFollowup): ?><p class="text-sm text-slate-500 mt-3">Não existe regra cadastrada para a etapa atual.</p>
+    <?php else: ?>
+      <div class="dnb-lead-summary mt-4"><div><span>Etapa</span><strong><?= e($regraFollowup['stage_name']) ?></strong></div><div><span>Inatividade</span><strong><?= (int)$regraFollowup['inactivity_hours'] ?> h</strong></div><div><span>Score mínimo</span><strong><?= (int)$regraFollowup['min_score'] ?></strong></div><div><span>Tentativas consumidas</span><strong><?= (int)$followupResumo['sent_attempts'] ?> / <?= (int)$regraFollowup['max_attempts'] ?></strong></div></div>
+      <div class="mt-4 space-y-2"><?php foreach (array_slice($followupResumo['logs'],0,5) as $log): ?><div class="flex items-center justify-between gap-3 border-t border-slate-100 pt-2 text-sm"><span><?= e($log['created_at']) ?> · tentativa <?= (int)$log['attempt_number'] ?></span><?= tag((string)$log['status'],in_array($log['status'],['sent'],true)?'green':(in_array($log['status'],['failed','blocked'],true)?'red':'amber')) ?></div><?php endforeach; ?><?php if (!$followupResumo['logs']): ?><p class="text-sm text-slate-500">Nenhuma execução registrada para este lead.</p><?php endif; ?></div>
     <?php endif; ?>
   </div>
 </section>

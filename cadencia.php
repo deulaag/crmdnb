@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
+require_once __DIR__ . '/includes/followup_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
@@ -73,7 +74,20 @@ function mapaCadLog(PDO $pdo): array
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    exigirCsrf();
     $acao = $_POST['acao'] ?? '';
+
+    if ($acao === 'salvar_regra') {
+        salvarRegraFollowup(
+            $pdo,
+            (int) ($_POST['regra_id'] ?? 0),
+            (int) ($_POST['inactivity_hours'] ?? 24),
+            (int) ($_POST['min_score'] ?? 0),
+            (int) ($_POST['max_attempts'] ?? 3),
+            !empty($_POST['is_active'])
+        );
+        cadRedirect('Regra automática atualizada.');
+    }
 
     if ($acao === 'pausar') {
         if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
@@ -143,8 +157,8 @@ function renderItemCad(array $o, array $st, array $vendedores, array $previews, 
           <div class="mt-1"><?= tag($st['rotulo'], $st['devido'] ? 'amber' : 'blue') ?></div>
         </div>
         <div class="flex gap-2 flex-wrap">
-          <form method="post"><input type="hidden" name="acao" value="gerar"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?>">Gerar e-mail</button></form>
-          <form method="post"><input type="hidden" name="acao" value="pausar"><input type="hidden" name="id" value="<?= $o['id'] ?>"><input type="hidden" name="pausar" value="<?= empty($o['cad_pausada']) ? 1 : 0 ?>"><button class="<?= BTN_S ?>"><?= empty($o['cad_pausada']) ? 'Pausar' : 'Retomar' ?></button></form>
+          <form method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="gerar"><input type="hidden" name="id" value="<?= $o['id'] ?>"><button class="<?= BTN_S ?>">Gerar e-mail</button></form>
+          <form method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="pausar"><input type="hidden" name="id" value="<?= $o['id'] ?>"><input type="hidden" name="pausar" value="<?= empty($o['cad_pausada']) ? 1 : 0 ?>"><button class="<?= BTN_S ?>"><?= empty($o['cad_pausada']) ? 'Pausar' : 'Retomar' ?></button></form>
         </div>
       </div>
       <?php if (isset($previews[$o['id']])): $p = $previews[$o['id']]; $domId = 'email-' . $o['id']; ?>
@@ -162,17 +176,78 @@ $tabAtual = 'cad';
 include __DIR__ . '/includes/layout_header.php';
 ?>
 
+<?php
+$followupDisponivel = followupTabelasDisponiveis($pdo);
+$regrasFollowup = $followupDisponivel ? listarRegrasFollowup($pdo) : [];
+$statsFollowup = estatisticasFollowup($pdo);
+$logsFollowup = listarLogsFollowup($pdo, 30);
+$rotulosFollowup = [
+    'sent'=>['Enviados','green'],'failed'=>['Falhas de IA','red'],'paused'=>['Pausados','amber'],
+    'blocked'=>['Bloqueados','red'],'delivery_unknown'=>['Revisão manual','amber'],'processing'=>['Processando','blue'],
+    'ready'=>['Pronto','blue'],'sending'=>['Enviando','blue'],
+];
+?>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="flex items-start justify-between px-4 pt-4 flex-wrap gap-3">
+    <div><span class="dnb-eyebrow">Motor v3.2</span><h2 class="dnb-section-title">Follow-up automático com IA e WhatsApp</h2></div>
+    <?= tag($followupDisponivel ? 'Migração instalada' : 'Migração pendente', $followupDisponivel ? 'green' : 'amber') ?>
+  </div>
+  <div class="p-4">
+    <p class="text-sm text-slate-600">O Cron Job do cPanel seleciona leads inativos por etapa e score, pede uma mensagem contextual à VPS e envia pelo WhatsApp. Resposta do lead, Human Lock, pausa manual e limite de tentativas impedem novos envios.</p>
+    <?php if (!$followupDisponivel): ?><div class="dnb-alert dnb-alert--warning mt-3">Instale <code>sql/migrations/20260809_followup_engine.sql</code> no phpMyAdmin antes de ativar o motor.</div><?php endif; ?>
+    <?php if ($followupDisponivel): ?>
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mt-4">
+        <?php foreach (['sent','failed','paused','blocked','delivery_unknown','processing'] as $status): [$rotulo,$cor] = $rotulosFollowup[$status]; ?>
+          <div class="border border-slate-200 rounded-lg p-3"><span class="text-xs text-slate-500"><?= e($rotulo) ?></span><div class="text-xl font-bold mt-1" style="color:<?= NAVY ?>;"><?= (int)($statsFollowup[$status] ?? 0) ?></div><div class="mt-1"><?= tag($status,$cor) ?></div></div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+  </div>
+</div>
+
+<?php if ($followupDisponivel && temPapel(PAPEL_ADMINISTRADOR)): ?>
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="px-4 pt-4"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Regras automáticas por etapa</span></div>
+  <div class="p-4 overflow-x-auto" tabindex="0" role="region" aria-label="Regras automáticas de follow-up">
+    <table class="w-full text-sm min-w-[900px]"><thead><tr class="text-left text-slate-500"><th class="p-2">Funil / etapa</th><th class="p-2">Inatividade</th><th class="p-2">Score mínimo</th><th class="p-2">Máx. tentativas</th><th class="p-2">Ativa</th><th class="p-2">Ação</th></tr></thead><tbody>
+      <?php foreach ($regrasFollowup as $regra): $formId='regra-'.(int)$regra['id']; ?><tr class="border-t border-slate-200">
+        <td class="p-2"><form id="<?= $formId ?>" method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="salvar_regra"><input type="hidden" name="regra_id" value="<?= (int)$regra['id'] ?>"></form><strong><?= e(ucfirst($regra['pipeline_key'])) ?></strong><div class="text-xs text-slate-500"><?= e($regra['stage_name']) ?></div></td>
+        <td class="p-2"><label class="sr-only" for="horas-<?= (int)$regra['id'] ?>">Horas de inatividade</label><input form="<?= $formId ?>" id="horas-<?= (int)$regra['id'] ?>" type="number" min="1" max="8760" name="inactivity_hours" value="<?= (int)$regra['inactivity_hours'] ?>" class="<?= INPUT_CLS ?> w-28"> h</td>
+        <td class="p-2"><label class="sr-only" for="score-<?= (int)$regra['id'] ?>">Score mínimo</label><input form="<?= $formId ?>" id="score-<?= (int)$regra['id'] ?>" type="number" min="0" max="100" name="min_score" value="<?= (int)$regra['min_score'] ?>" class="<?= INPUT_CLS ?> w-24"></td>
+        <td class="p-2"><label class="sr-only" for="tent-<?= (int)$regra['id'] ?>">Máximo de tentativas</label><input form="<?= $formId ?>" id="tent-<?= (int)$regra['id'] ?>" type="number" min="1" max="20" name="max_attempts" value="<?= (int)$regra['max_attempts'] ?>" class="<?= INPUT_CLS ?> w-24"></td>
+        <td class="p-2"><label class="inline-flex items-center gap-2"><input form="<?= $formId ?>" type="checkbox" name="is_active" value="1" <?= !empty($regra['is_active'])?'checked':'' ?>><span><?= !empty($regra['is_active'])?'Ativa':'Inativa' ?></span></label></td>
+        <td class="p-2"><button form="<?= $formId ?>" class="<?= BTN_S ?>">Salvar</button></td>
+      </tr><?php endforeach; ?>
+    </tbody></table>
+    <p class="text-xs text-slate-500 mt-3">As regras são instaladas desativadas. Ative somente depois de validar a VPS, o provedor de WhatsApp e o Cron Job.</p>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if ($followupDisponivel): ?>
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="px-4 pt-4"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Operação recente</span></div>
+  <div class="p-4 overflow-x-auto" tabindex="0" role="region" aria-label="Histórico do motor de follow-up">
+    <table class="w-full text-sm min-w-[760px]"><thead><tr class="text-left text-slate-500"><th class="p-2">Data</th><th class="p-2">Lead</th><th class="p-2">Etapa</th><th class="p-2">Tentativa</th><th class="p-2">Status</th><th class="p-2">Detalhe</th></tr></thead><tbody>
+      <?php foreach ($logsFollowup as $log): $meta=$rotulosFollowup[$log['status']]??[$log['status'],'slate']; $detalhe=temPapel(PAPEL_ADMINISTRADOR)&&$log['error_message']?$log['error_message']:mb_substr((string)$log['message_sent'],0,140); ?><tr class="border-t border-slate-200"><td class="p-2 whitespace-nowrap"><?= e($log['sent_at'] ?: $log['created_at']) ?></td><td class="p-2"><a href="/lead.php?id=<?= (int)$log['lead_id'] ?>" class="font-semibold"><?= e($log['cliente']) ?></a><div class="text-xs text-slate-500"><?= e($log['numero']) ?></div></td><td class="p-2"><?= e($log['stage_name']) ?></td><td class="p-2"><?= (int)$log['attempt_number'] ?></td><td class="p-2"><?= tag($meta[0],$meta[1]) ?></td><td class="p-2 text-xs text-slate-500 max-w-sm"><?= e($detalhe) ?></td></tr><?php endforeach; ?>
+      <?php if (!$logsFollowup): ?><tr><td colspan="6" class="p-4 text-center text-slate-400">Nenhuma execução registrada.</td></tr><?php endif; ?>
+    </tbody></table>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
     <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Cadência automática por funil</span>
-    <form method="post" class="no-print"><input type="hidden" name="acao" value="rodar_dia">
+    <form method="post" class="no-print"><?= csrfInput() ?><input type="hidden" name="acao" value="rodar_dia">
       <button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;">Rodar cadência do dia (<?= count($devidas) ?> devido<?= count($devidas) === 1 ? '' : 's' ?>)</button>
     </form>
   </div>
   <div class="p-4">
     <div class="text-xs text-slate-500">
       Ritmos: <b>Peças e Revenda</b> D+1 · D+3 · D+7 · break-up D+10 &nbsp;|&nbsp; <b>Serviços e Locação</b> D+2 · D+7 · D+14 · break-up D+21 &nbsp;|&nbsp; <b>Equipamentos</b> D+3 · D+10 · D+25 e nutrição mensal contínua.
-      Os e-mails são gerados por modelo (sem IA externa) — revise e copie manualmente para o seu cliente de e-mail. Cada toque gerado fica registrado no histórico e alimenta o KPI de follow-up.
+      Esta área mantém a cadência manual por e-mail da versão anterior. Os e-mails são gerados por modelo, revisados e copiados manualmente; o motor v3.2 acima opera separadamente por IA e WhatsApp.
     </div>
     <?php if ($msg): ?><div class="text-sm font-semibold mt-2" style="color:<?= NAVY ?>;"><?= e($msg) ?></div><?php endif; ?>
   </div>
