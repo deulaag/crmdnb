@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/lead_service.php';
+require_once __DIR__ . '/includes/whatsapp_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR, PAPEL_SUPORTE);
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
@@ -18,6 +19,11 @@ function leadRedirect(int $leadId, string $msg): void
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exigirCsrf();
     $acao = $_POST['acao'] ?? '';
+    if ($acao === 'vincular_whatsapp' && temPapel(PAPEL_ADMINISTRADOR)) {
+        $conversationId = (int) ($_POST['conversation_id'] ?? 0);
+        vincularConversaWhatsappAoLead($pdo, $conversationId, $leadId);
+        leadRedirect($leadId, 'Conversa do WhatsApp vinculada ao lead.');
+    }
     if ($acao === 'reatribuir' && podeReatribuirLead()) {
         $novoId = (int) ($_POST['assigned_to_user_id'] ?? 0);
         $permitidos = [];
@@ -48,6 +54,15 @@ $lead = buscarLead($pdo, $leadId);
 $timeline = listarTimeline($pdo, $leadId);
 $stmt = $pdo->prepare('SELECT ai.*,u.nome requested_by_name FROM ai_interactions ai JOIN usuarios u ON u.id=ai.requested_by_user_id WHERE ai.lead_id=? ORDER BY ai.created_at DESC LIMIT 20'); $stmt->execute([$leadId]); $interacoes = $stmt->fetchAll();
 $stmt = $pdo->prepare('SELECT sc.*,u.nome agent_name FROM support_cases sc LEFT JOIN usuarios u ON u.id=sc.agent_id WHERE sc.lead_id=? ORDER BY sc.created_at DESC'); $stmt->execute([$leadId]); $casos = $stmt->fetchAll();
+$stmt = $pdo->prepare("SELECT wc.id,wc.status,wc.ai_paused,wc.assigned_to_user_id,wc.last_message_at,ct.phone,ct.display_name,human.nome human_name
+    FROM whatsapp_conversations wc JOIN whatsapp_contacts ct ON ct.id=wc.contact_id LEFT JOIN usuarios human ON human.id=wc.assigned_to_user_id
+    WHERE wc.lead_id=? ORDER BY wc.last_message_at DESC");
+$stmt->execute([$leadId]);
+$conversasWhatsapp = array_values(array_filter($stmt->fetchAll(), fn(array $wpp): bool => podeAcessarConversaWhatsapp($pdo, (int) $wpp['id'])));
+$conversasSemLead = [];
+if (temPapel(PAPEL_ADMINISTRADOR)) {
+    $conversasSemLead = $pdo->query("SELECT wc.id,wc.last_message_at,ct.phone,ct.display_name FROM whatsapp_conversations wc JOIN whatsapp_contacts ct ON ct.id=wc.contact_id WHERE wc.lead_id IS NULL ORDER BY wc.last_message_at DESC LIMIT 100")->fetchAll();
+}
 if (temPapel(PAPEL_ADMINISTRADOR)) {
     $responsaveis = $pdo->query("SELECT id,nome,role FROM usuarios WHERE status='active' AND role IN ('VENDEDOR','SUPERVISOR') ORDER BY nome")->fetchAll();
 } elseif (temPapel(PAPEL_SUPERVISOR)) {
@@ -75,4 +90,14 @@ include __DIR__ . '/includes/layout_header.php';
   </section>
 </div>
 <?php if ($casos): ?><section class="bg-white rounded-xl border border-slate-200 shadow-sm mt-4"><div class="p-4"><h2 class="dnb-section-title">Casos de suporte</h2><?php foreach($casos as $c):?><p><a href="/casos.php?caso=<?= (int)$c['id'] ?>">Caso #<?= (int)$c['id'] ?></a> · <?= e($c['status']) ?> · <?= e($c['agent_name'] ?: 'sem agente') ?></p><?php endforeach;?></div></section><?php endif; ?>
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm mt-4">
+  <div class="p-4">
+    <div class="flex items-start justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Canal</span><h2 class="dnb-section-title">WhatsApp</h2></div><?= tag(count($conversasWhatsapp) . ' conversa(s)', $conversasWhatsapp ? 'green' : 'slate') ?></div>
+    <?php foreach ($conversasWhatsapp as $wpp): ?><p class="mt-2"><a href="/chat.php?conversation=<?= (int) $wpp['id'] ?>"><?= e($wpp['display_name'] ?: $wpp['phone']) ?></a> · <?= e($wpp['human_name'] ?: ($wpp['ai_paused'] ? 'IA pausada' : 'IA ativa')) ?> · <?= e($wpp['last_message_at'] ?: 'sem mensagens') ?></p><?php endforeach; ?>
+    <?php if (!$conversasWhatsapp): ?><p class="text-sm text-slate-500 mt-2">Nenhum contato do WhatsApp vinculado a este lead.</p><?php endif; ?>
+    <?php if (temPapel(PAPEL_ADMINISTRADOR) && $conversasSemLead): ?>
+      <form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="vincular_whatsapp"><input type="hidden" name="id" value="<?= $leadId ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Vincular conversa sem lead</label><select name="conversation_id" class="<?= INPUT_CLS ?>" required><option value="">Selecione</option><?php foreach ($conversasSemLead as $wpp): ?><option value="<?= (int) $wpp['id'] ?>"><?= e($wpp['display_name'] ?: $wpp['phone']) ?> · <?= e($wpp['last_message_at']) ?></option><?php endforeach; ?></select></div><button class="<?= BTN_P ?>">Vincular</button></form>
+    <?php endif; ?>
+  </div>
+</section>
 <?php include __DIR__ . '/includes/layout_footer.php'; ?>

@@ -22,3 +22,9 @@ jobs:
         run: php tests/rbac_test.php
       - name: Testar contrato da IA
         run: php tests/ai_payload_test.php
+      - name: Testar WhatsApp, RBAC, buffer e Human Lock
+        run: |
+          php tests/whatsapp_rbac_test.php
+          php tests/whatsapp_buffer_test.php
+          php tests/whatsapp_human_lock_test.php
+          php tests/whatsapp_webhook_test.php
