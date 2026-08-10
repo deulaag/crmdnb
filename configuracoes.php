@@ -4,18 +4,50 @@ require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/seed.php';
+require_once __DIR__ . '/includes/whatsapp_provider.php';
+require_once __DIR__ . '/includes/ai_client.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
 $politicasArr = politicas();
 
-function cfgRedirect(string $msg = ''): void
+// Provedores aceitos na tabela de instâncias (o adaptador HTTP é genérico).
+const PROVEDORES_WHATSAPP = ['generic' => 'Genérico', 'evolution' => 'Evolution API', 'zapi' => 'Z-API'];
+
+function cfgRedirect(string $msg = '', string $aba = ''): void
 {
     if ($msg !== '') $_SESSION['flash'] = $msg;
     $qs = !empty($_GET['mes']) ? ('?mes=' . urlencode($_GET['mes'])) : '';
-    header('Location: /configuracoes.php' . $qs);
+    $hash = $aba !== '' ? ('#tab-' . $aba) : '';
+    header('Location: /configuracoes.php' . $qs . $hash);
     exit;
+}
+
+function whatsappInstanciasDisponiveis(PDO $pdo): bool
+{
+    static $disponivel = null;
+    if ($disponivel !== null) return $disponivel;
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='whatsapp_instances'");
+        return $disponivel = ((int) $stmt->fetchColumn() === 1);
+    } catch (Throwable) {
+        return $disponivel = false;
+    }
+}
+
+/** Mostra apenas esquema e host de uma URL — o caminho pode conter identificadores da instância. */
+function cfgUrlMascarada(string $url): string
+{
+    if ($url === '') return '—';
+    $partes = parse_url($url);
+    if ($partes === false || empty($partes['host'])) return 'valor inválido';
+    return ($partes['scheme'] ?? 'https') . '://' . $partes['host'] . (isset($partes['path']) && $partes['path'] !== '/' ? '/…' : '');
+}
+
+function cfgTagSegredo(string $valor): string
+{
+    return $valor !== '' ? tag('definido', 'green') : tag('ausente', 'amber');
 }
 
 function sincronizarVinculosPessoasUsuarios(PDO $pdo): void
@@ -36,6 +68,7 @@ const CAMPOS_POL = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    exigirCsrf();
     $acao = $_POST['acao'] ?? '';
 
     if ($acao === 'trocar_politica') {
@@ -86,6 +119,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cfgRedirect('Base zerada — equipe restaurada ao padrão.');
     }
 
+    if ($acao === 'salvar_instancia' && whatsappInstanciasDisponiveis($pdo)) {
+        $externo = trim((string) ($_POST['external_instance_id'] ?? ''));
+        $nome = trim((string) ($_POST['nome_instancia'] ?? ''));
+        $providerEnviado = is_string($_POST['provider'] ?? null) ? $_POST['provider'] : '';
+        $provider = array_key_exists($providerEnviado, PROVEDORES_WHATSAPP) ? $providerEnviado : 'generic';
+        $status = ($_POST['status_instancia'] ?? '') === 'inactive' ? 'inactive' : 'active';
+        if ($externo === '' || $nome === '') cfgRedirect('Informe o identificador externo e o nome da instância.', 'integracoes');
+        $pdo->prepare('INSERT INTO whatsapp_instances (external_instance_id, name, provider, status) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), provider=VALUES(provider), status=VALUES(status)')
+            ->execute([mb_substr($externo, 0, 120), mb_substr($nome, 0, 160), $provider, $status]);
+        cfgRedirect('Instância de WhatsApp salva.', 'integracoes');
+    }
+
+    if ($acao === 'excluir_instancia' && whatsappInstanciasDisponiveis($pdo)) {
+        // As FKs de contatos, conversas e mensagens são ON DELETE CASCADE: só removemos
+        // instâncias sem histórico. Instâncias em uso devem ser desativadas, nunca apagadas.
+        $idInst = (int) ($_POST['instancia_id'] ?? 0);
+        $stmtUso = $pdo->prepare('SELECT (SELECT COUNT(*) FROM whatsapp_conversations WHERE instance_id=?) + (SELECT COUNT(*) FROM whatsapp_contacts WHERE instance_id=?)');
+        $stmtUso->execute([$idInst, $idInst]);
+        if ((int) $stmtUso->fetchColumn() > 0) {
+            cfgRedirect('Instância com contatos ou conversas registrados não pode ser excluída — altere o status para inativa.', 'integracoes');
+        }
+        $pdo->prepare('DELETE FROM whatsapp_instances WHERE id=?')->execute([$idInst]);
+        cfgRedirect('Instância removida.', 'integracoes');
+    }
+
 }
 
 $msg = $_SESSION['flash'] ?? '';
@@ -104,27 +162,56 @@ function numField(array $pes, string $k, string $label): void
         . '<input type="number" step="0.01" name="pol[' . e($k) . ']" value="' . e((string) $v) . '" class="' . INPUT_CLS . '"></div>';
 }
 
+$instanciasDisponiveis = whatsappInstanciasDisponiveis($pdo);
+$instancias = $instanciasDisponiveis
+    ? $pdo->query('SELECT id, external_instance_id, name, provider, status FROM whatsapp_instances ORDER BY name')->fetchAll()
+    : [];
+
+$abas = [
+    'simulacao'   => 'Simulação & Demonstração',
+    'apuracao'    => 'Apuração Mensal',
+    'politicas'   => 'Políticas por Pessoa',
+    'integracoes' => 'Integrações e Tokens',
+    'acesso'      => 'Acesso e Suporte',
+];
+
 $tabAtual = 'cfg';
 include __DIR__ . '/includes/layout_header.php';
 ?>
+
+<noscript><style>.dnb-tabs{display:none}.dnb-tabs__panel[hidden]{display:block}</style></noscript>
+
+<?php if ($msg): ?><div class="dnb-alert dnb-alert--success"><?= e($msg) ?></div><?php endif; ?>
+
+<div class="dnb-tabs" role="tablist" aria-label="Seções de configuração" data-dnb-tabs="dnb-cfg-tab">
+  <?php foreach ($abas as $chave => $rotulo): ?>
+    <button type="button" role="tab" class="dnb-tabs__tab<?= $chave === 'simulacao' ? ' is-active' : '' ?>" id="tabbtn-<?= e($chave) ?>" aria-controls="tab-<?= e($chave) ?>" aria-selected="<?= $chave === 'simulacao' ? 'true' : 'false' ?>" tabindex="<?= $chave === 'simulacao' ? '0' : '-1' ?>" data-tab-target="<?= e($chave) ?>"><?= e($rotulo) ?></button>
+  <?php endforeach; ?>
+</div>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-simulacao" aria-labelledby="tabbtn-simulacao" data-tab-panel="simulacao">
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Simulação com dados de demonstração</span></div>
   <div class="p-4">
     <div class="text-sm text-slate-600 mb-3">Carrega jul/2026 com as políticas reais em ação, para testar o sistema com dados de exemplo. <b>Substitui os dados comerciais atuais</b> (orçamentos, pedidos, visitas e apuração) e restaura a equipe ao padrão.</div>
-    <?php if ($msg): ?><div class="text-xs font-semibold mb-2" style="color:<?= NAVY ?>;"><?= e($msg) ?></div><?php endif; ?>
     <div class="flex gap-2">
-      <form method="post" onsubmit="return confirm('Isso substitui todos os dados comerciais atuais pela simulação. Continuar?');"><input type="hidden" name="acao" value="carregar_demo"><button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;">Carregar simulação</button></form>
-      <form method="post" onsubmit="return confirm('Isso apaga TODOS os orçamentos, pedidos, visitas e apuração, e restaura a equipe ao padrão. Continuar?');"><input type="hidden" name="acao" value="limpar_tudo"><button class="<?= BTN_S ?>">Limpar tudo (zerar base)</button></form>
+      <form method="post" onsubmit="return confirm('Isso substitui todos os dados comerciais atuais pela simulação. Continuar?');"><?= csrfInput() ?><input type="hidden" name="acao" value="carregar_demo"><button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;">Carregar simulação</button></form>
+      <form method="post" onsubmit="return confirm('Isso apaga TODOS os orçamentos, pedidos, visitas e apuração, e restaura a equipe ao padrão. Continuar?');"><?= csrfInput() ?><input type="hidden" name="acao" value="limpar_tudo"><button class="<?= BTN_S ?>">Limpar tudo (zerar base)</button></form>
     </div>
   </div>
 </div>
+
+</section>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-apuracao" aria-labelledby="tabbtn-apuracao" data-tab-panel="apuracao" hidden>
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Apuração mensal · <?= e(rotuloMes($mes)) ?> (ocorrências operacionais)</span></div>
   <div class="p-4">
     <div class="text-xs text-slate-500 mb-2">Os KPIs de bonificação são apurados automaticamente pelos dados do CRM (veja o Painel). Aqui a diretoria lança apenas desconformidades documentais — cada ocorrência reduz a bonificação em 5%, cumulativa com as reduções automáticas, limitada a 100%.</div>
     <form method="post">
+      <?= csrfInput() ?>
       <input type="hidden" name="acao" value="salvar_apuracao">
       <input type="hidden" name="mes_apuracao" value="<?= e($mes) ?>">
       <table class="w-full text-sm">
@@ -143,14 +230,22 @@ include __DIR__ . '/includes/layout_header.php';
   </div>
 </div>
 
+</section>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-politicas" aria-labelledby="tabbtn-politicas" data-tab-panel="politicas" hidden>
+
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Políticas por pessoa (parâmetros editáveis)</span></div>
   <div class="p-4">
     <?php foreach ($vendedores as $pes): ?>
-      <div class="border border-slate-200 rounded-lg p-3 mb-3">
-        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+      <details class="border border-slate-200 rounded-lg p-3 mb-3" open>
+        <summary class="flex items-center justify-between flex-wrap gap-2 mb-2 cursor-pointer">
           <div><span class="font-semibold" style="color:<?= NAVY ?>;"><?= e($pes['nome']) ?></span><span class="text-xs text-slate-400 ml-2"><?= e($pes['email']) ?></span></div>
+          <span class="text-xs text-slate-500"><?= e($politicasArr[$pes['politica']]['label'] ?? $pes['politica']) ?></span>
+        </summary>
+        <div class="flex items-center justify-end flex-wrap gap-2 mb-2">
           <form method="post" class="flex gap-2 items-center flex-wrap">
+            <?= csrfInput() ?>
             <input type="hidden" name="acao" value="trocar_politica">
             <input type="hidden" name="id" value="<?= e($pes['id']) ?>">
             <select name="politica" class="<?= INPUT_CLS ?> max-w-[280px]" onchange="this.form.submit()">
@@ -160,6 +255,7 @@ include __DIR__ . '/includes/layout_header.php';
         </div>
 
         <form method="post">
+          <?= csrfInput() ?>
           <input type="hidden" name="acao" value="salvar_pessoa">
           <input type="hidden" name="id" value="<?= e($pes['id']) ?>">
 
@@ -234,12 +330,113 @@ include __DIR__ . '/includes/layout_header.php';
           </div>
           <button class="<?= BTN_P ?> mt-3" style="background:<?= NAVY ?>;">Salvar alterações</button>
         </form>
-      </div>
+      </details>
     <?php endforeach; ?>
     <div class="text-xs text-slate-400">Alterar parâmetros aqui muda o cálculo do mês corrente e seguintes — registre alterações formais com aditivo à política.</div>
   </div>
 </div>
 
+</section>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-integracoes" aria-labelledby="tabbtn-integracoes" data-tab-panel="integracoes" hidden>
+
+<?php
+  $waUrl = whatsappEnv('DNB_WHATSAPP_SEND_URL');
+  $waToken = whatsappEnv('DNB_WHATSAPP_API_TOKEN');
+  $waWebhook = whatsappEnv('DNB_WHATSAPP_WEBHOOK_TOKEN');
+  $waCron = whatsappEnv('DNB_WHATSAPP_CRON_TOKEN');
+  $waOk = whatsappProviderConfigurado();
+  $host = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'seu-dominio.com.br');
+?>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Conexão WhatsApp</span><?= $waOk ? tag('Provedor configurado', 'green') : tag('Provedor não configurado', 'amber') ?></div>
+  <div class="p-4">
+    <p class="text-sm text-slate-600">Os segredos do provedor não ficam no banco nem no repositório: são constantes de <code>whatsapp.local.php</code> ou variáveis de ambiente do cPanel. Esta tela apenas confirma o que está definido e administra as instâncias registradas.</p>
+    <dl class="dnb-detail-list">
+      <div><dt>URL de envio (DNB_WHATSAPP_SEND_URL)</dt><dd><?= e(cfgUrlMascarada($waUrl)) ?></dd></div>
+      <div><dt>Token da API (DNB_WHATSAPP_API_TOKEN)</dt><dd><?= cfgTagSegredo($waToken) ?></dd></div>
+      <div><dt>Token do webhook de entrada (DNB_WHATSAPP_WEBHOOK_TOKEN)</dt><dd><?= cfgTagSegredo($waWebhook) ?></dd></div>
+      <div><dt>Token do Cron Job (DNB_WHATSAPP_CRON_TOKEN)</dt><dd><?= cfgTagSegredo($waCron) ?></dd></div>
+      <div><dt>Timeout de requisição</dt><dd><?= e(whatsappEnv('DNB_WHATSAPP_TIMEOUT', '30')) ?>s</dd></div>
+    </dl>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="px-4 pt-4"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Instâncias de WhatsApp</span></div>
+  <div class="p-4">
+    <?php if (!$instanciasDisponiveis): ?>
+      <div class="dnb-alert dnb-alert--warning">Instale <code>sql/migrations/20260809_whatsapp_rbac.sql</code> no phpMyAdmin para administrar instâncias.</div>
+    <?php else: ?>
+      <div class="overflow-x-auto" tabindex="0" role="region" aria-label="Instâncias de WhatsApp registradas">
+        <table class="w-full text-sm min-w-[760px]">
+          <thead><tr class="text-left text-slate-500"><th class="p-2">Identificador externo</th><th class="p-2">Nome</th><th class="p-2">Provedor</th><th class="p-2">Status</th><th class="p-2">Ação</th></tr></thead>
+          <tbody>
+            <?php foreach ($instancias as $inst): $fid = 'inst-' . (int) $inst['id']; ?>
+              <tr class="border-t border-slate-200">
+                <td class="p-2">
+                  <form id="<?= $fid ?>" method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="salvar_instancia"><input type="hidden" name="external_instance_id" value="<?= e($inst['external_instance_id']) ?>"></form>
+                  <code class="text-xs"><?= e($inst['external_instance_id']) ?></code>
+                </td>
+                <td class="p-2"><label class="sr-only" for="nome-<?= (int) $inst['id'] ?>">Nome da instância</label><input form="<?= $fid ?>" id="nome-<?= (int) $inst['id'] ?>" type="text" maxlength="160" name="nome_instancia" value="<?= e($inst['name']) ?>" class="<?= INPUT_CLS ?>"></td>
+                <td class="p-2"><label class="sr-only" for="prov-<?= (int) $inst['id'] ?>">Provedor</label><select form="<?= $fid ?>" id="prov-<?= (int) $inst['id'] ?>" name="provider" class="<?= INPUT_CLS ?>"><?php foreach (PROVEDORES_WHATSAPP as $pk => $pl): ?><option value="<?= e($pk) ?>" <?= $inst['provider'] === $pk ? 'selected' : '' ?>><?= e($pl) ?></option><?php endforeach; ?></select></td>
+                <td class="p-2"><label class="sr-only" for="st-<?= (int) $inst['id'] ?>">Status</label><select form="<?= $fid ?>" id="st-<?= (int) $inst['id'] ?>" name="status_instancia" class="<?= INPUT_CLS ?>"><option value="active" <?= $inst['status'] === 'active' ? 'selected' : '' ?>>ativa</option><option value="inactive" <?= $inst['status'] === 'inactive' ? 'selected' : '' ?>>inativa</option></select></td>
+                <td class="p-2 whitespace-nowrap">
+                  <button form="<?= $fid ?>" class="<?= BTN_S ?>">Salvar</button>
+                  <form method="post" class="inline" onsubmit="return confirm('Remover esta instância? Só é possível se ela não tiver contatos ou conversas registrados.');"><?= csrfInput() ?><input type="hidden" name="acao" value="excluir_instancia"><input type="hidden" name="instancia_id" value="<?= (int) $inst['id'] ?>"><button class="<?= BTN_S ?>">Excluir</button></form>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+            <?php if (!$instancias): ?><tr><td colspan="5" class="p-4 text-center text-slate-400">Nenhuma instância registrada.</td></tr><?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+      <form method="post" class="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4 items-end border-t border-slate-200 pt-4">
+        <?= csrfInput() ?>
+        <input type="hidden" name="acao" value="salvar_instancia">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1" for="nova-ext">Identificador externo</label><input id="nova-ext" type="text" maxlength="120" name="external_instance_id" required class="<?= INPUT_CLS ?>"></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1" for="nova-nome">Nome</label><input id="nova-nome" type="text" maxlength="160" name="nome_instancia" required class="<?= INPUT_CLS ?>"></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1" for="nova-prov">Provedor</label><select id="nova-prov" name="provider" class="<?= INPUT_CLS ?>"><?php foreach (PROVEDORES_WHATSAPP as $pk => $pl): ?><option value="<?= e($pk) ?>"><?= e($pl) ?></option><?php endforeach; ?></select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1" for="nova-st">Status</label><select id="nova-st" name="status_instancia" class="<?= INPUT_CLS ?>"><option value="active">ativa</option><option value="inactive">inativa</option></select></div>
+        <div><button class="<?= BTN_P ?> w-full" style="background:<?= NAVY ?>;">Adicionar instância</button></div>
+      </form>
+      <p class="text-xs text-slate-500 mt-3">O identificador externo é a chave da instância no provedor — salvar um identificador já existente atualiza o registro. A sincronização por QR Code é feita no painel do provedor.</p>
+    <?php endif; ?>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Conexão IA &amp; RAG (VPS)</span><?= iaConfigurada() ? tag('VPS configurada', 'green') : tag('VPS não configurada', 'amber') ?></div>
+  <div class="p-4">
+    <p class="text-sm text-slate-600">O CRM só conversa com a VPS pelos contratos <code>/api/v1/ai/route-and-process</code> e <code>/api/v1/ai/generate-followup</code>, sempre por HTTPS com Bearer Token. <b>O modelo de LLM, a temperatura e o índice RAG são configurados na própria VPS</b> — o CRM não os envia.</p>
+    <dl class="dnb-detail-list">
+      <div><dt>Endpoint (DNB_AI_VPS_ENDPOINT)</dt><dd><?= e(cfgUrlMascarada(AI_VPS_ENDPOINT)) ?></dd></div>
+      <div><dt>Bearer Token (DNB_AI_VPS_TOKEN)</dt><dd><?= cfgTagSegredo(AI_VPS_TOKEN) ?></dd></div>
+      <div><dt>Timeout (DNB_AI_TIMEOUT)</dt><dd><?= (int) AI_REQUEST_TIMEOUT ?>s</dd></div>
+      <div><dt>Limite de prompt</dt><dd><?= (int) AI_MAX_PROMPT_LENGTH ?> caracteres</dd></div>
+    </dl>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="px-4 pt-4"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Webhooks e Cron Jobs</span></div>
+  <div class="p-4">
+    <p class="text-sm text-slate-600">Endereços que o ecossistema consome. Cada um exige o token indicado — os valores nunca são exibidos aqui.</p>
+    <dl class="dnb-detail-list">
+      <div><dt>Webhook de entrada do provedor</dt><dd><code class="text-xs"><?= e($host) ?>/api/webhooks/whatsapp/index.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_WEBHOOK_TOKEN</code> · <?= cfgTagSegredo($waWebhook) ?></div></dd></div>
+      <div><dt>Cron · fila de envio do WhatsApp</dt><dd><code class="text-xs"><?= e($host) ?>/api/internal/whatsapp/process_queue.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_CRON_TOKEN</code> · <?= cfgTagSegredo($waCron) ?></div></dd></div>
+      <div><dt>Cron · motor de follow-up</dt><dd><code class="text-xs"><?= e($host) ?>/api/internal/followup/run.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_CRON_TOKEN</code> · regras editáveis em <a href="/cadencia.php" class="font-semibold">Cadência</a></div></dd></div>
+    </dl>
+  </div>
+</div>
+
+</section>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-acesso" aria-labelledby="tabbtn-acesso" data-tab-panel="acesso" hidden>
+
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4"><div class="p-4 flex items-center justify-between gap-4 flex-wrap"><div><h2 class="dnb-section-title">Acesso e hierarquia</h2><p class="text-sm text-slate-500">Papéis, supervisores, vínculos comerciais e status são administrados em um módulo dedicado.</p></div><a href="/usuarios.php" class="<?= BTN_P ?> inline-flex">Gerenciar usuários</a></div></div>
+
+</section>
 
 <?php include __DIR__ . '/includes/layout_footer.php'; ?>

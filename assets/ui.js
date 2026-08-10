@@ -35,6 +35,54 @@
     label.htmlFor = field.id;
   });
 
+  // Navegação por abas. A aba ativa sobrevive ao PRG dos formulários (hash) e
+  // ao recarregamento manual da página (localStorage).
+  const tabsRoot = document.querySelector('[data-dnb-tabs]');
+  if (tabsRoot) {
+    const storageKey = tabsRoot.dataset.dnbTabs || 'dnb-tabs';
+    const tabs = Array.from(tabsRoot.querySelectorAll('[data-tab-target]'));
+    const panels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+    const keys = tabs.map((tab) => tab.dataset.tabTarget);
+
+    function readStored() {
+      try { return window.localStorage.getItem(storageKey); } catch (error) { return null; }
+    }
+    function store(key) {
+      try { window.localStorage.setItem(storageKey, key); } catch (error) { /* modo privado */ }
+    }
+
+    function activate(key, focus) {
+      if (keys.indexOf(key) === -1) return;
+      tabs.forEach((tab) => {
+        const active = tab.dataset.tabTarget === key;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', String(active));
+        tab.tabIndex = active ? 0 : -1;
+        if (active && focus) tab.focus();
+      });
+      panels.forEach((panel) => { panel.hidden = panel.dataset.tabPanel !== key; });
+      store(key);
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => activate(tab.dataset.tabTarget, false));
+      tab.addEventListener('keydown', (event) => {
+        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        const index = keys.indexOf(tab.dataset.tabTarget);
+        activate(keys[(index + step + keys.length) % keys.length], true);
+      });
+    });
+
+    const fromHash = (window.location.hash || '').replace(/^#tab-/, '');
+    const stored = readStored();
+    const inicial = keys.indexOf(fromHash) !== -1 ? fromHash
+      : keys.indexOf(stored) !== -1 ? stored
+      : keys[0];
+    activate(inicial, false);
+  }
+
   const aiForm = document.querySelector('[data-ai-form]');
   if (aiForm) {
     aiForm.addEventListener('submit', async (event) => {

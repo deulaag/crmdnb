@@ -388,3 +388,40 @@ td { color: #34495b; }
   .dnb-chat-composer > div { align-items: stretch; flex-direction: column; }
   .dnb-chat-composer button { min-height: 44px; }
 }
+
+/* Navegação por abas · Configurações */
+.dnb-alert--warning { border-color: #e6cf95; background: #fdf7e7; color: var(--dnb-warning); }
+.dnb-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--dnb-border); margin-bottom: 18px; }
+.dnb-tabs__tab {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--dnb-radius-sm) var(--dnb-radius-sm) 0 0;
+  background: transparent;
+  color: var(--dnb-slate);
+  cursor: pointer;
+  margin-bottom: -1px;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 900;
+  transition: background var(--dnb-transition), color var(--dnb-transition);
+}
+.dnb-tabs__tab:hover { background: var(--dnb-ocean-100); color: var(--dnb-petroleum); }
+.dnb-tabs__tab.is-active {
+  border-color: var(--dnb-border);
+  background: var(--dnb-surface);
+  box-shadow: inset 0 3px 0 var(--dnb-petroleum);
+  color: var(--dnb-petroleum);
+}
+.dnb-tabs__tab.is-active::after {
+  display: block;
+  height: 1px;
+  margin: 10px -16px -11px;
+  background: var(--dnb-surface);
+  content: "";
+}
+.dnb-tabs__panel[hidden] { display: none; }
+@media (max-width: 520px) {
+  .dnb-tabs { gap: 2px; }
+  .dnb-tabs__tab { flex: 1 1 auto; padding: 10px 10px; font-size: 12px; text-align: center; }
+}
