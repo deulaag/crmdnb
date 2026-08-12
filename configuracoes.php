@@ -6,11 +6,9 @@ require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/seed.php';
 require_once __DIR__ . '/includes/whatsapp_provider.php';
 require_once __DIR__ . '/includes/ai_client.php';
-require_once __DIR__ . '/includes/rdstation_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
-$usuarioAtualId = (int) (usuarioLogado()['id'] ?? 0);
 $mes = $_GET['mes'] ?? mesAtual();
 $politicasArr = politicas();
 
@@ -144,75 +142,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $pdo->prepare('DELETE FROM whatsapp_instances WHERE id=?')->execute([$idInst]);
         cfgRedirect('Instância removida.', 'integracoes');
-    }
-
-    // --- Integrações editáveis -------------------------------------------------
-    // Campos de segredo chegam vazios quando o admin não quer trocá-los: nesse caso
-    // preservamos o valor atual em vez de apagá-lo. Para limpar de fato, existe a
-    // caixa "remover", que devolve a configuração ao arquivo local do servidor.
-    if (in_array($acao, ['salvar_whatsapp', 'salvar_ia', 'salvar_rdstation'], true)) {
-        $texto = static fn(string $campo): string => trim((string) ($_POST[$campo] ?? ''));
-        $limpar = static fn(string $campo): bool => !empty($_POST['limpar'][$campo]);
-
-        $gravar = function (string $servico, string $chave, string $campo, bool $segredo) use ($pdo, $texto, $limpar, $usuarioAtualId): void {
-            if ($limpar($campo)) { salvarIntegracao($pdo, $servico, $chave, null, $segredo, $usuarioAtualId); return; }
-            $valor = $texto($campo);
-            if ($segredo && $valor === '') return; // em branco = manter o que já está gravado
-            salvarIntegracao($pdo, $servico, $chave, $valor === '' ? null : $valor, $segredo, $usuarioAtualId);
-        };
-
-        try {
-            if ($acao === 'salvar_whatsapp') {
-                $gravar('whatsapp', 'send_url', 'wa_send_url', false);
-                $gravar('whatsapp', 'instance_name', 'wa_instance_name', false);
-                $gravar('whatsapp', 'timeout', 'wa_timeout', false);
-                $gravar('whatsapp', 'api_token', 'wa_api_token', true);
-                $gravar('whatsapp', 'webhook_token', 'wa_webhook_token', true);
-                $gravar('whatsapp', 'cron_token', 'wa_cron_token', true);
-                cfgRedirect('Configurações de WhatsApp salvas.', 'integracoes');
-            }
-
-            if ($acao === 'salvar_ia') {
-                $gravar('ai_vps', 'endpoint', 'ia_endpoint', false);
-                $gravar('ai_vps', 'modelo', 'ia_modelo', false);
-                $gravar('ai_vps', 'timeout', 'ia_timeout', false);
-                $gravar('ai_vps', 'token', 'ia_token', true);
-                cfgRedirect('Configurações de IA salvas.', 'integracoes');
-            }
-
-            if ($acao === 'salvar_rdstation') {
-                $fonte = (string) ($_POST['fonte'] ?? '');
-                if (!rdFonteValida($fonte)) cfgRedirect('Fonte RD Station desconhecida.', 'integracoes');
-                $sufixo = $fonte === 'rdstation_crm' ? 'crm' : 'mkt';
-                $gravar($fonte, 'client_id', 'rd_client_id_' . $sufixo, false);
-                $gravar($fonte, 'callback_url', 'rd_callback_' . $sufixo, false);
-                $gravar($fonte, 'client_secret', 'rd_client_secret_' . $sufixo, true);
-                $gravar($fonte, 'static_token', 'rd_static_token_' . $sufixo, true);
-                cfgRedirect(rdFonte($fonte)['rotulo'] . ': configurações salvas.', 'integracoes');
-            }
-        } catch (SettingsServiceException $e) {
-            cfgRedirect($e->getMessage(), 'integracoes');
-        }
-    }
-
-    if ($acao === 'conectar_rdstation') {
-        $fonte = (string) ($_POST['fonte'] ?? '');
-        if (!rdFonteValida($fonte)) cfgRedirect('Fonte RD Station desconhecida.', 'integracoes');
-        try {
-            header('Location: ' . rdUrlAutorizacao($fonte));
-            exit;
-        } catch (Throwable $e) {
-            cfgRedirect($e->getMessage(), 'integracoes');
-        }
-    }
-
-    if ($acao === 'desconectar_rdstation') {
-        $fonte = (string) ($_POST['fonte'] ?? '');
-        if (!rdFonteValida($fonte)) cfgRedirect('Fonte RD Station desconhecida.', 'integracoes');
-        foreach (['access_token', 'refresh_token', 'expires_at', 'connected_at'] as $chave) {
-            salvarIntegracao($pdo, $fonte, $chave, null, false, $usuarioAtualId);
-        }
-        cfgRedirect(rdFonte($fonte)['rotulo'] . ': conexão removida.', 'integracoes');
     }
 
 }
@@ -427,65 +356,20 @@ include __DIR__ . '/includes/layout_header.php';
   $waWebhook = whatsappEnv('DNB_WHATSAPP_WEBHOOK_TOKEN');
   $waCron = whatsappEnv('DNB_WHATSAPP_CRON_TOKEN');
   $waOk = whatsappProviderConfigurado();
-  $host = integracaoBaseUrl();
-  $podeGravar = integracaoTabelaDisponivel($pdo);
-  $podeSegredo = $podeGravar && configKeyDisponivel();
-
-  /** Campo de segredo: nunca reimprime o valor, só indica se existe e de onde vem. */
-  function campoSegredo(string $campo, string $rotulo, string $valorAtual, bool $noBanco, bool $habilitado): void
-  {
-      $id = 'f-' . $campo;
-      echo '<div><label class="block text-xs font-semibold text-slate-600 mb-1" for="' . e($id) . '">' . e($rotulo) . '</label>'
-        . '<div class="flex gap-2 items-center">'
-        . '<input id="' . e($id) . '" type="password" name="' . e($campo) . '" value="" autocomplete="new-password" '
-        . 'placeholder="' . ($valorAtual !== '' ? e(integracaoSegredoMascarado($valorAtual)) : 'não definido') . '" '
-        . ($habilitado ? '' : 'disabled ') . 'class="' . INPUT_CLS . '">'
-        . '<button type="button" class="' . BTN_S . ' whitespace-nowrap" data-toggle-secret="' . e($id) . '" aria-pressed="false">Mostrar</button>'
-        . '</div>'
-        . '<div class="flex items-center justify-between gap-2 mt-1">'
-        . '<span class="text-xs text-slate-500">' . ($valorAtual === '' ? 'Ausente.' : ($noBanco ? 'Gravado nesta tela.' : 'Vindo do arquivo do servidor.')) . ' Em branco mantém o atual.</span>'
-        . ($noBanco ? '<label class="text-xs text-slate-500 whitespace-nowrap"><input type="checkbox" name="limpar[' . e($campo) . ']" value="1"> remover</label>' : '')
-        . '</div></div>';
-  }
-
-  /** Campo de texto comum, com indicação de origem do valor exibido. */
-  function campoTexto(string $campo, string $rotulo, string $valorAtual, bool $noBanco, string $dica = '', string $tipo = 'text'): void
-  {
-      $id = 'f-' . $campo;
-      echo '<div><label class="block text-xs font-semibold text-slate-600 mb-1" for="' . e($id) . '">' . e($rotulo) . '</label>'
-        . '<input id="' . e($id) . '" type="' . e($tipo) . '" name="' . e($campo) . '" value="' . e($valorAtual) . '" class="' . INPUT_CLS . '">'
-        . '<div class="flex items-center justify-between gap-2 mt-1">'
-        . '<span class="text-xs text-slate-500">' . ($dica !== '' ? e($dica) : ($valorAtual === '' ? 'Ausente.' : ($noBanco ? 'Gravado nesta tela.' : 'Vindo do arquivo do servidor.'))) . '</span>'
-        . ($noBanco ? '<label class="text-xs text-slate-500 whitespace-nowrap"><input type="checkbox" name="limpar[' . e($campo) . ']" value="1"> remover</label>' : '')
-        . '</div></div>';
-  }
+  $host = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'seu-dominio.com.br');
 ?>
-
-<?php if (!$podeGravar): ?>
-  <div class="dnb-alert dnb-alert--warning">Instale <code>sql/migrations/20260810_system_integrations.sql</code> no phpMyAdmin para editar tokens e APIs por esta tela. Até lá, os valores continuam vindo de <code>whatsapp.local.php</code> e das variáveis de ambiente do cPanel.</div>
-<?php elseif (!configKeyDisponivel()): ?>
-  <div class="dnb-alert dnb-alert--warning">Defina <code>DNB_CONFIG_KEY</code> em <code>whatsapp.local.php</code> (ou nas variáveis de ambiente do cPanel) para gravar segredos. Sem ela os campos de token ficam bloqueados — nenhum segredo é gravado em texto puro no banco.</div>
-<?php endif; ?>
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Conexão WhatsApp</span><?= $waOk ? tag('Provedor configurado', 'green') : tag('Provedor não configurado', 'amber') ?></div>
   <div class="p-4">
-    <p class="text-sm text-slate-600">Evolution API, Z-API ou webhook genérico. O que for salvo aqui tem precedência sobre <code>whatsapp.local.php</code> e sobre as variáveis de ambiente; marcar <b>remover</b> devolve o campo ao valor do servidor.</p>
-    <form method="post" class="mt-4">
-      <?= csrfInput() ?>
-      <input type="hidden" name="acao" value="salvar_whatsapp">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <?php
-          campoTexto('wa_send_url', 'URL da API / instância', $waUrl, integracaoVemDoBanco('whatsapp', 'send_url'), '', 'url');
-          campoTexto('wa_instance_name', 'Nome da instância', integracaoValor('whatsapp', 'instance_name'), integracaoVemDoBanco('whatsapp', 'instance_name'), 'Rótulo de referência desta conexão.');
-          campoSegredo('wa_api_token', 'API Key / Secret Token', $waToken, integracaoVemDoBanco('whatsapp', 'api_token'), $podeSegredo);
-          campoSegredo('wa_webhook_token', 'Token do webhook de entrada', $waWebhook, integracaoVemDoBanco('whatsapp', 'webhook_token'), $podeSegredo);
-          campoSegredo('wa_cron_token', 'Token dos Cron Jobs', $waCron, integracaoVemDoBanco('whatsapp', 'cron_token'), $podeSegredo);
-          campoTexto('wa_timeout', 'Timeout (segundos)', whatsappEnv('DNB_WHATSAPP_TIMEOUT', '30'), integracaoVemDoBanco('whatsapp', 'timeout'), '', 'number');
-        ?>
-      </div>
-      <button class="<?= BTN_P ?> mt-4" style="background:<?= NAVY ?>;" <?= $podeGravar ? '' : 'disabled' ?>>Salvar configurações de WhatsApp</button>
-    </form>
+    <p class="text-sm text-slate-600">Os segredos do provedor não ficam no banco nem no repositório: são constantes de <code>whatsapp.local.php</code> ou variáveis de ambiente do cPanel. Esta tela apenas confirma o que está definido e administra as instâncias registradas.</p>
+    <dl class="dnb-detail-list">
+      <div><dt>URL de envio (DNB_WHATSAPP_SEND_URL)</dt><dd><?= e(cfgUrlMascarada($waUrl)) ?></dd></div>
+      <div><dt>Token da API (DNB_WHATSAPP_API_TOKEN)</dt><dd><?= cfgTagSegredo($waToken) ?></dd></div>
+      <div><dt>Token do webhook de entrada (DNB_WHATSAPP_WEBHOOK_TOKEN)</dt><dd><?= cfgTagSegredo($waWebhook) ?></dd></div>
+      <div><dt>Token do Cron Job (DNB_WHATSAPP_CRON_TOKEN)</dt><dd><?= cfgTagSegredo($waCron) ?></dd></div>
+      <div><dt>Timeout de requisição</dt><dd><?= e(whatsappEnv('DNB_WHATSAPP_TIMEOUT', '30')) ?>s</dd></div>
+    </dl>
   </div>
 </div>
 
@@ -535,79 +419,15 @@ include __DIR__ . '/includes/layout_header.php';
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Conexão IA &amp; RAG (VPS)</span><?= iaConfigurada() ? tag('VPS configurada', 'green') : tag('VPS não configurada', 'amber') ?></div>
   <div class="p-4">
-    <p class="text-sm text-slate-600">O CRM chama a VPS por HTTPS com Bearer Token, nos contratos <code>/api/v1/ai/route-and-process</code> e <code>/api/v1/ai/generate-followup</code>. O modelo abaixo é <b>registro do que foi combinado com a VPS</b> — quem aplica o modelo, a temperatura e o índice RAG é ela. Limite de prompt: <?= (int) AI_MAX_PROMPT_LENGTH ?> caracteres.</p>
-    <form method="post" class="mt-4">
-      <?= csrfInput() ?>
-      <input type="hidden" name="acao" value="salvar_ia">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <?php
-          campoTexto('ia_endpoint', 'URL do endpoint da VPS', iaEndpoint(), integracaoVemDoBanco('ai_vps', 'endpoint'), 'Precisa ser HTTPS. Ex.: https://vps-ia.seu-dominio.com', 'url');
-          campoSegredo('ia_token', 'Bearer Token / API Key da VPS', iaToken(), integracaoVemDoBanco('ai_vps', 'token'), $podeSegredo);
-          campoTexto('ia_modelo', 'Modelo padrão de LLM', iaModeloPadrao(), integracaoVemDoBanco('ai_vps', 'modelo'), 'Ex.: gpt-4o, deepseek-r1, claude-sonnet-4-5. Informativo.');
-          campoTexto('ia_timeout', 'Timeout (segundos)', (string) iaTimeout(), integracaoVemDoBanco('ai_vps', 'timeout'), 'Entre 5 e 180.', 'number');
-        ?>
-      </div>
-      <button class="<?= BTN_P ?> mt-4" style="background:<?= NAVY ?>;" <?= $podeGravar ? '' : 'disabled' ?>>Salvar configurações de IA</button>
-    </form>
+    <p class="text-sm text-slate-600">O CRM só conversa com a VPS pelos contratos <code>/api/v1/ai/route-and-process</code> e <code>/api/v1/ai/generate-followup</code>, sempre por HTTPS com Bearer Token. <b>O modelo de LLM, a temperatura e o índice RAG são configurados na própria VPS</b> — o CRM não os envia.</p>
+    <dl class="dnb-detail-list">
+      <div><dt>Endpoint (DNB_AI_VPS_ENDPOINT)</dt><dd><?= e(cfgUrlMascarada(AI_VPS_ENDPOINT)) ?></dd></div>
+      <div><dt>Bearer Token (DNB_AI_VPS_TOKEN)</dt><dd><?= cfgTagSegredo(AI_VPS_TOKEN) ?></dd></div>
+      <div><dt>Timeout (DNB_AI_TIMEOUT)</dt><dd><?= (int) AI_REQUEST_TIMEOUT ?>s</dd></div>
+      <div><dt>Limite de prompt</dt><dd><?= (int) AI_MAX_PROMPT_LENGTH ?> caracteres</dd></div>
+    </dl>
   </div>
 </div>
-
-<?php foreach (RDSTATION_FONTES as $fonte => $meta):
-  $sufixo = $fonte === 'rdstation_crm' ? 'crm' : 'mkt';
-  $conectado = rdConectado($fonte);
-  $expirado = $conectado && rdTokenExpirado($fonte);
-?>
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-  <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
-    <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;"><?= e($meta['rotulo']) ?></span>
-    <?= $conectado ? tag($expirado ? 'Conectado · token vencido' : 'Conectado', $expirado ? 'amber' : 'green') : tag('Não conectado', 'amber') ?>
-  </div>
-  <div class="p-4">
-    <p class="text-sm text-slate-600">Fonte de coleta independente: os dados fluem da RD Station para o CRM. Cadastre esta URL de callback na aplicação criada no portal do desenvolvedor da RD.</p>
-
-    <form method="post" class="mt-4">
-      <?= csrfInput() ?>
-      <input type="hidden" name="acao" value="salvar_rdstation">
-      <input type="hidden" name="fonte" value="<?= e($fonte) ?>">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <?php
-          campoTexto('rd_client_id_' . $sufixo, 'Client ID', rdClientId($fonte), integracaoVemDoBanco($fonte, 'client_id'));
-          campoSegredo('rd_client_secret_' . $sufixo, 'Client Secret', rdClientSecret($fonte), integracaoVemDoBanco($fonte, 'client_secret'), $podeSegredo);
-          campoTexto('rd_callback_' . $sufixo, 'URL de callback (OAuth Redirect)', rdCallbackUrl($fonte), integracaoVemDoBanco($fonte, 'callback_url'), 'Cole exatamente este valor no cadastro da aplicação na RD.', 'url');
-          campoSegredo('rd_static_token_' . $sufixo, 'Token estático de instância (alternativa ao OAuth)', rdTokenEstatico($fonte), integracaoVemDoBanco($fonte, 'static_token'), $podeSegredo);
-        ?>
-      </div>
-      <button class="<?= BTN_P ?> mt-4" style="background:<?= NAVY ?>;" <?= $podeGravar ? '' : 'disabled' ?>>Salvar <?= e($meta['rotulo']) ?></button>
-    </form>
-
-    <div class="flex gap-2 items-center flex-wrap mt-4 border-t border-slate-200 pt-4">
-      <form method="post">
-        <?= csrfInput() ?>
-        <input type="hidden" name="acao" value="conectar_rdstation">
-        <input type="hidden" name="fonte" value="<?= e($fonte) ?>">
-        <button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;" <?= rdPodeConectar($fonte) ? '' : 'disabled' ?>><?= $conectado ? 'Reconectar' : 'Conectar' ?> com <?= e($meta['rotulo']) ?></button>
-      </form>
-      <?php if ($conectado): ?>
-        <form method="post" onsubmit="return confirm('Remover os tokens desta conexão? A coleta de dados para de funcionar até reconectar.');">
-          <?= csrfInput() ?>
-          <input type="hidden" name="acao" value="desconectar_rdstation">
-          <input type="hidden" name="fonte" value="<?= e($fonte) ?>">
-          <button class="<?= BTN_S ?>">Desconectar</button>
-        </form>
-      <?php endif; ?>
-      <span class="text-xs text-slate-500">
-        <?php if (!rdPodeConectar($fonte)): ?>
-          Preencha Client ID, Client Secret e callback para habilitar a conexão.
-        <?php elseif ($conectado): ?>
-          Conectado em <?= e(integracaoValor($fonte, 'connected_at') ?: '—') ?>. Renovação automática por refresh token<?= rdExpiraEm($fonte) !== '' ? ', válido até ' . e(rdExpiraEm($fonte)) : '' ?>.
-        <?php else: ?>
-          Ao clicar, você é levado à RD Station para autorizar e volta para cá.
-        <?php endif; ?>
-      </span>
-    </div>
-  </div>
-</div>
-<?php endforeach; ?>
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="px-4 pt-4"><span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Webhooks e Cron Jobs</span></div>
@@ -617,9 +437,6 @@ include __DIR__ . '/includes/layout_header.php';
       <div><dt>Webhook de entrada do provedor</dt><dd><code class="text-xs"><?= e($host) ?>/api/webhooks/whatsapp/index.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_WEBHOOK_TOKEN</code> · <?= cfgTagSegredo($waWebhook) ?></div></dd></div>
       <div><dt>Cron · fila de envio do WhatsApp</dt><dd><code class="text-xs"><?= e($host) ?>/api/internal/whatsapp/process_queue.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_CRON_TOKEN</code> · <?= cfgTagSegredo($waCron) ?></div></dd></div>
       <div><dt>Cron · motor de follow-up</dt><dd><code class="text-xs"><?= e($host) ?>/api/internal/followup/run.php</code><div class="text-xs text-slate-500 mt-1">Protegido por <code>DNB_WHATSAPP_CRON_TOKEN</code> · regras editáveis em <a href="/cadencia.php" class="font-semibold">Cadência</a></div></dd></div>
-      <?php foreach (RDSTATION_FONTES as $fonteCb => $metaCb): ?>
-        <div><dt>Callback OAuth · <?= e($metaCb['rotulo']) ?></dt><dd><code class="text-xs"><?= e(rdCallbackUrl($fonteCb)) ?></code><div class="text-xs text-slate-500 mt-1">Cadastre no portal do desenvolvedor da RD Station · <?= rdConectado($fonteCb) ? tag('conectado', 'green') : tag('não conectado', 'amber') ?></div></dd></div>
-      <?php endforeach; ?>
     </dl>
   </div>
 </div>

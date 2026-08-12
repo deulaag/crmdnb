@@ -1,7 +1,6 @@
 <?php
 /** Cliente HTTP autenticado para a VPS de IA. */
 require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/settings_service.php';
 
 // Compatibilidade com instalações cujo config.php histórico contém somente o
 // banco: a IA continua configurável por variáveis do ambiente do cPanel.
@@ -12,33 +11,9 @@ if (!defined('AI_MAX_PROMPT_LENGTH')) define('AI_MAX_PROMPT_LENGTH', 8000);
 
 class AiClientException extends RuntimeException {}
 
-// Acessores: o que estiver gravado em system_integrations vence; sem isso valem
-// as constantes acima. Use-os no lugar das constantes em qualquer código novo.
-function iaEndpoint(): string
-{
-    return integracaoValor('ai_vps', 'endpoint', 'AI_VPS_ENDPOINT', AI_VPS_ENDPOINT);
-}
-
-function iaToken(): string
-{
-    return integracaoValor('ai_vps', 'token', 'AI_VPS_TOKEN', AI_VPS_TOKEN);
-}
-
-function iaTimeout(): int
-{
-    $valor = (int) integracaoValor('ai_vps', 'timeout', 'AI_REQUEST_TIMEOUT', (string) AI_REQUEST_TIMEOUT);
-    return max(5, min(180, $valor ?: (int) AI_REQUEST_TIMEOUT));
-}
-
-/** Informativo: o modelo é aplicado pela VPS, o CRM apenas registra qual foi combinado. */
-function iaModeloPadrao(): string
-{
-    return integracaoValor('ai_vps', 'modelo', 'DNB_AI_MODELO', '');
-}
-
 function iaConfigurada(): bool
 {
-    return iaEndpoint() !== '' && iaToken() !== '';
+    return AI_VPS_ENDPOINT !== '' && AI_VPS_TOKEN !== '';
 }
 
 function validarEndpointIa(string $endpoint): void
@@ -98,15 +73,13 @@ function enviarJsonIaVps(string $caminho, array $payload): array
     if (!iaConfigurada()) {
         throw new AiClientException('Integração com a VPS ainda não configurada no cPanel.');
     }
-    $endpoint = iaEndpoint();
-    $timeout = iaTimeout();
-    validarEndpointIa($endpoint);
+    validarEndpointIa(AI_VPS_ENDPOINT);
     if (!str_starts_with($caminho, '/api/')) throw new AiClientException('Caminho interno da VPS inválido.');
-    $url = rtrim($endpoint, '/') . $caminho;
+    $url = rtrim(AI_VPS_ENDPOINT, '/') . $caminho;
     $correlationId = (string) ($payload['correlation_id'] ?? bin2hex(random_bytes(16)));
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $headers = [
-        'Authorization: Bearer ' . iaToken(),
+        'Authorization: Bearer ' . AI_VPS_TOKEN,
         'Content-Type: application/json',
         'Accept: application/json',
         'X-Correlation-ID: ' . $correlationId,
@@ -121,7 +94,7 @@ function enviarJsonIaVps(string $caminho, array $payload): array
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_TIMEOUT => AI_REQUEST_TIMEOUT,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
@@ -134,7 +107,7 @@ function enviarJsonIaVps(string $caminho, array $payload): array
     } else {
         $context = stream_context_create(['http' => [
             'method' => 'POST', 'header' => implode("\r\n", $headers), 'content' => $json,
-            'timeout' => $timeout, 'ignore_errors' => true,
+            'timeout' => AI_REQUEST_TIMEOUT, 'ignore_errors' => true,
         ]]);
         $body = @file_get_contents($url, false, $context);
         $status = 0;
