@@ -1,0 +1,44 @@
+name: Deploy Automático cPanel  42
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  web-deploy:
+    name: Atualizar site no cPanel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter código do repositório
+        uses: actions/checkout@v4
+
+      - name: Listar arquivos antes do deploy
+        run: ls -la
+
+      - name: Enviar arquivos para o cPanel (public_html)
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          protocol: ftps
+          security: loose
+          port: 21
+          local-dir: ./
+          server-dir: ./
+          dangerous-clean-slate: false
+          log-level: verbose
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/node_modules/**
+            **/tests/**
+            recovered_schema.txt
+            config.local.php
+            whatsapp.local.php
+            **/*.sql
+            **/*.md
