@@ -20,6 +20,8 @@ jobs:
         run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -print0 | xargs -0 -n1 php -l
       - name: Testar RBAC
         run: php tests/rbac_test.php
+      - name: Testar estrutura da sidebar
+        run: php tests/sidebar_structure_test.php
       - name: Testar contrato da IA
         run: php tests/ai_payload_test.php
       - name: Testar WhatsApp, RBAC, buffer e Human Lock

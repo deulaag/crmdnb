@@ -1,6 +1,6 @@
 <?php
 /**
- * Shell responsivo da aplicação - UI DNB v2.0.
+ * Shell responsivo da aplicação - UI DNB v3.1.
  * Espera (opcionais): $tabAtual (string), $mes (string YYYY-MM)
  */
 require_once __DIR__ . '/rbac.php';
@@ -9,19 +9,51 @@ $tabAtual = $tabAtual ?? '';
 $mes = $mes ?? mesAtual();
 $usuario = usuarioLogado();
 
-$abas = [
-    ['painel', 'Painel', 'painel.php', 'dashboard', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['orc', 'Orçamentos', 'orcamentos.php', 'quotes', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['ped', 'Pedidos', 'pedidos.php', 'orders', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['vis', 'Visitas', 'visitas.php', 'visits', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['cad', 'Cadência', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-    ['ia', 'IA central', 'ia.php', 'ai', PAPEIS_CRM],
-    ['wpp', 'WhatsApp', 'chat.php', 'whatsapp', PAPEIS_CRM],
-    ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
-    ['usr', 'Usuários', 'usuarios.php', 'users', [PAPEL_ADMINISTRADOR]],
-    ['cfg', 'Configurações', 'configuracoes.php', 'settings', [PAPEL_ADMINISTRADOR]],
+$gruposNavegacao = [
+    [
+        'id' => 'atendimento',
+        'rotulo' => 'Atendimento',
+        'itens' => [
+            ['wpp', 'WhatsApp', 'chat.php', 'whatsapp', PAPEIS_CRM],
+            ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
+        ],
+    ],
+    [
+        'id' => 'crm',
+        'rotulo' => 'CRM',
+        'itens' => [
+            ['painel', 'Painel', 'painel.php', 'dashboard', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['orc', 'Orçamentos', 'orcamentos.php', 'quotes', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['ped', 'Pedidos', 'pedidos.php', 'orders', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['vis', 'Visitas', 'visitas.php', 'visits', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+        ],
+    ],
+    [
+        'id' => 'agente-ia',
+        'rotulo' => 'Agente de IA',
+        'itens' => [
+            ['ia', 'IA central', 'ia.php', 'ai', PAPEIS_CRM],
+            ['cad', 'Follow-ups', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+        ],
+    ],
+    [
+        'id' => 'analise',
+        'rotulo' => 'Análise',
+        'itens' => [
+            ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+        ],
+    ],
+    [
+        'id' => 'gestao',
+        'rotulo' => 'Gestão',
+        'itens' => [
+            ['usr', 'Usuários', 'usuarios.php', 'users', [PAPEL_ADMINISTRADOR]],
+        ],
+    ],
 ];
+
+$itemConfiguracoes = ['cfg', 'Configurações', 'configuracoes.php', 'settings', [PAPEL_ADMINISTRADOR]];
+$papeisUsuario = papeisAtuais();
 
 $paginas = [
     'painel' => ['Visão geral', 'Acompanhe metas, desempenho e indicadores comerciais.'],
@@ -51,7 +83,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.4.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.5.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
@@ -60,29 +92,48 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
   <div class="dnb-sidebar-backdrop" data-sidebar-close aria-hidden="true"></div>
   <aside class="dnb-sidebar" id="dnb-sidebar" aria-label="Navegação principal">
     <div class="dnb-sidebar__brand">
-      <img src="/assets/dnb-logo-white.png" width="156" height="54" alt="DNB">
+      <img src="/assets/dnb-logo-blue.png" width="156" height="54" alt="DNB">
       <span>CRM Comercial</span>
     </div>
 
-    <nav class="dnb-nav">
-      <span class="dnb-nav__eyebrow">Menu principal</span>
-      <?php foreach ($abas as [$k, $l, $href, $icone, $papeis]):
-          if (!array_intersect(papeisAtuais(), $papeis)) continue;
-          $ativo = $tabAtual === $k;
-          // Configurações não é uma tela de período: só a aba de apuração usa o mês,
-          // e ela tem seletor próprio. Não polui a URL com ?mes= vindo do menu.
-          $qs = ($mes && $k !== 'cfg') ? ('?mes=' . urlencode($mes)) : '';
+    <nav class="dnb-nav" aria-label="Módulos do CRM">
+      <?php foreach ($gruposNavegacao as $grupo):
+          $itensVisiveis = array_values(array_filter(
+              $grupo['itens'],
+              static fn(array $item): bool => (bool) array_intersect($papeisUsuario, $item[4])
+          ));
+          if (!$itensVisiveis) continue;
+          $grupoId = 'dnb-nav-' . $grupo['id'];
       ?>
-        <a href="<?= e($href . $qs) ?>" class="dnb-nav__link<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>
-          <?= dnbIcon($icone) ?>
-          <span><?= e($l) ?></span>
-        </a>
+        <div class="dnb-nav__group" aria-labelledby="<?= e($grupoId) ?>">
+          <span class="dnb-nav__eyebrow" id="<?= e($grupoId) ?>"><?= e($grupo['rotulo']) ?></span>
+          <?php foreach ($itensVisiveis as [$k, $l, $href, $icone, $papeis]):
+              $ativo = $tabAtual === $k;
+              $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
+          ?>
+            <a href="<?= e($href . $qs) ?>" class="dnb-nav__link<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>
+              <?= dnbIcon($icone) ?>
+              <span><?= e($l) ?></span>
+            </a>
+          <?php endforeach; ?>
+        </div>
       <?php endforeach; ?>
     </nav>
 
     <div class="dnb-sidebar__footer">
-      <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-      <small>CRM DNB v3.3</small>
+      <?php [$k, $l, $href, $icone, $papeis] = $itemConfiguracoes;
+      if (array_intersect($papeisUsuario, $papeis)):
+          $ativo = $tabAtual === $k;
+      ?>
+        <a href="<?= e($href) ?>" class="dnb-nav__link dnb-nav__link--footer<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>
+          <?= dnbIcon($icone) ?>
+          <span><?= e($l) ?></span>
+        </a>
+      <?php endif; ?>
+      <div class="dnb-sidebar__meta">
+        <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
+        <small>CRM DNB v3.3</small>
+      </div>
     </div>
   </aside>
 
