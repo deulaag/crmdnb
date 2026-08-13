@@ -317,6 +317,8 @@
 
     function applyZoom() {
       zoom = clamp(zoom, .6, 1.4);
+      activeFlow.style.width = flowWidth(activeFlow) + 'px';
+      activeFlow.style.height = flowHeight(activeFlow) + 'px';
       activeFlow.style.transform = 'scale(' + zoom + ')';
       stage.style.width = (flowWidth(activeFlow) * zoom) + 'px';
       stage.style.height = (flowHeight(activeFlow) * zoom) + 'px';
@@ -408,6 +410,51 @@
   }
 
   document.querySelectorAll('[data-followup-builder]').forEach(initFollowupBuilder);
+
+  function initOpportunityKanban(board) {
+    if (!window.matchMedia('(pointer: fine)').matches) return;
+    let dragged = null;
+    board.querySelectorAll('[data-kanban-card]').forEach((card) => {
+      card.addEventListener('dragstart', (event) => {
+        dragged = card;
+        card.classList.add('is-dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', card.dataset.leadId || '');
+        }
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('is-dragging');
+        board.querySelectorAll('[data-kanban-stage]').forEach((column) => column.classList.remove('is-drag-over'));
+        dragged = null;
+      });
+    });
+    board.querySelectorAll('[data-kanban-stage]').forEach((column) => {
+      column.addEventListener('dragover', (event) => {
+        if (!dragged) return;
+        event.preventDefault();
+        column.classList.add('is-drag-over');
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      });
+      column.addEventListener('dragleave', (event) => {
+        if (!column.contains(event.relatedTarget)) column.classList.remove('is-drag-over');
+      });
+      column.addEventListener('drop', (event) => {
+        event.preventDefault();
+        column.classList.remove('is-drag-over');
+        if (!dragged) return;
+        const form = dragged.querySelector('[data-kanban-stage-form]');
+        const select = form?.querySelector('[data-kanban-stage-select]');
+        const targetStage = column.dataset.kanbanStage || '';
+        const validOption = select && Array.from(select.options).some((option) => option.value === targetStage);
+        if (!form || !select || !validOption || select.value === targetStage) return;
+        select.value = targetStage;
+        form.requestSubmit();
+      });
+    });
+  }
+
+  document.querySelectorAll('[data-opportunity-kanban]').forEach(initOpportunityKanban);
 
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', (event) => {

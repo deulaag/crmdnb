@@ -30,10 +30,10 @@ foreach ([
 
 confirmarCanvas(str_contains($pagina, 'data-followup-builder'), 'página deve expor o editor visual');
 confirmarCanvas(str_contains($pagina, 'data-flow-viewport'), 'editor deve possuir viewport navegável');
-foreach (['trigger', 'eligibility', 'ai', 'whatsapp', 'control'] as $no) {
+foreach (['trigger', 'eligibility', 'ai', 'whatsapp', 'move_stage', 'assign_owner', 'human_handoff', 'notify_internal', 'control'] as $no) {
     confirmarCanvas(str_contains($pagina, 'data-flow-node="' . $no . '"'), "nó {$no} ausente");
 }
-confirmarCanvas(substr_count($pagina, 'data-flow-next=') === 4, 'fluxo deve manter quatro conexões entre os cinco nós');
+confirmarCanvas(substr_count($pagina, 'data-flow-next=') === 8, 'fluxo PR3 deve manter oito conexões entre os nove nós');
 confirmarCanvas(str_contains($pagina, 'data-flow-fallback'), 'edição em tabela deve permanecer como fallback progressivo');
 confirmarCanvas(substr_count($pagina, '<form') === substr_count($pagina, '</form>'), 'formulários da página devem permanecer balanceados');
 
@@ -53,7 +53,7 @@ confirmarCanvas(str_contains($javascript, "storagePrefix = 'dnb-followup-layout-
 confirmarCanvas(str_contains($estilo, '.dnb-flow-canvas'), 'canvas deve possuir estilos próprios');
 confirmarCanvas(str_contains($estilo, '.dnb-flow-port'), 'pontos de conexão devem estar visíveis');
 confirmarCanvas(str_contains($estilo, '.dnb-flow-edge--pulse'), 'conexões devem ter tratamento visual');
-confirmarCanvas(str_contains($cabecalho, '/assets/style.css?v=3.6.0'), 'CSS deve usar a nova versão de cache');
-confirmarCanvas(str_contains($rodape, '/assets/ui.js?v=3.6.0'), 'JavaScript deve usar a nova versão de cache');
+confirmarCanvas(str_contains($cabecalho, '/assets/style.css?v=3.7.0'), 'CSS deve usar a nova versão de cache');
+confirmarCanvas(str_contains($rodape, '/assets/ui.js?v=3.7.0'), 'JavaScript deve usar a nova versão de cache');
 
 fwrite(STDOUT, "Follow-up visual canvas: OK\n");
