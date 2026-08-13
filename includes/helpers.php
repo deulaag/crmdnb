@@ -261,6 +261,7 @@ function dnbIcon(string $nome, string $classe = ''): string
         'whatsapp' => '<path d="M20 11.5a8 8 0 0 1-11.8 7L3 20l1.5-5.1A8 8 0 1 1 20 11.5Z"/><path d="M8.5 8.5c.4 3 2 4.6 5 5l1.2-1.2 1.8.9c-.5 1.5-1.5 2.3-3 2.3-3.9 0-7-3.1-7-7 0-1.5.8-2.5 2.3-3l.9 1.8-1.2 1.2Z"/>',
         'users' => '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2-6 6-6s6 2 6 6m1-9a3 3 0 0 0 0-6m1 9c2.7.4 4 2.4 4 6"/>',
         'bell' => '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>',
+        'audit' => '<path d="M5 3h14v18H5V3Zm4 5h6M9 12h6M9 16h4"/><path d="m7 8 .8.8L9.5 7"/>',
         'menu' => '<path d="M4 7h16M4 12h16M4 17h16"/>',
         'logout' => '<path d="M10 17l5-5-5-5m5 5H3m11-9h6v18h-6"/>',
         'check-circle' => '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',

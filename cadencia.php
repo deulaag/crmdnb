@@ -89,6 +89,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cadRedirect('Regra automática atualizada.');
     }
 
+    if ($acao === 'salvar_fluxo_pr3') {
+        if (!temPapel(PAPEL_ADMINISTRADOR)) { http_response_code(403); exit; }
+        if (!followupFluxoTabelasDisponiveis($pdo)) cadRedirect('Instale a migração 20260812_followup_flows_pr3.sql antes de salvar os novos nós.');
+        $regraId = (int)($_POST['regra_id']??0);
+        $modo = (string)($_POST['modo_fluxo']??'draft');
+        try {
+            if ($modo === 'rollback') {
+                $versao = republicarVersaoFluxoPr3($pdo,$regraId,(int)($_POST['version_id']??0),(int)usuarioLogado()['id']);
+                cadRedirect('Versão anterior republicada com segurança como versão '.$versao.'.');
+            }
+            if (in_array($modo,['pause','resume'],true)) {
+                alterarStatusFluxoPr3($pdo,$regraId,$modo,(int)usuarioLogado()['id']);
+                cadRedirect($modo==='pause'?'Fluxo pausado para novas entradas.':'Fluxo retomado com a última versão publicada.');
+            }
+            $stmt = $pdo->prepare('SELECT fr.*,ps.pipeline_key,ps.stage_name FROM followup_rules fr JOIN pipeline_stages ps ON ps.id=fr.pipeline_stage_id WHERE fr.id=? LIMIT 1');
+            $stmt->execute([$regraId]); $regraAtual = $stmt->fetch();
+            if (!$regraAtual) throw new FollowupFlowException('Regra de follow-up não encontrada.');
+            $regraAtual['inactivity_hours']=max(1,min(8760,(int)($_POST['inactivity_hours']??24)));
+            $regraAtual['min_score']=max(0,min(100,(int)($_POST['min_score']??0)));
+            $regraAtual['max_attempts']=max(1,min(20,(int)($_POST['max_attempts']??3)));
+            $regraAtual['is_active']=!empty($_POST['is_active'])?1:0;
+            $config = [
+                'name'=>trim((string)($_POST['flow_name']??'')),
+                'move_stage_active'=>!empty($_POST['move_stage_active']),
+                'move_stage_name'=>(string)($_POST['move_stage_name']??''),
+                'assign_owner_active'=>!empty($_POST['assign_owner_active']),
+                'assign_owner_mode'=>(string)($_POST['assign_owner_mode']??'specific'),
+                'assign_owner_user_id'=>(int)($_POST['assign_owner_user_id']??0),
+                'human_handoff_active'=>!empty($_POST['human_handoff_active']),
+                'human_handoff_reason'=>(string)($_POST['human_handoff_reason']??''),
+                'human_handoff_priority'=>(string)($_POST['human_handoff_priority']??'normal'),
+                'human_handoff_recipient'=>(string)($_POST['human_handoff_recipient']??'support'),
+                'notify_internal_active'=>!empty($_POST['notify_internal_active']),
+                'notify_internal_user_id'=>(int)($_POST['notify_internal_user_id']??0),
+                'notify_internal_title'=>(string)($_POST['notify_internal_title']??''),
+                'notify_internal_message'=>(string)($_POST['notify_internal_message']??''),
+                'notify_internal_severity'=>(string)($_POST['notify_internal_severity']??'info'),
+            ];
+            $grafo = construirGrafoFollowupPr3($regraAtual,$config);
+            salvarRascunhoFluxoPr3($pdo,$regraId,$grafo,(int)usuarioLogado()['id']);
+            if ($modo === 'publish') {
+                $versao = publicarFluxoPr3($pdo,$regraId,$grafo,(int)usuarioLogado()['id']);
+                cadRedirect('Fluxo validado e publicado como versão '.$versao.'.');
+            }
+            cadRedirect('Rascunho do fluxo salvo. A versão ativa continua sem alteração.');
+        } catch (Throwable $e) {
+            cadRedirect('Não foi possível atualizar o fluxo: '.$e->getMessage());
+        }
+    }
+
     if ($acao === 'pausar') {
         if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $pdo->prepare('UPDATE orcamentos SET cad_pausada=? WHERE id=?')->execute([(int) $_POST['pausar'], (int) $_POST['id']]);
@@ -178,9 +228,15 @@ include __DIR__ . '/includes/layout_header.php';
 
 <?php
 $followupDisponivel = followupTabelasDisponiveis($pdo);
+$followupFluxoDisponivel = $followupDisponivel && followupFluxoTabelasDisponiveis($pdo);
 $regrasFollowup = $followupDisponivel ? listarRegrasFollowup($pdo) : [];
 $statsFollowup = estatisticasFollowup($pdo);
+$statsFluxos = $followupFluxoDisponivel ? estatisticasExecucoesFluxoPr3($pdo) : [];
 $logsFollowup = listarLogsFollowup($pdo, 30);
+$usuariosFluxo = [];
+if ($followupFluxoDisponivel && temPapel(PAPEL_ADMINISTRADOR)) {
+    $usuariosFluxo = $pdo->query("SELECT id,nome FROM usuarios WHERE status='active' ORDER BY nome,id")->fetchAll();
+}
 $rotulosFollowup = [
     'sent'=>['Enviados','green'],'failed'=>['Falhas de IA','red'],'paused'=>['Pausados','amber'],
     'blocked'=>['Bloqueados','red'],'delivery_unknown'=>['Revisão manual','amber'],'processing'=>['Processando','blue'],
@@ -206,6 +262,17 @@ $rotulosFollowup = [
   </div>
 </div>
 
+<?php if ($followupFluxoDisponivel): ?>
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="flex items-start justify-between px-4 pt-4 gap-3 flex-wrap"><div><span class="dnb-eyebrow">Painel operacional PR3 · últimas 24 horas</span><h2 class="dnb-section-title">Saúde dos fluxos publicados</h2></div><a href="/auditoria.php" class="<?= BTN_S ?>">Abrir auditoria visual</a></div>
+  <div class="dnb-operation-kpis p-4">
+    <?php foreach (['running'=>['Em execução','blue'],'success'=>['Sucesso','green'],'failed'=>['Falhas','red'],'paused'=>['Pausados','amber'],'blocked'=>['Bloqueados','red'],'delivery_unknown'=>['Revisão manual','amber']] as $status=>$meta): ?>
+      <div class="dnb-operation-kpi"><span><?= e($meta[0]) ?></span><strong><?= (int)($statsFluxos[$status]??0) ?></strong><?= tag($status,$meta[1]) ?></div>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php if ($followupDisponivel && temPapel(PAPEL_ADMINISTRADOR)): ?>
 <div class="dnb-followup-builder-card mb-4">
   <div class="dnb-followup-builder-card__header">
@@ -214,8 +281,10 @@ $rotulosFollowup = [
       <h2 class="dnb-section-title">Fluxos automáticos por etapa</h2>
       <p>Edite os mesmos parâmetros do motor atual em um canvas visual. Arraste os blocos; as conexões acompanham a ordem real de execução.</p>
     </div>
-    <?= tag(count($regrasFollowup) . ' fluxo' . (count($regrasFollowup) === 1 ? '' : 's'), 'blue') ?>
+    <div class="flex gap-2 flex-wrap"><?= tag(count($regrasFollowup) . ' fluxo' . (count($regrasFollowup) === 1 ? '' : 's'), 'blue') ?><?= tag($followupFluxoDisponivel?'PR3 instalado':'PR3 pendente',$followupFluxoDisponivel?'green':'amber') ?></div>
   </div>
+
+  <?php if (!$followupFluxoDisponivel): ?><div class="dnb-alert dnb-alert--warning m-4">O canvas atual continua disponível. Instale <code>sql/migrations/20260812_followup_flows_pr3.sql</code> para habilitar os quatro novos nós, versões e auditoria.</div><?php endif; ?>
 
   <?php if ($regrasFollowup): ?>
     <div class="dnb-flow-builder" data-followup-builder>
@@ -253,6 +322,8 @@ $rotulosFollowup = [
               $rotuloRegra = ucfirst((string) $regra['pipeline_key']) . ' · ' . (string) $regra['stage_name'];
               $ativa = !empty($regra['is_active']);
               $formId = 'fluxo-regra-' . $regraId;
+              $configPr3 = $followupFluxoDisponivel ? configuracaoAcoesFollowupPr3($pdo,$regraId) : [];
+              $versoesPr3 = $followupFluxoDisponivel ? listarVersoesFluxoPr3($pdo,$regraId) : [];
           ?>
             <form
               id="<?= e($formId) ?>"
@@ -261,14 +332,15 @@ $rotulosFollowup = [
               data-flow
               data-rule-id="<?= $regraId ?>"
               data-rule-label="<?= e($rotuloRegra) ?>"
-              data-canvas-width="1400"
-              data-canvas-height="600"
+              data-canvas-width="2450"
+              data-canvas-height="680"
               aria-label="Fluxo <?= e($rotuloRegra) ?>"
               <?= $indice === 0 ? '' : 'hidden' ?>
             >
               <?= csrfInput() ?>
-              <input type="hidden" name="acao" value="salvar_regra">
+              <input type="hidden" name="acao" value="<?= $followupFluxoDisponivel?'salvar_fluxo_pr3':'salvar_regra' ?>">
               <input type="hidden" name="regra_id" value="<?= $regraId ?>">
+              <?php if ($followupFluxoDisponivel): ?><input type="hidden" name="flow_name" value="<?= e($configPr3['name']?:$rotuloRegra) ?>"><?php endif; ?>
               <svg class="dnb-flow-edges" data-flow-edges aria-hidden="true"></svg>
 
               <article class="dnb-flow-node dnb-flow-node--trigger" data-flow-node="trigger" data-flow-next="eligibility" data-default-x="40" data-default-y="190" style="left:40px;top:190px;" aria-labelledby="flow-<?= $regraId ?>-trigger">
@@ -324,7 +396,7 @@ $rotulosFollowup = [
                 <span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
               </article>
 
-              <article class="dnb-flow-node dnb-flow-node--channel" data-flow-node="whatsapp" data-flow-next="control" data-default-x="870" data-default-y="190" style="left:870px;top:190px;" aria-labelledby="flow-<?= $regraId ?>-whatsapp">
+              <article class="dnb-flow-node dnb-flow-node--channel" data-flow-node="whatsapp" data-flow-next="<?= $followupFluxoDisponivel?'move_stage':'control' ?>" data-default-x="870" data-default-y="210" style="left:870px;top:210px;" aria-labelledby="flow-<?= $regraId ?>-whatsapp">
                 <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span>
                 <div class="dnb-flow-node__header" data-flow-drag>
                   <span class="dnb-flow-node__kind">Canal</span>
@@ -339,7 +411,29 @@ $rotulosFollowup = [
                 <span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
               </article>
 
-              <article class="dnb-flow-node dnb-flow-node--control" data-flow-node="control" data-default-x="1130" data-default-y="120" style="left:1130px;top:120px;" aria-labelledby="flow-<?= $regraId ?>-control">
+              <?php if ($followupFluxoDisponivel): ?>
+              <article class="dnb-flow-node dnb-flow-node--action" data-flow-node="move_stage" data-flow-next="assign_owner" data-default-x="1130" data-default-y="130" style="left:1130px;top:130px;" aria-labelledby="flow-<?= $regraId ?>-move-stage">
+                <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span><div class="dnb-flow-node__header" data-flow-drag><span class="dnb-flow-node__kind">Ação CRM</span><span class="dnb-flow-node__grip" aria-hidden="true">⠿</span></div>
+                <div class="dnb-flow-node__body"><span class="dnb-flow-node__icon"><?= dnbIcon('cadence') ?></span><h3 id="flow-<?= $regraId ?>-move-stage">Mover etapa</h3><label class="dnb-flow-switch"><input type="checkbox" name="move_stage_active" value="1" <?= !empty($configPr3['move_stage_active'])?'checked':'' ?>><span class="dnb-flow-switch__track" aria-hidden="true"></span><span>Executar após envio</span></label><label class="dnb-flow-attempts"><span>Etapa de destino</span><select name="move_stage_name"><option value="">Selecione</option><?php foreach($funisArr[$regra['pipeline_key']]['etapas']??[] as $etapa): ?><option value="<?= e($etapa) ?>" <?= ($configPr3['move_stage_name']??'')===$etapa?'selected':'' ?>><?= e($etapa) ?></option><?php endforeach; ?></select></label><p>Só avança leads abertos e valida a etapa no funil atual.</p></div><span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
+              </article>
+
+              <article class="dnb-flow-node dnb-flow-node--action" data-flow-node="assign_owner" data-flow-next="human_handoff" data-default-x="1390" data-default-y="210" style="left:1390px;top:210px;" aria-labelledby="flow-<?= $regraId ?>-assign-owner">
+                <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span><div class="dnb-flow-node__header" data-flow-drag><span class="dnb-flow-node__kind">Ação CRM</span><span class="dnb-flow-node__grip" aria-hidden="true">⠿</span></div>
+                <div class="dnb-flow-node__body"><span class="dnb-flow-node__icon"><?= dnbIcon('users') ?></span><h3 id="flow-<?= $regraId ?>-assign-owner">Atribuir responsável</h3><label class="dnb-flow-switch"><input type="checkbox" name="assign_owner_active" value="1" <?= !empty($configPr3['assign_owner_active'])?'checked':'' ?>><span class="dnb-flow-switch__track" aria-hidden="true"></span><span>Executar após envio</span></label><label class="dnb-flow-attempts"><span>Modo</span><select name="assign_owner_mode"><option value="specific" <?= ($configPr3['assign_owner_mode']??'specific')==='specific'?'selected':'' ?>>Usuário específico</option><option value="keep" <?= ($configPr3['assign_owner_mode']??'')==='keep'?'selected':'' ?>>Manter atual</option><option value="supervisor" <?= ($configPr3['assign_owner_mode']??'')==='supervisor'?'selected':'' ?>>Supervisor atual</option><option value="administrator" <?= ($configPr3['assign_owner_mode']??'')==='administrator'?'selected':'' ?>>Administrador</option></select></label><label class="dnb-flow-attempts"><span>Usuário específico</span><select name="assign_owner_user_id"><option value="0">Selecione</option><?php foreach($usuariosFluxo as $usuarioFluxo): ?><option value="<?= (int)$usuarioFluxo['id'] ?>" <?= (int)($configPr3['assign_owner_user_id']??0)===(int)$usuarioFluxo['id']?'selected':'' ?>><?= e($usuarioFluxo['nome']) ?></option><?php endforeach; ?></select></label><p>Resolve novamente o usuário ativo no servidor e notifica trocas efetivas.</p></div><span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
+              </article>
+
+              <article class="dnb-flow-node dnb-flow-node--handoff" data-flow-node="human_handoff" data-flow-next="notify_internal" data-default-x="1650" data-default-y="130" style="left:1650px;top:130px;" aria-labelledby="flow-<?= $regraId ?>-handoff">
+                <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span><div class="dnb-flow-node__header" data-flow-drag><span class="dnb-flow-node__kind">Segurança</span><span class="dnb-flow-node__grip" aria-hidden="true">⠿</span></div>
+                <div class="dnb-flow-node__body"><span class="dnb-flow-node__icon"><?= dnbIcon('cases') ?></span><h3 id="flow-<?= $regraId ?>-handoff">Transbordo humano</h3><label class="dnb-flow-switch"><input type="checkbox" name="human_handoff_active" value="1" <?= !empty($configPr3['human_handoff_active'])?'checked':'' ?>><span class="dnb-flow-switch__track" aria-hidden="true"></span><span>Em bloqueio ou falha</span></label><label class="dnb-flow-attempts"><span>Prioridade</span><select name="human_handoff_priority"><option value="low" <?= ($configPr3['human_handoff_priority']??'')==='low'?'selected':'' ?>>Baixa</option><option value="normal" <?= ($configPr3['human_handoff_priority']??'normal')==='normal'?'selected':'' ?>>Normal</option><option value="high" <?= ($configPr3['human_handoff_priority']??'')==='high'?'selected':'' ?>>Alta</option><option value="urgent" <?= ($configPr3['human_handoff_priority']??'')==='urgent'?'selected':'' ?>>Urgente</option></select></label><label class="dnb-flow-attempts"><span>Destinatário</span><select name="human_handoff_recipient"><option value="current" <?= ($configPr3['human_handoff_recipient']??'')==='current'?'selected':'' ?>>Responsável atual</option><option value="supervisor" <?= ($configPr3['human_handoff_recipient']??'')==='supervisor'?'selected':'' ?>>Supervisor</option><option value="support" <?= ($configPr3['human_handoff_recipient']??'support')==='support'?'selected':'' ?>>Suporte</option><option value="administrator" <?= ($configPr3['human_handoff_recipient']??'')==='administrator'?'selected':'' ?>>Administrador</option></select></label><label class="dnb-flow-attempts"><span>Motivo para a equipe</span><input name="human_handoff_reason" maxlength="500" value="<?= e($configPr3['human_handoff_reason']??'') ?>"></label><p>Pausa a IA, cria ou reutiliza um caso e mantém o Human Lock.</p></div><span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
+              </article>
+
+              <article class="dnb-flow-node dnb-flow-node--notification" data-flow-node="notify_internal" data-flow-next="control" data-default-x="1910" data-default-y="210" style="left:1910px;top:210px;" aria-labelledby="flow-<?= $regraId ?>-notification">
+                <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span><div class="dnb-flow-node__header" data-flow-drag><span class="dnb-flow-node__kind">Operação</span><span class="dnb-flow-node__grip" aria-hidden="true">⠿</span></div>
+                <div class="dnb-flow-node__body"><span class="dnb-flow-node__icon"><?= dnbIcon('bell') ?></span><h3 id="flow-<?= $regraId ?>-notification">Notificação interna</h3><label class="dnb-flow-switch"><input type="checkbox" name="notify_internal_active" value="1" <?= !empty($configPr3['notify_internal_active'])?'checked':'' ?>><span class="dnb-flow-switch__track" aria-hidden="true"></span><span>Notificar resultado</span></label><label class="dnb-flow-attempts"><span>Destinatário</span><select name="notify_internal_user_id"><option value="0">Selecione</option><?php foreach($usuariosFluxo as $usuarioFluxo): ?><option value="<?= (int)$usuarioFluxo['id'] ?>" <?= (int)($configPr3['notify_internal_user_id']??0)===(int)$usuarioFluxo['id']?'selected':'' ?>><?= e($usuarioFluxo['nome']) ?></option><?php endforeach; ?></select></label><label class="dnb-flow-attempts"><span>Severidade</span><select name="notify_internal_severity"><option value="info" <?= ($configPr3['notify_internal_severity']??'info')==='info'?'selected':'' ?>>Informação</option><option value="warning" <?= ($configPr3['notify_internal_severity']??'')==='warning'?'selected':'' ?>>Atenção</option><option value="critical" <?= ($configPr3['notify_internal_severity']??'')==='critical'?'selected':'' ?>>Crítica</option></select></label><label class="dnb-flow-attempts"><span>Título</span><input name="notify_internal_title" maxlength="160" value="<?= e($configPr3['notify_internal_title']??'') ?>"></label><label class="dnb-flow-attempts"><span>Mensagem</span><input name="notify_internal_message" maxlength="500" value="<?= e($configPr3['notify_internal_message']??'') ?>"></label></div><span class="dnb-flow-port dnb-flow-port--output" aria-hidden="true"></span>
+              </article>
+              <?php endif; ?>
+
+              <article class="dnb-flow-node dnb-flow-node--control" data-flow-node="control" data-default-x="<?= $followupFluxoDisponivel?'2170':'1130' ?>" data-default-y="130" style="left:<?= $followupFluxoDisponivel?'2170':'1130' ?>px;top:130px;" aria-labelledby="flow-<?= $regraId ?>-control">
                 <span class="dnb-flow-port dnb-flow-port--input" aria-hidden="true"></span>
                 <div class="dnb-flow-node__header" data-flow-drag>
                   <span class="dnb-flow-node__kind">Controle</span>
@@ -358,7 +452,11 @@ $rotulosFollowup = [
                     <span data-flow-active-label><?= $ativa ? 'Fluxo ativo' : 'Fluxo inativo' ?></span>
                   </label>
                   <p>Resposta do lead, pausa, Human Lock, bloqueio ou limite encerram novas tentativas.</p>
-                  <button type="submit" class="<?= BTN_P ?> dnb-flow-node__save">Salvar fluxo</button>
+                  <?php if ($followupFluxoDisponivel): ?>
+                    <div class="dnb-flow-publish-actions"><button type="submit" class="<?= BTN_S ?>" name="modo_fluxo" value="draft">Salvar rascunho</button><button type="submit" class="<?= BTN_P ?>" name="modo_fluxo" value="publish">Publicar versão</button></div>
+                    <?php if(!empty($configPr3['flow_id'])): ?><button type="submit" class="<?= BTN_S ?> dnb-flow-node__save" name="modo_fluxo" value="<?= ($configPr3['flow_status']??'draft')==='active'?'pause':'resume' ?>" onclick="return confirm('Confirmar esta ação operacional no fluxo?');"><?= ($configPr3['flow_status']??'draft')==='active'?'Pausar novas entradas':'Retomar fluxo publicado' ?></button><?php endif; ?>
+                    <?php if($versoesPr3): ?><label class="dnb-flow-attempts"><span>Restaurar versão</span><select name="version_id"><?php foreach($versoesPr3 as $versaoPr3): ?><option value="<?= (int)$versaoPr3['id'] ?>">v<?= (int)$versaoPr3['version_number'] ?> · <?= e($versaoPr3['published_at']) ?></option><?php endforeach; ?></select></label><button type="submit" class="<?= BTN_S ?> dnb-flow-node__save" name="modo_fluxo" value="rollback" onclick="return confirm('Republicar esta versão como uma nova versão ativa?');">Republicar versão</button><?php endif; ?>
+                  <?php else: ?><button type="submit" class="<?= BTN_P ?> dnb-flow-node__save">Salvar fluxo</button><?php endif; ?>
                 </div>
               </article>
             </form>
@@ -369,7 +467,7 @@ $rotulosFollowup = [
       <div class="dnb-flow-legend">
         <span><i class="dnb-flow-legend__line" aria-hidden="true"></i> conexão executada pelo motor</span>
         <span><i class="dnb-flow-legend__node" aria-hidden="true"></i> bloco arrastável</span>
-        <span>As posições ficam salvas somente neste navegador; os parâmetros são gravados no CRM.</span>
+        <span>Rascunhos não alteram a versão ativa; publicação e rollback ficam registrados.</span>
       </div>
 
       <details class="dnb-flow-fallback" data-flow-fallback open>

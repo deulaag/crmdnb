@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/ai_client.php';
 require_once __DIR__ . '/lead_service.php';
 require_once __DIR__ . '/whatsapp_provider.php';
+require_once __DIR__ . '/followup_flow_service.php';
 
 const FOLLOWUP_MAX_MESSAGE_LENGTH = 4000;
 const FOLLOWUP_MAX_RETRIES_AI = 2;
@@ -280,9 +281,11 @@ function processarCandidatoFollowup(PDO $pdo, array $candidato): array
     $log = reservarTentativaFollowup($pdo,$candidato);
     if (!$log) return ['status'=>'skipped','lead_id'=>(int)$candidato['id']];
     $logId = (int) $log['id']; $tentativa = (int) $log['attempt_number'];
+    $runId = iniciarExecucaoFluxoPr3($pdo,$candidato,$log);
     $mensagem = trim((string)($log['message_sent'] ?? ''));
     try {
         if ($mensagem === '') {
+            registrarEventoFluxoPr3($pdo,$runId,'ai','ai','running',['attempt'=>$tentativa],null,null,null,'generation-start');
             $solicitante = usuarioSistemaFollowup($pdo,$candidato['assigned_to_user_id'] ? (int)$candidato['assigned_to_user_id'] : null);
             $regra = [
                 'id'=>(int)$candidato['rule_id'],'pipeline_stage_id'=>(int)$candidato['pipeline_stage_id'],
@@ -298,6 +301,9 @@ function processarCandidatoFollowup(PDO $pdo, array $candidato): array
                     ->execute([mb_substr($motivo,0,1000),$logId]);
                 $pdo->prepare('UPDATE orcamentos SET cad_pausada=1 WHERE id=?')->execute([(int)$candidato['id']]);
                 registrarTimeline($pdo,(int)$candidato['id'],'followup_blocked','Follow-up automático pausado: '.$motivo);
+                registrarEventoFluxoPr3($pdo,$runId,'ai','ai','blocked',null,['guardrail'=>'blocked'],'guardrail_blocked',null,'generation-blocked');
+                executarAcoesPublicadasPr3($pdo,$candidato,$runId,'blocked');
+                finalizarExecucaoFluxoPr3($pdo,$runId,'blocked');
                 return ['status'=>'blocked','lead_id'=>(int)$candidato['id'],'log_id'=>$logId];
             }
             $mensagem = trim((string)$resposta['message']);
@@ -305,19 +311,32 @@ function processarCandidatoFollowup(PDO $pdo, array $candidato): array
             $mensagem = mb_substr($mensagem,0,FOLLOWUP_MAX_MESSAGE_LENGTH);
             $pdo->prepare("UPDATE followup_logs SET status='ready',message_sent=?,updated_at=NOW() WHERE id=? AND status='processing'")
                 ->execute([$mensagem,$logId]);
+            registrarEventoFluxoPr3($pdo,$runId,'ai','ai','success',null,['message_length'=>mb_strlen($mensagem),'guardrail'=>'approved'],null,null,'generation-success');
+        } else {
+            registrarEventoFluxoPr3($pdo,$runId,'ai','ai','success',null,['message_length'=>mb_strlen($mensagem),'reused'=>true],null,null,'generation-reused');
         }
     } catch (Throwable $e) {
         atualizarFalhaFollowup($pdo,$logId,'failed',$e->getMessage());
+        registrarEventoFluxoPr3($pdo,$runId,'ai','ai','failed',null,'Falha ao gerar mensagem','ai_generation_failed',null,'generation-failed');
+        executarAcoesPublicadasPr3($pdo,$candidato,$runId,'failed');
+        finalizarExecucaoFluxoPr3($pdo,$runId,'failed');
         return ['status'=>'failed','lead_id'=>(int)$candidato['id'],'log_id'=>$logId,'message'=>$e->getMessage()];
     }
 
     if (!candidatoFollowupAindaValido($pdo,$candidato,$logId)) {
         $pdo->prepare("UPDATE followup_logs SET status='paused',message_sent=NULL,error_message='Lead respondeu, foi pausado ou recebeu Human Lock antes do envio.',locked_at=NULL,updated_at=NOW() WHERE id=? AND status='ready'")->execute([$logId]);
+        registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','paused',null,'Envio cancelado por pausa, resposta ou Human Lock','human_lock_or_pause',null,'send-paused');
+        finalizarExecucaoFluxoPr3($pdo,$runId,'paused');
         return ['status'=>'paused','lead_id'=>(int)$candidato['id'],'log_id'=>$logId];
     }
+    registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','running',['attempt'=>$tentativa],null,null,null,'send-start');
     $stmt = $pdo->prepare("UPDATE followup_logs SET status='sending',locked_at=NOW(),updated_at=NOW() WHERE id=? AND status='ready'");
     $stmt->execute([$logId]);
-    if ($stmt->rowCount() !== 1) return ['status'=>'skipped','lead_id'=>(int)$candidato['id'],'log_id'=>$logId];
+    if ($stmt->rowCount() !== 1) {
+        registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','skipped',null,'Registro não estava pronto para envio','send_state_changed',null,'send-skipped');
+        finalizarExecucaoFluxoPr3($pdo,$runId,'paused');
+        return ['status'=>'skipped','lead_id'=>(int)$candidato['id'],'log_id'=>$logId];
+    }
 
     try {
         $provider = enviarWhatsappProvider($candidato,$candidato,$mensagem);
@@ -326,6 +345,9 @@ function processarCandidatoFollowup(PDO $pdo, array $candidato): array
         atualizarFalhaFollowup($pdo,$logId,'delivery_unknown',$e->getMessage());
         $pdo->prepare('UPDATE orcamentos SET cad_pausada=1 WHERE id=?')->execute([(int)$candidato['id']]);
         registrarTimeline($pdo,(int)$candidato['id'],'followup_delivery_unknown','Cadência pausada porque o provedor não confirmou o resultado do envio.');
+        registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','failed',null,'Provedor sem confirmação','provider_unconfirmed',null,'send-failed');
+        executarAcoesPublicadasPr3($pdo,$candidato,$runId,'delivery_unknown');
+        finalizarExecucaoFluxoPr3($pdo,$runId,'delivery_unknown');
         return ['status'=>'delivery_unknown','lead_id'=>(int)$candidato['id'],'log_id'=>$logId,'message'=>$e->getMessage()];
     }
 
@@ -342,11 +364,17 @@ function processarCandidatoFollowup(PDO $pdo, array $candidato): array
             ->execute([$providerId,$logId]);
         registrarTimeline($pdo,(int)$candidato['id'],'followup_sent','Follow-up automático por WhatsApp enviado (tentativa '.$tentativa.' de '.(int)$candidato['max_attempts'].').');
         $pdo->commit();
+        registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','success',null,['provider_confirmed'=>true,'attempt'=>$tentativa],null,null,'send-success');
+        $acoesConcluidas = executarAcoesPublicadasPr3($pdo,$candidato,$runId,'sent');
+        finalizarExecucaoFluxoPr3($pdo,$runId,$acoesConcluidas?'success':'failed');
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         atualizarFalhaFollowup($pdo,$logId,'delivery_unknown','Provedor confirmou o envio, mas o CRM não concluiu o registro: '.$e->getMessage());
         $pdo->prepare('UPDATE orcamentos SET cad_pausada=1 WHERE id=?')->execute([(int)$candidato['id']]);
         registrarTimeline($pdo,(int)$candidato['id'],'followup_delivery_unknown','Cadência pausada: o provedor confirmou o envio, mas o registro local exige revisão.');
+        registrarEventoFluxoPr3($pdo,$runId,'whatsapp','whatsapp','failed',null,'Confirmação recebida; registro local incompleto','local_commit_failed',null,'send-local-failed');
+        executarAcoesPublicadasPr3($pdo,$candidato,$runId,'delivery_unknown');
+        finalizarExecucaoFluxoPr3($pdo,$runId,'delivery_unknown');
         return ['status'=>'delivery_unknown','lead_id'=>(int)$candidato['id'],'log_id'=>$logId,'message'=>$e->getMessage()];
     }
     return ['status'=>'sent','lead_id'=>(int)$candidato['id'],'log_id'=>$logId];
