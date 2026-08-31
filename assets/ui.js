@@ -1,4 +1,4 @@
-/** DNB CRM - interações de interface v3.0 */
+/** DNB CRM - interações de interface v3.2 */
 (function () {
   const app = document.querySelector('[data-dnb-app]');
   const openButton = document.querySelector('[data-sidebar-open]');
@@ -225,6 +225,236 @@
     scrollToEnd();
     window.setInterval(loadMessages, 4000);
   }
+
+  function initFollowupBuilder(builder) {
+    const viewport = builder.querySelector('[data-flow-viewport]');
+    const stage = builder.querySelector('[data-flow-stage]');
+    const selector = builder.querySelector('[data-flow-selector]');
+    const zoomOutput = builder.querySelector('[data-flow-zoom]');
+    const currentLabel = builder.querySelector('[data-flow-current-label]');
+    const statusDot = builder.querySelector('.dnb-flow-toolbar__dot');
+    const fallback = builder.querySelector('[data-flow-fallback]');
+    const flows = Array.from(builder.querySelectorAll('[data-flow]'));
+    if (!viewport || !stage || !selector || !flows.length) return;
+
+    const svgNamespace = 'http://www.w3.org/2000/svg';
+    const storagePrefix = 'dnb-followup-layout-v1:';
+    let activeFlow = flows[0];
+    let zoom = 1;
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const flowWidth = (flow) => Number(flow.dataset.canvasWidth || 1400);
+    const flowHeight = (flow) => Number(flow.dataset.canvasHeight || 600);
+    const storageKey = (flow) => storagePrefix + flow.dataset.ruleId;
+
+    function readLayout(flow) {
+      try {
+        const value = window.localStorage.getItem(storageKey(flow));
+        return value ? JSON.parse(value) : null;
+      } catch (error) { return null; }
+    }
+
+    function storeLayout(flow) {
+      const positions = {};
+      flow.querySelectorAll('[data-flow-node]').forEach((node) => {
+        positions[node.dataset.flowNode] = {
+          x: Math.round(parseFloat(node.style.left) || 0),
+          y: Math.round(parseFloat(node.style.top) || 0)
+        };
+      });
+      try { window.localStorage.setItem(storageKey(flow), JSON.stringify(positions)); } catch (error) { /* modo privado */ }
+    }
+
+    function restoreLayout(flow) {
+      const positions = readLayout(flow);
+      flow.querySelectorAll('[data-flow-node]').forEach((node) => {
+        const saved = positions && positions[node.dataset.flowNode];
+        const x = saved ? Number(saved.x) : Number(node.dataset.defaultX || 0);
+        const y = saved ? Number(saved.y) : Number(node.dataset.defaultY || 0);
+        node.style.left = clamp(x, 0, flowWidth(flow) - Math.max(node.offsetWidth, 180)) + 'px';
+        node.style.top = clamp(y, 0, flowHeight(flow) - Math.max(node.offsetHeight, 120)) + 'px';
+      });
+    }
+
+    function createEdgePath(className, definition) {
+      const path = document.createElementNS(svgNamespace, 'path');
+      path.setAttribute('class', className);
+      path.setAttribute('d', definition);
+      return path;
+    }
+
+    function drawEdges(flow) {
+      if (!flow || flow.hidden) return;
+      const svg = flow.querySelector('[data-flow-edges]');
+      if (!svg) return;
+      svg.replaceChildren();
+      svg.setAttribute('viewBox', '0 0 ' + flowWidth(flow) + ' ' + flowHeight(flow));
+      const nodes = Array.from(flow.querySelectorAll('[data-flow-node]'));
+      nodes.forEach((source) => {
+        const targetName = source.dataset.flowNext;
+        if (!targetName) return;
+        const target = nodes.find((node) => node.dataset.flowNode === targetName);
+        if (!target) return;
+        const x1 = source.offsetLeft + source.offsetWidth;
+        const y1 = source.offsetTop + source.offsetHeight / 2;
+        const x2 = target.offsetLeft;
+        const y2 = target.offsetTop + target.offsetHeight / 2;
+        const curve = Math.max(60, Math.abs(x2 - x1) * .45);
+        const definition = 'M ' + x1 + ' ' + y1
+          + ' C ' + (x1 + curve) + ' ' + y1
+          + ', ' + (x2 - curve) + ' ' + y2
+          + ', ' + x2 + ' ' + y2;
+        svg.appendChild(createEdgePath('dnb-flow-edge dnb-flow-edge--shadow', definition));
+        svg.appendChild(createEdgePath('dnb-flow-edge dnb-flow-edge--pulse', definition));
+      });
+    }
+
+    function updateFlowStatus() {
+      if (currentLabel) currentLabel.textContent = activeFlow.dataset.ruleLabel || 'Fluxo';
+      const activeInput = activeFlow.querySelector('[name="is_active"]');
+      if (statusDot) statusDot.classList.toggle('is-inactive', !activeInput || !activeInput.checked);
+    }
+
+    function applyZoom() {
+      zoom = clamp(zoom, .6, 1.4);
+      activeFlow.style.width = flowWidth(activeFlow) + 'px';
+      activeFlow.style.height = flowHeight(activeFlow) + 'px';
+      activeFlow.style.transform = 'scale(' + zoom + ')';
+      stage.style.width = (flowWidth(activeFlow) * zoom) + 'px';
+      stage.style.height = (flowHeight(activeFlow) * zoom) + 'px';
+      if (zoomOutput) zoomOutput.value = Math.round(zoom * 100) + '%';
+      drawEdges(activeFlow);
+    }
+
+    function showFlow(ruleId, resetScroll) {
+      const next = flows.find((flow) => flow.dataset.ruleId === String(ruleId)) || flows[0];
+      flows.forEach((flow) => { flow.hidden = flow !== next; });
+      activeFlow = next;
+      selector.value = activeFlow.dataset.ruleId;
+      restoreLayout(activeFlow);
+      updateFlowStatus();
+      applyZoom();
+      window.requestAnimationFrame(() => drawEdges(activeFlow));
+      if (resetScroll) viewport.scrollTo({left: 0, top: 0, behavior: 'smooth'});
+    }
+
+    flows.forEach((flow) => {
+      flow.querySelectorAll('[data-flow-node]').forEach((node) => {
+        const handle = node.querySelector('[data-flow-drag]');
+        if (!handle) return;
+        handle.addEventListener('pointerdown', (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          flow.querySelectorAll('[data-flow-node]').forEach((item) => item.classList.remove('is-selected'));
+          node.classList.add('is-selected');
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const initialX = parseFloat(node.style.left) || 0;
+          const initialY = parseFloat(node.style.top) || 0;
+          handle.setPointerCapture(event.pointerId);
+
+          const move = (moveEvent) => {
+            const x = initialX + (moveEvent.clientX - startX) / zoom;
+            const y = initialY + (moveEvent.clientY - startY) / zoom;
+            node.style.left = clamp(x, 0, flowWidth(flow) - node.offsetWidth) + 'px';
+            node.style.top = clamp(y, 0, flowHeight(flow) - node.offsetHeight) + 'px';
+            drawEdges(flow);
+          };
+          const stop = () => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', stop);
+            handle.removeEventListener('pointercancel', stop);
+            storeLayout(flow);
+          };
+          handle.addEventListener('pointermove', move);
+          handle.addEventListener('pointerup', stop);
+          handle.addEventListener('pointercancel', stop);
+        });
+
+        node.addEventListener('click', () => {
+          flow.querySelectorAll('[data-flow-node]').forEach((item) => item.classList.remove('is-selected'));
+          node.classList.add('is-selected');
+        });
+      });
+
+      const activeInput = flow.querySelector('[name="is_active"]');
+      const activeLabel = flow.querySelector('[data-flow-active-label]');
+      if (activeInput && activeLabel) {
+        activeInput.addEventListener('change', () => {
+          activeLabel.textContent = activeInput.checked ? 'Fluxo ativo' : 'Fluxo inativo';
+          if (flow === activeFlow) updateFlowStatus();
+        });
+      }
+    });
+
+    selector.addEventListener('change', () => showFlow(selector.value, true));
+    builder.querySelector('[data-flow-zoom-in]')?.addEventListener('click', () => { zoom += .1; applyZoom(); });
+    builder.querySelector('[data-flow-zoom-out]')?.addEventListener('click', () => { zoom -= .1; applyZoom(); });
+    builder.querySelector('[data-flow-fit]')?.addEventListener('click', () => {
+      const horizontal = (viewport.clientWidth - 24) / flowWidth(activeFlow);
+      const vertical = (viewport.clientHeight - 24) / flowHeight(activeFlow);
+      zoom = clamp(Math.min(horizontal, vertical), .6, 1);
+      applyZoom();
+      viewport.scrollTo({left: 0, top: 0, behavior: 'smooth'});
+    });
+    builder.querySelector('[data-flow-reset]')?.addEventListener('click', () => {
+      try { window.localStorage.removeItem(storageKey(activeFlow)); } catch (error) { /* modo privado */ }
+      restoreLayout(activeFlow);
+      drawEdges(activeFlow);
+    });
+
+    builder.classList.add('is-ready');
+    if (fallback) fallback.open = false;
+    showFlow(selector.value, false);
+    window.addEventListener('resize', () => drawEdges(activeFlow));
+  }
+
+  document.querySelectorAll('[data-followup-builder]').forEach(initFollowupBuilder);
+
+  function initOpportunityKanban(board) {
+    if (!window.matchMedia('(pointer: fine)').matches) return;
+    let dragged = null;
+    board.querySelectorAll('[data-kanban-card]').forEach((card) => {
+      card.addEventListener('dragstart', (event) => {
+        dragged = card;
+        card.classList.add('is-dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', card.dataset.leadId || '');
+        }
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('is-dragging');
+        board.querySelectorAll('[data-kanban-stage]').forEach((column) => column.classList.remove('is-drag-over'));
+        dragged = null;
+      });
+    });
+    board.querySelectorAll('[data-kanban-stage]').forEach((column) => {
+      column.addEventListener('dragover', (event) => {
+        if (!dragged) return;
+        event.preventDefault();
+        column.classList.add('is-drag-over');
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      });
+      column.addEventListener('dragleave', (event) => {
+        if (!column.contains(event.relatedTarget)) column.classList.remove('is-drag-over');
+      });
+      column.addEventListener('drop', (event) => {
+        event.preventDefault();
+        column.classList.remove('is-drag-over');
+        if (!dragged) return;
+        const form = dragged.querySelector('[data-kanban-stage-form]');
+        const select = form?.querySelector('[data-kanban-stage-select]');
+        const targetStage = column.dataset.kanbanStage || '';
+        const validOption = select && Array.from(select.options).some((option) => option.value === targetStage);
+        if (!form || !select || !validOption || select.value === targetStage) return;
+        select.value = targetStage;
+        form.requestSubmit();
+      });
+    });
+  }
+
+  document.querySelectorAll('[data-opportunity-kanban]').forEach(initOpportunityKanban);
 
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', (event) => {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Shell responsivo da aplicação - UI DNB v3.1.
+ * Shell responsivo da aplicação - UI DNB v3.2.
  * Espera (opcionais): $tabAtual (string), $mes (string YYYY-MM)
  */
 require_once __DIR__ . '/rbac.php';
@@ -41,6 +41,7 @@ $gruposNavegacao = [
         'rotulo' => 'Análise',
         'itens' => [
             ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['audit', 'Audit Log', 'auditoria.php', 'audit', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
         ],
     ],
     [
@@ -60,8 +61,9 @@ $paginas = [
     'orc' => ['Orçamentos', 'Gerencie oportunidades e avance negociações no funil.'],
     'ped' => ['Pedidos', 'Acompanhe vendas, faturamento e entregas comerciais.'],
     'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
-    'cad' => ['Cadência', 'Priorize contatos e mantenha o ritmo dos follow-ups.'],
+    'cad' => ['Follow-ups', 'Desenhe fluxos visuais e acompanhe as cadências automáticas.'],
     'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
+    'audit' => ['Auditoria de fluxos', 'Investigue execuções, falhas e o caminho percorrido por cada automação.'],
     'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
     'wpp' => ['WhatsApp', 'Atenda conversas dentro do seu escopo comercial com Human Lock.'],
     'cas' => ['Casos de atendimento', 'Faça a triagem dos atendimentos transbordados pela IA.'],
@@ -83,7 +85,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="/assets/style.css?v=3.5.0">
+<link rel="stylesheet" href="/assets/style.css?v=3.7.0">
 </head>
 <body class="dnb-body min-h-screen">
 <a class="dnb-skip-link" href="#conteudo-principal">Pular para o conteúdo</a>

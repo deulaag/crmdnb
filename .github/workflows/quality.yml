@@ -22,6 +22,13 @@ jobs:
         run: php tests/rbac_test.php
       - name: Testar estrutura da sidebar
         run: php tests/sidebar_structure_test.php
+      - name: Testar canvas visual de follow-up
+        run: |
+          php tests/followup_canvas_test.php
+          php tests/followup_flow_pr3_test.php
+          php tests/followup_audit_pr3_test.php
+      - name: Testar Kanban responsivo de oportunidades
+        run: php tests/opportunity_kanban_test.php
       - name: Testar contrato da IA
         run: php tests/ai_payload_test.php
       - name: Testar WhatsApp, RBAC, buffer e Human Lock
