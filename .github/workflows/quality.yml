@@ -16,8 +16,10 @@ jobs:
           php-version: '8.1'
           extensions: mbstring, json, curl, pdo_mysql
           coverage: none
+      - name: Instalar dependências (Composer)
+        run: composer install --no-dev --optimize-autoloader --prefer-dist
       - name: Validar sintaxe PHP
-        run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -print0 | xargs -0 -n1 php -l
+        run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
       - name: Testar RBAC
         run: php tests/rbac_test.php
       - name: Testar estrutura da sidebar
@@ -29,6 +31,8 @@ jobs:
           php tests/followup_audit_pr3_test.php
       - name: Testar Kanban responsivo de oportunidades
         run: php tests/opportunity_kanban_test.php
+      - name: Testar CSRF e importação de PDF em Visitas
+        run: php tests/visitas_csrf_test.php
       - name: Testar contrato da IA
         run: php tests/ai_payload_test.php
       - name: Testar WhatsApp, RBAC, buffer e Human Lock
