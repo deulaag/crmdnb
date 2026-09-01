@@ -21,7 +21,7 @@ Porte completo do CRM para PHP puro + MySQL, pronto para hospedagem compartilhad
 - **Interrupção imediata.** Qualquer mensagem recebida do lead pausa a cadência automática; Human Lock, pausa manual e guardrail bloqueado também impedem novos envios.
 - **Múltiplos cargos por pessoa.** O acesso é derivado dos vínculos em `user_cargos`; uma pessoa pode acumular funções comerciais, de supervisão e de suporte.
 - **Comissão por cargo efetivo.** Propostas e pedidos registram `cargo_id`. Apenas cargos com `has_commission=1` entram na apuração, e Administradores são sempre isentos.
-- **Sincronização Salesforce por CSV** (em vez de CSV/XLSX). Exporte o relatório do Salesforce como CSV.
+- **Sincronização RD Station CRM por CSV** (relatório semanal ou mensal, em vez de CSV/XLSX). Exporte o relatório de negócios do RD Station CRM como CSV.
 - **Cadência manual preservada.** Os modelos de e-mail e o botão "Copiar texto" continuam disponíveis, separados do novo motor automático por WhatsApp.
 - Todo o **motor de cálculo de comissão** (as 7 políticas: Vendedor IR, Vendedor Externo, Suporte IR, Interno Sênior, Representante, Consultor Sênior, Sem política) foi portado linha a linha para PHP (`includes/calc.php`) — os números devem bater exatamente com a versão original para os mesmos dados.
 

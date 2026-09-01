@@ -24,10 +24,13 @@ if ($idsPessoasVisiveis) {
     $stmt->execute($idsPessoasVisiveis); $cargosRegistro = $stmt->fetchAll();
 }
 
-function orcRedirect(string $msg = ''): void
+function orcRedirect(string $msg = '', ?string $funil = null): void
 {
     if ($msg !== '') $_SESSION['flash'] = $msg;
-    $qs = !empty($_GET['mes']) ? ('?mes=' . urlencode($_GET['mes'])) : '';
+    $params = [];
+    if (!empty($_GET['mes'])) $params['mes'] = $_GET['mes'];
+    if ($funil !== null && $funil !== '') $params['funil'] = $funil;
+    $qs = $params ? ('?' . http_build_query($params)) : '';
     header('Location: /orcamentos.php' . $qs);
     exit;
 }
@@ -44,16 +47,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($linha === '') orcRedirect('Linha de Produto é obrigatória — regra: uma oportunidade por linha.');
         $vendedorId = $_POST['vendedor_id'] ?: null;
         if ($vendedorId && !in_array($vendedorId, array_column($vendedores, 'id'), true)) { http_response_code(403); exit; }
-        $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
-        $cargoId = cargoParaRegistroComercial($pdo, $assignedTo, !empty($_POST['cargo_id']) ? (int) $_POST['cargo_id'] : null);
-        $suporteId = $_POST['suporte_id'] ?: null;
-        $data = $_POST['data'] ?: hoje();
-        $funil = funilDe($linha);
-        $numero = trim($_POST['numero'] ?? '') ?: gerarNumeroProposta($pdo, $vendedores, $vendedorId, $suporteId, $data);
-        $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo, $cargoId]);
-        registrarTimeline($pdo, (int) $pdo->lastInsertId(), 'created', 'Oportunidade criada manualmente.');
-        orcRedirect('Oportunidade ' . $numero . ' registrada no funil ' . $funisArr[$funil]['label'] . '.');
+        try {
+            $assignedTo = usuarioIdPorVendedor($pdo, $vendedorId) ?: (temPapel(PAPEL_VENDEDOR, PAPEL_SUPERVISOR) ? (int) usuarioLogado()['id'] : null);
+            $cargoId = cargoParaRegistroComercial($pdo, $assignedTo, !empty($_POST['cargo_id']) ? (int) $_POST['cargo_id'] : null);
+            $suporteId = $_POST['suporte_id'] ?: null;
+            $data = $_POST['data'] ?: hoje();
+            $funil = funilDe($linha);
+            $numero = trim($_POST['numero'] ?? '') ?: gerarNumeroProposta($pdo, $vendedores, $vendedorId, $suporteId, $data);
+            $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo, $cargoId]);
+            registrarTimeline($pdo, (int) $pdo->lastInsertId(), 'created', 'Oportunidade criada manualmente.');
+        } catch (Throwable $e) {
+            error_log('orcamentos.add: ' . $e->getMessage());
+            orcRedirect('Não foi possível registrar a oportunidade agora. Tente novamente ou avise o suporte técnico.');
+        }
+        orcRedirect('Oportunidade ' . $numero . ' registrada no funil ' . $funisArr[$funil]['label'] . '.', $funil);
     }
 
     if ($acao === 'set_etapa') {
@@ -129,8 +137,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($acao === 'importar_sf_csv' && !empty($_FILES['arquivo']['tmp_name'])) {
+    if ($acao === 'importar_rdstation_csv' && !empty($_FILES['arquivo']['tmp_name'])) {
         if (!temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)) { http_response_code(403); exit; }
+        $tipoRelatorio = in_array($_POST['tipo_relatorio'] ?? '', ['semanal', 'mensal'], true) ? $_POST['tipo_relatorio'] : 'semanal';
         $novos = 0; $atualizados = 0;
         if (($h = fopen($_FILES['arquivo']['tmp_name'], 'r')) !== false) {
             $header = fgetcsv($h, 0, ',');
@@ -140,13 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($header as $i => $c) foreach ($cands as $x) if (str_contains($c, $x)) return $i;
                     return null;
                 };
-                $iNome = $find(['opportunity name', 'nome da oportunidade', 'oportunidade']);
-                $iConta = $find(['account', 'conta', 'cliente']);
-                $iId = $find(['opportunity id', 'id da oportunidade']);
-                $iValor = $find(['amount', 'valor']);
+                $iNome = $find(['nome do negócio', 'negócio', 'negocio', 'deal name', 'opportunity name', 'nome da oportunidade']);
+                $iConta = $find(['empresa', 'organização', 'organizacao', 'contato', 'account', 'cliente']);
+                $iId = $find(['id do negócio', 'id do negocio', 'deal id', 'opportunity id', 'id']);
+                $iValor = $find(['valor', 'amount']);
                 $iCom = $find(['comiss']);
-                $iFase = $find(['stage', 'fase', 'etapa']);
-                $iDono = $find(['owner', 'proprietário', 'proprietario', 'responsável', 'responsavel', 'vendedor']);
+                $iFase = $find(['etapa do funil', 'etapa', 'fase', 'stage', 'situação', 'situacao']);
+                $iDono = $find(['responsável', 'responsavel', 'vendedor', 'owner']);
                 $num = fn($t) => (float) str_replace(',', '.', preg_replace('/[R$\s.]/', '', (string) $t));
                 while (($row = fgetcsv($h, 0, ',')) !== false) {
                     $nomeOp = $iNome !== null ? trim($row[$iNome] ?? '') : '';
@@ -180,14 +189,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $atualizados++;
                     } else {
                         $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'salesforce', $assignedTo, $cargoId]);
+                            ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'rdstation-' . $tipoRelatorio, $assignedTo, $cargoId]);
                         $novos++;
                     }
                 }
             }
             fclose($h);
         }
-        orcRedirect("Salesforce sincronizado: $novos oportunidade(s) nova(s), $atualizados atualizada(s). Revise vendedor e comissão estimada das novas.");
+        orcRedirect("RD Station sincronizado (relatório $tipoRelatorio): $novos oportunidade(s) nova(s), $atualizados atualizada(s). Revise vendedor e comissão estimada das novas.");
     }
 
     if ($acao === 'promover_lead') {
@@ -397,7 +406,9 @@ include __DIR__ . '/includes/layout_header.php';
       </div>
       <div class="mt-3 flex gap-2 items-center">
         <button class="<?= BTN_P ?>" style="background:<?= NAVY ?>;">Registrar oportunidade</button>
-        <?php if ($msg): ?><span class="text-xs text-slate-500"><?= e($msg) ?></span><?php endif; ?>
+        <?php if ($msg): $msgOk = str_contains($msg, 'registrada'); ?>
+        <span class="text-xs font-medium px-2 py-1 rounded-md border <?= $msgOk ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700' ?>"><?= e($msg) ?></span>
+        <?php endif; ?>
       </div>
     </form>
   </div>
@@ -420,12 +431,13 @@ include __DIR__ . '/includes/layout_header.php';
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
-    <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Sincronizar relatório semanal Salesforce (CSV)</span>
+    <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Sincronizar RD Station CRM (CSV)</span>
   </div>
   <div class="p-4">
-    <div class="text-xs text-slate-500 mb-2">Exporte o relatório de oportunidades do Salesforce como <b>CSV</b> e anexe aqui. Já sincronizadas são atualizadas, nunca duplicadas. Colunas reconhecidas: Opportunity Name/ID, Account/Conta, Amount/Valor, Stage/Fase, Owner/Proprietário, Comissão.</div>
+    <div class="text-xs text-slate-500 mb-2">Exporte o relatório de negócios do <b>RD Station CRM</b> (semanal ou mensal) como <b>CSV</b> e anexe aqui. Já sincronizados são atualizados, nunca duplicados. Colunas reconhecidas: Nome do Negócio/ID, Empresa/Organização/Conta, Valor, Etapa do Funil, Responsável, Comissão.</div>
     <form method="post" enctype="multipart/form-data"><?= csrfInput() ?>
-      <input type="hidden" name="acao" value="importar_sf_csv">
+      <input type="hidden" name="acao" value="importar_rdstation_csv">
+      <select name="tipo_relatorio" class="<?= INPUT_CLS ?> inline-block w-auto"><option value="semanal">Relatório semanal</option><option value="mensal">Relatório mensal</option></select>
       <input type="file" name="arquivo" accept=".csv" required class="text-sm">
       <button class="<?= BTN_P ?> mt-2 ml-2" style="background:<?= NAVY2 ?>;">Sincronizar</button>
     </form>
