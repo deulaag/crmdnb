@@ -15,6 +15,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 exigirCsrf();
 
+function textoSeguroModal(string $valor): string
+{
+    return htmlspecialchars($valor, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
 try {
     if ($acao === 'create') {
         $cliente = trim((string) ($_POST['cliente'] ?? ''));
@@ -50,7 +55,7 @@ try {
             registrarTimeline($pdo, $leadId, 'task_created', 'Tarefa criada para ' . $taskDue . ': ' . ($taskTitle ?: 'Acompanhar orçamento') . '.');
         }
         $pdo->commit();
-        echo json_encode(['ok'=>true,'lead_id'=>$leadId,'numero'=>$numero,'task_id'=>$taskId]); exit;
+        echo json_encode(['ok'=>true,'lead_id'=>$leadId,'numero'=>textoSeguroModal($numero),'task_id'=>$taskId]); exit;
     }
 
     if ($acao === 'set_stage') {
@@ -91,6 +96,7 @@ try {
             registrarTimeline($pdo, $leadId, 'funnel_update', 'Etapa atualizada para ' . $novaEtapa . '.');
         }
         $pdo->commit();
+        if (is_array($pedido)) $pedido['numero'] = textoSeguroModal((string) ($pedido['numero'] ?? ''));
         echo json_encode(['ok'=>true,'stage'=>$novaEtapa,'order_generated'=>$gerado,'order'=>$pedido]); exit;
     }
 
@@ -107,6 +113,7 @@ try {
         $stmt = $pdo->prepare('SELECT assigned_to_user_id FROM orcamentos WHERE id=?');
         $stmt->execute([$leadId]);
         $assigned = (int) $stmt->fetchColumn();
+        if ($assigned <= 0) $assigned = (int) usuarioLogado()['id'];
         $taskId = criarTarefaOrcamento($pdo,$leadId,$assigned,trim((string)($_POST['task_title']??'')),trim((string)($_POST['task_due_date']??'')),(int)usuarioLogado()['id']);
         registrarTimeline($pdo,$leadId,'task_created','Nova tarefa adicionada ao orçamento.');
         echo json_encode(['ok'=>true,'task_id'=>$taskId]); exit;
