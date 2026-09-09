@@ -26,24 +26,28 @@ function estadoIntegracoes(): array
         $env = getenv($chave);
         return $env === false ? $padrao : trim((string) $env);
     };
+    $aiEndpoint = $valor('DNB_AI_VPS_ENDPOINT');
+    $aiToken = $valor('DNB_AI_VPS_TOKEN');
+    $waEndpoint = $valor('DNB_WHATSAPP_SEND_URL');
+    $waToken = $valor('DNB_WHATSAPP_API_TOKEN');
     return [
         'ok' => true,
         'csrf' => csrfToken(),
         'fields' => [
-            'DNB_AI_VPS_ENDPOINT' => $valor('DNB_AI_VPS_ENDPOINT'),
+            'DNB_AI_VPS_ENDPOINT' => $aiEndpoint,
             'DNB_AI_TIMEOUT' => $valor('DNB_AI_TIMEOUT', '45'),
-            'DNB_WHATSAPP_SEND_URL' => $valor('DNB_WHATSAPP_SEND_URL'),
+            'DNB_WHATSAPP_SEND_URL' => $waEndpoint,
             'DNB_WHATSAPP_TIMEOUT' => $valor('DNB_WHATSAPP_TIMEOUT', '30'),
         ],
         'secrets' => [
-            'DNB_AI_VPS_TOKEN' => $valor('DNB_AI_VPS_TOKEN') !== '',
-            'DNB_WHATSAPP_API_TOKEN' => $valor('DNB_WHATSAPP_API_TOKEN') !== '',
+            'DNB_AI_VPS_TOKEN' => $aiToken !== '',
+            'DNB_WHATSAPP_API_TOKEN' => $waToken !== '',
             'DNB_WHATSAPP_WEBHOOK_TOKEN' => $valor('DNB_WHATSAPP_WEBHOOK_TOKEN') !== '',
             'DNB_WHATSAPP_CRON_TOKEN' => $valor('DNB_WHATSAPP_CRON_TOKEN') !== '',
         ],
         'status' => [
-            'ai' => iaConfigurada(),
-            'whatsapp' => whatsappProviderConfigurado(),
+            'ai' => $aiEndpoint !== '' && $aiToken !== '',
+            'whatsapp' => $waEndpoint !== '' && $waToken !== '',
         ],
     ];
 }
