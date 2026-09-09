@@ -1,12 +1,13 @@
 <?php
 /** Cliente HTTP autenticado para a VPS de IA. */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/integration_config.php';
 
 // Compatibilidade com instalações cujo config.php histórico contém somente o
-// banco: a IA continua configurável por variáveis do ambiente do cPanel.
-if (!defined('AI_VPS_ENDPOINT')) define('AI_VPS_ENDPOINT', getenv('DNB_AI_VPS_ENDPOINT') ?: '');
-if (!defined('AI_VPS_TOKEN')) define('AI_VPS_TOKEN', getenv('DNB_AI_VPS_TOKEN') ?: '');
-if (!defined('AI_REQUEST_TIMEOUT')) define('AI_REQUEST_TIMEOUT', max(5, (int) (getenv('DNB_AI_TIMEOUT') ?: 45)));
+// banco: a IA pode ser configurada pela tela administrativa ou por ambiente.
+if (!defined('AI_VPS_ENDPOINT')) define('AI_VPS_ENDPOINT', integracaoConfigValor('DNB_AI_VPS_ENDPOINT'));
+if (!defined('AI_VPS_TOKEN')) define('AI_VPS_TOKEN', integracaoConfigValor('DNB_AI_VPS_TOKEN'));
+if (!defined('AI_REQUEST_TIMEOUT')) define('AI_REQUEST_TIMEOUT', max(5, min(120, (int) integracaoConfigValor('DNB_AI_TIMEOUT', '45'))));
 if (!defined('AI_MAX_PROMPT_LENGTH')) define('AI_MAX_PROMPT_LENGTH', 8000);
 
 class AiClientException extends RuntimeException {}
@@ -71,7 +72,7 @@ function validarPayloadFollowupIa(array $payload): void
 function enviarJsonIaVps(string $caminho, array $payload): array
 {
     if (!iaConfigurada()) {
-        throw new AiClientException('Integração com a VPS ainda não configurada no cPanel.');
+        throw new AiClientException('Integração com a VPS ainda não configurada.');
     }
     validarEndpointIa(AI_VPS_ENDPOINT);
     if (!str_starts_with($caminho, '/api/')) throw new AiClientException('Caminho interno da VPS inválido.');
@@ -83,7 +84,7 @@ function enviarJsonIaVps(string $caminho, array $payload): array
         'Content-Type: application/json',
         'Accept: application/json',
         'X-Correlation-ID: ' . $correlationId,
-        'User-Agent: DNB-CRM-cPanel/3.2',
+        'User-Agent: DNB-CRM-cPanel/3.4',
     ];
 
     if (function_exists('curl_init')) {
