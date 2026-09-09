@@ -63,21 +63,34 @@ $raw = file_get_contents('php://input');
 $dados = json_decode((string) $raw, true);
 if (!is_array($dados)) $dados = $_POST;
 
+$estadoAtual = estadoIntegracoes();
+$camposAtuais = $estadoAtual['fields'];
 $novos = [];
-$aiEndpoint = trim((string) ($dados['DNB_AI_VPS_ENDPOINT'] ?? ''));
-$waEndpoint = trim((string) ($dados['DNB_WHATSAPP_SEND_URL'] ?? ''));
-if ($aiEndpoint !== '') validarEndpointIa($aiEndpoint);
-if ($waEndpoint !== '') whatsappValidarUrlHttps($waEndpoint);
-$novos['DNB_AI_VPS_ENDPOINT'] = $aiEndpoint;
-$novos['DNB_WHATSAPP_SEND_URL'] = $waEndpoint;
-$novos['DNB_AI_TIMEOUT'] = (string) max(5, min(120, (int) ($dados['DNB_AI_TIMEOUT'] ?? 45)));
-$novos['DNB_WHATSAPP_TIMEOUT'] = (string) max(5, min(60, (int) ($dados['DNB_WHATSAPP_TIMEOUT'] ?? 30)));
+
+if (array_key_exists('DNB_AI_VPS_ENDPOINT', $dados)) {
+    $aiEndpoint = trim((string) $dados['DNB_AI_VPS_ENDPOINT']);
+    if ($aiEndpoint !== '') validarEndpointIa($aiEndpoint);
+    $novos['DNB_AI_VPS_ENDPOINT'] = $aiEndpoint;
+}
+if (array_key_exists('DNB_WHATSAPP_SEND_URL', $dados)) {
+    $waEndpoint = trim((string) $dados['DNB_WHATSAPP_SEND_URL']);
+    if ($waEndpoint !== '') whatsappValidarUrlHttps($waEndpoint);
+    $novos['DNB_WHATSAPP_SEND_URL'] = $waEndpoint;
+}
+if (array_key_exists('DNB_AI_TIMEOUT', $dados)) {
+    $novos['DNB_AI_TIMEOUT'] = (string) max(5, min(120, (int) $dados['DNB_AI_TIMEOUT']));
+}
+if (array_key_exists('DNB_WHATSAPP_TIMEOUT', $dados)) {
+    $novos['DNB_WHATSAPP_TIMEOUT'] = (string) max(5, min(60, (int) $dados['DNB_WHATSAPP_TIMEOUT']));
+}
 
 foreach (['DNB_AI_VPS_TOKEN','DNB_WHATSAPP_API_TOKEN','DNB_WHATSAPP_WEBHOOK_TOKEN','DNB_WHATSAPP_CRON_TOKEN'] as $segredo) {
     if (array_key_exists($segredo, $dados) && trim((string) $dados[$segredo]) !== '') {
         $novos[$segredo] = trim((string) $dados[$segredo]);
     }
 }
+
+if (!$novos) responderIntegracoes(array_merge($estadoAtual, ['mensagem' => 'Nenhuma alteração informada.']));
 
 try {
     salvarIntegracaoConfig($novos);
