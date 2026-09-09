@@ -53,11 +53,28 @@ function listarLeadsAcessiveis(PDO $pdo, bool $somenteAbertos = false): array
     return $stmt->fetchAll();
 }
 
+function timelineTemActorUserId(PDO $pdo): bool
+{
+    static $disponivel = null;
+    if ($disponivel !== null) return $disponivel;
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lead_timeline' AND COLUMN_NAME='actor_user_id'");
+        return $disponivel = ((int) $stmt->fetchColumn() === 1);
+    } catch (Throwable) {
+        return $disponivel = false;
+    }
+}
+
 function registrarTimeline(PDO $pdo, int $leadId, string $tipo, string $descricao, ?array $ator = null): void
 {
     $ator = $ator ?? usuarioLogado();
     $contexto = $ator ? resumoTitulosCargos((array) ($ator['cargos'] ?? [])) : '';
     $nomeAtor = $ator ? ($ator['nome'] . ' (' . ($contexto !== 'Sem cargo' ? $contexto : ($ator['role'] ?? 'USUARIO')) . ')') : 'Sistema';
+    if (timelineTemActorUserId($pdo)) {
+        $stmt = $pdo->prepare('INSERT INTO lead_timeline (lead_id,event_type,description,actor,actor_user_id,created_at) VALUES (?,?,?,?,?,NOW())');
+        $stmt->execute([$leadId, mb_substr($tipo, 0, 60), mb_substr($descricao, 0, 4000), mb_substr($nomeAtor, 0, 180), $ator ? (int) $ator['id'] : null]);
+        return;
+    }
     $stmt = $pdo->prepare('INSERT INTO lead_timeline (lead_id,event_type,description,actor,created_at) VALUES (?,?,?,?,NOW())');
     $stmt->execute([$leadId, mb_substr($tipo, 0, 60), mb_substr($descricao, 0, 4000), mb_substr($nomeAtor, 0, 180)]);
 }
