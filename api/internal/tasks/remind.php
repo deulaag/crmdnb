@@ -14,11 +14,12 @@ if (!tarefasDisponiveis($pdo)) {
 $cfg = configuracaoTarefas($pdo);
 if (empty($cfg['reminder_enabled'])) { echo json_encode(['ok'=>true,'sent'=>0]); exit; }
 $dias = max(0,min(30,(int)$cfg['reminder_days_before']));
+$corte = (new DateTimeImmutable('today'))->modify('+' . $dias . ' days')->format('Y-m-d');
 $stmt = $pdo->prepare("SELECT t.*,o.numero,o.cliente,u.nome responsavel_nome,DATEDIFF(t.due_date,CURDATE()) dias
     FROM crm_tasks t JOIN orcamentos o ON o.id=t.orcamento_id JOIN usuarios u ON u.id=t.assigned_to_user_id
-    WHERE t.status='pending' AND t.reminder_sent_at IS NULL AND t.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL ? DAY)
+    WHERE t.status='pending' AND t.reminder_sent_at IS NULL AND t.due_date BETWEEN CURDATE() AND ?
     ORDER BY t.due_date,t.id");
-$stmt->execute([$dias]);
+$stmt->execute([$corte]);
 $sent = 0;
 foreach ($stmt->fetchAll() as $tarefa) {
     $mensagem = renderizarTemplateTarefa((string)$cfg['reminder_template'],$tarefa);
