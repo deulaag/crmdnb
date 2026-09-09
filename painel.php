@@ -79,6 +79,7 @@ include __DIR__ . '/includes/layout_header.php';
 <?php endif; ?>
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4" data-crm-tasks-panel>
+  <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
     <div><span class="dnb-eyebrow">Acompanhamento diário</span><h2 class="dnb-section-title">Tarefas dos orçamentos</h2></div>
     <span class="text-xs text-slate-500"><?= count($tarefas) ?> pendente(s)</span>
