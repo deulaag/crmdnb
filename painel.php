@@ -41,6 +41,7 @@ include __DIR__ . '/includes/layout_header.php';
   <?php endforeach; ?>
 </div>
 
+<?php if (ehOperadorVendedor()): ?>
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
     <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">Farol de metas · <?= e(rotuloMes($mes)) ?></span>
@@ -94,10 +95,12 @@ include __DIR__ . '/includes/layout_header.php';
       </tbody>
     </table>
     </div>
-    <div class="text-xs text-slate-400 mt-3">Meta de propostas derivada da meta de vendas ÷ conversão (IR peças/serviços 40% · equipamentos 20% · demais 15%). Consultor Sênior: metas anuais, referência mensal proporcional.</div>
+    <div class="text-xs text-slate-400 mt-3">Seu farol usa apenas os registros vinculados ao seu usuário no CRM. Meta de propostas derivada da meta de vendas ÷ conversão.</div>
   </div>
 </div>
+<?php endif; ?>
 
+<?php if (temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR)): ?>
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
     <span class="text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-md" style="background:<?= NAVY ?>;">KPIs automáticos (gatilhos de bonificação — apurados dos dados do CRM)</span>
@@ -128,5 +131,6 @@ include __DIR__ . '/includes/layout_header.php';
     <div class="text-xs text-slate-400">Indicadores sem registro no CRM (tempo médio de resposta, reativações de inativos, relatórios semanais) permanecem em verificação documental pela diretoria e não bloqueiam o gatilho automático.</div>
   </div>
 </div>
+<?php endif; ?>
 
 <?php include __DIR__ . '/includes/layout_footer.php'; ?>

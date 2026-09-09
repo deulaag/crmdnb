@@ -11,6 +11,25 @@ $vendedores = filtrarPessoasElegiveisComissao($pdo, filtrarVendedoresDaEquipe($p
 $calc = calcularMes($pdo, $mes, $vendedores);
 $politicasArr = politicas();
 
+// Movimentações executadas pelo próprio usuário no fluxo do CRM. A coluna
+// actor_user_id é instalada pela migração 20260908_timeline_actor.sql.
+$movimentacoes = [];
+try {
+    $stmtMov = $pdo->prepare("SELECT COALESCE(u.pessoa_id,u.vendedor_id) pessoa_id,
+        COUNT(*) total_movimentos,
+        COUNT(DISTINCT lt.lead_id) oportunidades_movimentadas,
+        SUM(lt.event_type IN ('created','funnel_update','status_update','followup_paused','followup_resumed','lead_score')) movimentos_indicador
+        FROM lead_timeline lt
+        JOIN usuarios u ON u.id=lt.actor_user_id
+        WHERE DATE_FORMAT(lt.created_at,'%Y-%m')=?
+          AND COALESCE(u.pessoa_id,u.vendedor_id) IS NOT NULL
+        GROUP BY COALESCE(u.pessoa_id,u.vendedor_id)");
+    $stmtMov->execute([$mes]);
+    foreach ($stmtMov->fetchAll() as $mov) $movimentacoes[(string) $mov['pessoa_id']] = $mov;
+} catch (Throwable) {
+    // Instalações ainda sem a migração continuam exibindo o cálculo financeiro.
+}
+
 $totalGeral = 0;
 foreach ($vendedores as $p) $totalGeral += $calc['porPessoa'][$p['id']]['total'] ?? 0;
 
@@ -25,13 +44,13 @@ include __DIR__ . '/includes/layout_header.php';
   </div>
   <div class="p-4">
     <div class="overflow-x-auto">
-      <table class="w-full text-sm min-w-[900px]">
+      <table class="w-full text-sm min-w-[1040px]">
         <thead><tr class="text-left text-xs text-slate-500 border-b border-slate-200">
-          <th class="py-2 pr-2">Pessoa · política</th><th class="pr-2">Base do mês</th><th class="pr-2">Atingimento</th>
+          <th class="py-2 pr-2">Pessoa · política</th><th class="pr-2">Base do mês</th><th class="pr-2">Atingimento</th><th class="pr-2">Movimentações CRM</th>
           <th class="pr-2">Comissão revenda</th><th class="pr-2">Comissão agenciadas</th><th class="pr-2">Bonificação</th><th class="pr-2">Total</th>
         </tr></thead>
         <tbody>
-          <?php foreach ($vendedores as $p): $c = $calc['porPessoa'][$p['id']]; ?>
+          <?php foreach ($vendedores as $p): $c = $calc['porPessoa'][$p['id']]; $mov=$movimentacoes[(string)$p['id']]??null; ?>
           <tr class="border-b border-slate-100 align-top">
             <td class="py-2 pr-2">
               <div class="font-semibold" style="color:<?= NAVY ?>;"><?= e($p['nome']) ?></div>
@@ -46,6 +65,13 @@ include __DIR__ . '/includes/layout_header.php';
               <div class="text-xs font-bold" style="color:<?= $c['ating'] >= 100 ? '#15803d' : ($c['ating'] >= 80 ? '#b45309' : '#b91c1c') ?>;"><?= round($c['ating']) ?>%</div>
               <div class="text-xs text-slate-400"><?= e($c['faixaTxt']) ?></div>
             </td>
+            <td class="pr-2 text-xs text-slate-600">
+              <?php if ($mov): ?>
+                <strong><?= (int)$mov['total_movimentos'] ?></strong> ação(ões)<br>
+                <span class="text-slate-400"><?= (int)$mov['oportunidades_movimentadas'] ?> oportunidade(s)</span><br>
+                <span class="text-slate-400"><?= (int)$mov['movimentos_indicador'] ?> evento(s) de indicador</span>
+              <?php else: ?><span class="text-slate-400">Sem eventos rastreados</span><?php endif; ?>
+            </td>
             <td class="pr-2 font-bold"><?= fmtBRL($c['comRevenda']) ?></td>
             <td class="pr-2 font-bold"><?= fmtBRL($c['comAgenciada']) ?></td>
             <td class="pr-2">
@@ -57,13 +83,13 @@ include __DIR__ . '/includes/layout_header.php';
           <?php endforeach; ?>
         </tbody>
         <tfoot><tr>
-          <td colspan="6" class="py-3 text-right font-bold text-slate-600">Total de remuneração variável do período:</td>
+          <td colspan="7" class="py-3 text-right font-bold text-slate-600">Total de remuneração variável do período:</td>
           <td class="py-3 font-bold text-lg" style="color:<?= NAVY ?>;"><?= fmtBRL($totalGeral) ?></td>
         </tr></tfoot>
       </table>
     </div>
     <div class="text-xs text-slate-400 mt-2">
-      Cálculo conforme políticas vigentes: Vendedor Externo rev02 (0,5% / 1% s/ com. DNB · bonificação em escala 80/90/100% pela meta · reduções de 5% por ocorrência) · Vendedor IR v3 (0,5% / 1% · bonificação ×0,8/0,9/1,0 a partir de 80%) · Suporte IR (0,25% / 0,5% · mesma bonificação) · Interno Sênior (0,5% / 1% · multiplicador ×0–1,2 · dobra por KPIs · teto R$ 9.600) · Representante (30% s/ comissão DNB · 5% s/ margem · +20% se 100% dos KPIs) · Consultor Sênior (regime anual acumulado, faixas 0,35–0,75%, agenciadas 6%, tetos por modalidade e global R$ 120 mil). KPIs apurados automaticamente pelos dados do CRM. Comissão sempre sobre pedidos faturados; pagamento condicionado à liquidação financeira conforme política.
+      A rastreabilidade acompanha as ações efetivamente executadas pelo usuário no fluxo da oportunidade. Eventos que correspondem a indicadores ficam identificados no relatório; a base financeira de comissão continua sendo formada pelos pedidos faturados e pelas regras da política comercial vigente. KPIs seguem apurados pelos dados registrados no CRM.
     </div>
   </div>
 </div>

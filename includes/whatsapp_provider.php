@@ -4,11 +4,14 @@ declare(strict_types=1);
 /** Adaptador HTTP genérico do provedor de WhatsApp. */
 class WhatsappProviderException extends RuntimeException {}
 
+require_once __DIR__ . '/integration_config.php';
 $whatsappLocal = __DIR__ . '/../whatsapp.local.php';
 if (is_file($whatsappLocal)) require_once $whatsappLocal;
 
 function whatsappEnv(string $nome, string $padrao = ''): string
 {
+    $local = integracaoConfigLocal();
+    if (array_key_exists($nome, $local)) return trim((string) $local[$nome]);
     if (defined($nome)) return trim((string) constant($nome));
     $valor = getenv($nome);
     return $valor === false ? $padrao : trim((string) $valor);
@@ -35,7 +38,7 @@ function whatsappHttpPostJson(string $url, array $payload, array $headers = []):
     $headers = array_merge([
         'Content-Type: application/json',
         'Accept: application/json',
-        'User-Agent: DNB-CRM-cPanel/3.1',
+        'User-Agent: DNB-CRM-cPanel/3.4',
     ], $headers);
     $timeout = max(5, min(60, (int) (whatsappEnv('DNB_WHATSAPP_TIMEOUT', '30'))));
 
@@ -93,7 +96,7 @@ function whatsappHttpPostJson(string $url, array $payload, array $headers = []):
 function enviarWhatsappProvider(array $instancia, array $contato, string $mensagem, ?string $mediaUrl = null): array
 {
     if (!whatsappProviderConfigurado()) {
-        throw new WhatsappProviderException('Provedor de WhatsApp ainda não configurado no cPanel.');
+        throw new WhatsappProviderException('Provedor de WhatsApp ainda não configurado.');
     }
     $payload = [
         'instance_id' => (string) $instancia['external_instance_id'],

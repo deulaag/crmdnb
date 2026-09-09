@@ -31,17 +31,52 @@ function temPapel(string ...$papeis): bool
     return (bool) array_intersect(papeisAtuais(), array_map('strtoupper', $papeis));
 }
 
+/** Vendedor operacional puro: não acumula papel administrativo ou de supervisão. */
+function ehOperadorVendedor(?array $usuario = null): bool
+{
+    $papeis = papeisAtuais($usuario);
+    return in_array(PAPEL_VENDEDOR, $papeis, true)
+        && !in_array(PAPEL_ADMINISTRADOR, $papeis, true)
+        && !in_array(PAPEL_SUPERVISOR, $papeis, true);
+}
+
+function negarAcessoModulo(): void
+{
+    http_response_code(403);
+    require_once __DIR__ . '/helpers.php';
+    $titulo = 'Acesso não autorizado';
+    $mensagem = 'Seu perfil não possui permissão para acessar este módulo.';
+    include __DIR__ . '/forbidden.php';
+    exit;
+}
+
+/**
+ * Regras sensíveis que não podem depender apenas de esconder botões na UI.
+ * São avaliadas em toda página que chama exigirPapel().
+ */
+function aplicarRestricoesAdministrativasDaRequisicao(): void
+{
+    $script = basename((string) ($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? ''));
+
+    // Auditoria de fluxos é exclusiva do administrador.
+    if ($script === 'auditoria.php' && !temPapel(PAPEL_ADMINISTRADOR)) {
+        negarAcessoModulo();
+    }
+
+    // Importações e sincronizações em massa alteram dados de vários vendedores.
+    if ($script === 'orcamentos.php' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        $acao = (string) ($_POST['acao'] ?? '');
+        if (in_array($acao, ['importar_json', 'importar_rdstation_csv'], true) && !temPapel(PAPEL_ADMINISTRADOR)) {
+            negarAcessoModulo();
+        }
+    }
+}
+
 function exigirPapel(string ...$papeis): void
 {
     exigirLogin();
-    if (!temPapel(...$papeis)) {
-        http_response_code(403);
-        require_once __DIR__ . '/helpers.php';
-        $titulo = 'Acesso não autorizado';
-        $mensagem = 'Seu perfil não possui permissão para acessar este módulo.';
-        include __DIR__ . '/forbidden.php';
-        exit;
-    }
+    aplicarRestricoesAdministrativasDaRequisicao();
+    if (!temPapel(...$papeis)) negarAcessoModulo();
 }
 
 function idsUsuariosDaEquipe(PDO $pdo, ?array $usuario = null): array

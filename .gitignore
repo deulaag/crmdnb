@@ -1,2 +1,5 @@
 config.local.php
 whatsapp.local.php
+integrations.local.php
+uploads/avatars/*
+!uploads/avatars/.gitkeep
