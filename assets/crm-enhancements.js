@@ -3,12 +3,14 @@
 
   const css = document.createElement('link');
   css.rel = 'stylesheet';
-  css.href = '/assets/crm-enhancements.css?v=3.4.1';
+  css.href = '/assets/crm-enhancements.css?v=3.5.0';
   document.head.appendChild(css);
 
   const normalize = (value) => String(value || '').trim().toLowerCase();
   const isAdmin = () => Boolean(document.querySelector('a[href*="usuarios.php"],a[href*="configuracoes.php"]'));
   const onQuotesPage = () => location.pathname.endsWith('/orcamentos.php') || location.pathname === '/orcamentos.php';
+  const inputClass = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
+  let refreshKanban = null;
 
   function addProfileLink() {
     const user = document.querySelector('.dnb-user');
@@ -27,20 +29,31 @@
     }
   }
 
-  function hideAdminOnlyNavigation() {
-    if (isAdmin()) return;
-    document.querySelectorAll('a[href*="auditoria.php"]').forEach((link) => {
-      const row = link.closest('.dnb-nav__row');
-      (row || link).classList.add('dnb-card-hidden-by-role');
-    });
-  }
-
   const tutorials = {
-    'painel.php': ['Painel · visão geral', 'Acompanhe o que é relevante para o seu papel no CRM.', '<h3>Como usar</h3><ol><li>Escolha o mês de referência no topo.</li><li>Vendedores visualizam somente o próprio Farol de metas.</li><li>ADM e Supervisor visualizam os KPIs automáticos de bonificação.</li><li>Corrija divergências sempre no registro de origem.</li></ol>'],
-    'orcamentos.php': ['Orçamentos · oportunidades', 'Crie, filtre e movimente oportunidades pelo funil comercial.', '<h3>Fluxo recomendado</h3><ol><li>Cadastre a oportunidade no bloco superior.</li><li>Use os filtros do Kanban; o quadro é atualizado sem recarregar a página.</li><li>Arraste o cartão ou use o seletor da etapa.</li><li>Importação Cotador e RD Station são exclusivas do ADM.</li></ol>'],
-    'pedidos.php': ['Pedidos · vendas e faturamento', 'Registre a evolução comercial depois que a oportunidade vira pedido.', '<h3>O que fazer</h3><ol><li>Confirme responsável, modalidade e valores.</li><li>Atualize faturamento e informações financeiras conforme o processo real.</li><li>Pedidos faturados elegíveis alimentam a comissão.</li><li>Evite duplicidade: atualize o registro já existente.</li></ol>'],
+    'painel.php': ['Painel · visão geral', 'Acompanhe metas pessoais e as tarefas comerciais do dia.', '<h3>Como usar</h3><ol><li>Vendedores visualizam o próprio Farol de metas.</li><li>O bloco Tarefas mostra os próximos compromissos ligados aos orçamentos.</li><li>Abra o orçamento para revisar o contexto ou conclua a tarefa quando terminar.</li><li>O sentimento escolhido no perfil acompanha sua identidade no sistema.</li></ol>'],
+    'orcamentos.php': ['Orçamentos · oportunidades', 'Crie, filtre, movimente oportunidades e acompanhe tarefas.', '<h3>Fluxo recomendado</h3><ol><li>Cadastre a oportunidade e, se necessário, uma tarefa com prazo.</li><li>Use os filtros sem recarregar a página.</li><li>Ao entrar em Fechamento o CRM gera automaticamente o Pedido de Venda e marca a oportunidade como ganha.</li><li>Importação Cotador e RD Station são exclusivas do ADM.</li></ol>'],
+    'pedidos.php': ['Pedidos · vendas e faturamento', 'Acompanhe os pedidos gerados manualmente ou pelo fechamento do orçamento.', '<h3>O que fazer</h3><ol><li>Confirme responsável, modalidade e valores.</li><li>Atualize o faturamento quando ocorrer.</li><li>Pedidos originados do Fechamento ficam vinculados ao orçamento de origem.</li><li>Pedidos faturados elegíveis alimentam a comissão.</li></ol>'],
     'visitas.php': ['Visitas · atividade comercial', 'Registre visitas e prospecções que fazem parte dos indicadores.', '<h3>Boas práticas</h3><ol><li>Registre a atividade no dia em que ocorreu.</li><li>Vincule corretamente vendedor e tipo.</li><li>Use observações objetivas.</li><li>Atividades elegíveis entram nos indicadores do CRM.</li></ol>']
   };
+
+  function createDialog(className = 'dnb-action-dialog') {
+    const dialog = document.createElement('dialog');
+    dialog.className = className;
+    dialog.innerHTML = '<div class="dnb-action-dialog__head"><div><strong data-dialog-title></strong><small data-dialog-subtitle></small></div><button type="button" class="dnb-action-dialog__close" aria-label="Fechar">×</button></div><div class="dnb-action-dialog__body" data-dialog-body></div>';
+    document.body.appendChild(dialog);
+    const close = () => { if (typeof dialog.close === 'function') dialog.close(); dialog.remove(); };
+    dialog.querySelector('.dnb-action-dialog__close').addEventListener('click', close);
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) close(); });
+    return { dialog, close };
+  }
+
+  function showMessage(title, subtitle, html) {
+    const {dialog} = createDialog();
+    dialog.querySelector('[data-dialog-title]').textContent = title;
+    dialog.querySelector('[data-dialog-subtitle]').textContent = subtitle || '';
+    dialog.querySelector('[data-dialog-body]').innerHTML = html;
+    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '');
+  }
 
   function tutorialDialog() {
     let dialog = document.querySelector('[data-crm-info-dialog]');
@@ -70,7 +83,7 @@
     if (!group) return;
     group.querySelectorAll(':scope > .dnb-nav__link').forEach((link) => {
       const file = new URL(link.href, location.href).pathname.split('/').pop().toLowerCase();
-      if (!tutorials[file]) return;
+      if (!tutorials[file] || link.closest('.dnb-nav__row')) return;
       const row = document.createElement('div');
       row.className = 'dnb-nav__row';
       link.before(row);
@@ -114,6 +127,7 @@
   function bindAjaxBoard(board, refresh) {
     if (!board || board.dataset.crmEnhanced === '1') return;
     board.dataset.crmEnhanced = '1';
+    enhanceTaskButtons(board);
     let dragged = null;
     board.querySelectorAll('[data-kanban-card]').forEach((card) => {
       card.addEventListener('dragstart', (event) => {
@@ -144,19 +158,17 @@
     });
     board.addEventListener('submit', async (event) => {
       const form = event.target;
-      if (!(form instanceof HTMLFormElement) || normalize(form.method) !== 'post') return;
+      if (!(form instanceof HTMLFormElement) || normalize(form.method) !== 'post' || form.matches('[data-kanban-stage-form]')) return;
       event.preventDefault();
       const button = event.submitter;
-      if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+      if (button) button.disabled = true;
       try {
         const response = await fetch(form.action || location.href, {method: 'POST', body: new FormData(form), credentials: 'same-origin'});
         if (!response.ok) throw new Error('Não foi possível atualizar a oportunidade.');
         await refresh(false);
       } catch (error) {
         alert(error.message || 'Não foi possível atualizar a oportunidade.');
-      } finally {
-        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
-      }
+      } finally { if (button) button.disabled = false; }
     });
   }
 
@@ -196,10 +208,9 @@
         setTimeout(() => { if (status.textContent === 'Filtros aplicados') status.textContent = ''; }, 1500);
       } catch (error) {
         if (error.name !== 'AbortError') status.textContent = error.message || 'Não foi possível atualizar.';
-      } finally {
-        form.classList.remove('is-loading');
-      }
+      } finally { form.classList.remove('is-loading'); }
     };
+    refreshKanban = refresh;
 
     form.addEventListener('submit', (event) => { event.preventDefault(); refresh(true); });
     form.querySelectorAll('select,input:not([type="hidden"]):not([type="search"])').forEach((field) => field.addEventListener('change', () => refresh(true)));
@@ -207,97 +218,204 @@
       clearTimeout(debounce);
       debounce = setTimeout(() => refresh(true), 300);
     }));
-    // O quadro inicial já foi inicializado por ui.js. Só reativamos drag/drop
-    // nos quadros substituídos via AJAX, evitando listeners duplicados.
+    enhanceTaskButtons(document.querySelector('[data-opportunity-kanban]'));
+  }
+
+  async function submitStageForm(form, submitter) {
+    const data = new FormData(form);
+    data.set('acao', 'set_stage');
+    if (submitter) submitter.disabled = true;
+    try {
+      const response = await fetch('/api/v1/opportunities.php', {method:'POST',body:data,credentials:'same-origin'});
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.erro || 'Não foi possível mover a oportunidade.');
+      if (result.stage === 'Fechamento') {
+        const pedido = result.order || {};
+        showMessage('Pedido de Venda gerado', 'Fechamento concluído automaticamente', '<div class="dnb-action-dialog__success">A oportunidade entrou em <b>Fechamento</b> e foi marcada como <b>Ganha</b>.</div><p>Pedido: <span class="dnb-order-number">' + String(pedido.numero || 'gerado') + '</span></p><div class="dnb-action-dialog__actions"><a class="rounded-lg px-4 py-2 text-sm font-bold text-white" style="background:#003060" href="/pedidos.php">Abrir Pedidos</a></div>');
+      }
+      if (refreshKanban) await refreshKanban(false); else location.reload();
+    } catch (error) {
+      showMessage('Não foi possível mover', 'A alteração não foi concluída', '<p>' + String(error.message || 'Erro inesperado.') + '</p>');
+    } finally { if (submitter) submitter.disabled = false; }
+  }
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.matches('[data-kanban-stage-form]')) return;
+    event.preventDefault();
+    submitStageForm(form, event.submitter);
+  }, true);
+
+  function injectTaskFieldsIntoCreate() {
+    if (!onQuotesPage()) return;
+    const form = Array.from(document.querySelectorAll('form[method="post"]')).find((item) => item.querySelector('input[name="acao"][value="add"]'));
+    if (!form || form.querySelector('[data-task-fields]')) return;
+    const fields = document.createElement('div');
+    fields.className = 'dnb-task-fields';
+    fields.dataset.taskFields = '1';
+    fields.innerHTML = '<label><span>Tarefa de acompanhamento (opcional)</span><input class="' + inputClass + '" name="task_title" maxlength="180" placeholder="Ex.: retornar proposta, confirmar aprovação, cobrar PO"></label><label><span>Prazo da tarefa</span><input class="' + inputClass + '" type="date" name="task_due_date"></label><p class="dnb-task-fields__hint">Ao informar um prazo, a tarefa fica vinculada ao orçamento e aparece no Painel do CRM para o responsável.</p>';
+    const actions = form.querySelector('.mt-3.flex');
+    if (actions) actions.before(fields); else form.appendChild(fields);
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      if (button) button.disabled = true;
+      const data = new FormData(form);
+      data.set('acao', 'create');
+      try {
+        const response = await fetch('/api/v1/opportunities.php', {method:'POST',body:data,credentials:'same-origin'});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.erro || 'Não foi possível registrar a oportunidade.');
+        showMessage('Oportunidade registrada', 'Cadastro concluído', '<div class="dnb-action-dialog__success">Orçamento <b>' + String(result.numero || '') + '</b> criado com sucesso' + (result.task_id ? ' e tarefa adicionada ao Painel.' : '.') + '</div>');
+        form.reset();
+        setTimeout(() => location.reload(), 700);
+      } catch (error) {
+        showMessage('Não foi possível registrar', 'Revise os dados', '<p>' + String(error.message || 'Erro inesperado.') + '</p>');
+      } finally { if (button) button.disabled = false; }
+    });
+  }
+
+  function openTaskDialog(leadId) {
+    const {dialog, close} = createDialog();
+    dialog.querySelector('[data-dialog-title]').textContent = 'Adicionar tarefa ao orçamento';
+    dialog.querySelector('[data-dialog-subtitle]').textContent = 'A tarefa aparecerá no Painel do responsável.';
+    const body = dialog.querySelector('[data-dialog-body]');
+    body.innerHTML = '<form data-add-task-form><label><span>Tarefa</span><input class="' + inputClass + '" name="task_title" maxlength="180" required placeholder="Ex.: confirmar retorno do cliente"></label><label><span>Prazo</span><input class="' + inputClass + '" type="date" name="task_due_date" required></label><div class="dnb-action-dialog__actions"><button type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold" data-cancel>Cancelar</button><button class="rounded-lg px-4 py-2 text-sm font-bold text-white" style="background:#003060">Salvar tarefa</button></div></form>';
+    body.querySelector('[data-cancel]').addEventListener('click', close);
+    body.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      data.set('acao','add_task'); data.set('id',String(leadId));
+      const csrf = document.querySelector('input[name="csrf_token"]')?.value || '';
+      data.set('csrf_token',csrf);
+      const response = await fetch('/api/v1/opportunities.php',{method:'POST',body:data,credentials:'same-origin'});
+      const result = await response.json();
+      if (!response.ok || !result.ok) { alert(result.erro || 'Não foi possível salvar a tarefa.'); return; }
+      close();
+      showMessage('Tarefa adicionada','Acompanhamento atualizado','<div class="dnb-action-dialog__success">A nova tarefa já está disponível no Painel do CRM.</div>');
+    });
+    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open','');
+  }
+
+  function enhanceTaskButtons(root = document) {
+    if (!root) return;
+    root.querySelectorAll?.('[data-kanban-card]').forEach((card) => {
+      if (card.querySelector('[data-add-task]')) return;
+      const leadId = Number(card.dataset.leadId || 0);
+      const actions = card.querySelector('.dnb-opportunity-card__actions');
+      if (!leadId || !actions) return;
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'dnb-task-add rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold';
+      button.dataset.addTask = String(leadId); button.textContent = '+ Tarefa';
+      button.addEventListener('click', () => openTaskDialog(leadId));
+      actions.appendChild(button);
+    });
+  }
+
+  function initTaskCompletion() {
+    document.querySelectorAll('[data-complete-crm-task]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const data = new FormData();
+        data.set('acao','complete_task'); data.set('task_id',button.dataset.completeCrmTask || '');
+        data.set('csrf_token',document.querySelector('input[name="csrf_token"]')?.value || '');
+        try {
+          const response = await fetch('/api/v1/opportunities.php',{method:'POST',body:data,credentials:'same-origin'});
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.erro || 'Falha ao concluir tarefa.');
+          button.closest('.dnb-task-card')?.remove();
+        } catch (error) { alert(error.message); button.disabled = false; }
+      });
+    });
   }
 
   function field(label, name, type, value, hint) {
     const wrap = document.createElement('label');
-    const title = document.createElement('span');
-    title.textContent = label;
-    const input = document.createElement('input');
-    input.name = name;
-    input.type = type;
-    input.value = value || '';
-    input.autocomplete = type === 'password' ? 'new-password' : 'off';
-    input.className = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
+    const title = document.createElement('span'); title.textContent = label;
+    const input = document.createElement('input'); input.name = name; input.type = type; input.value = value || '';
+    input.autocomplete = type === 'password' ? 'new-password' : 'off'; input.className = inputClass;
     wrap.append(title, input);
     if (hint) { const small = document.createElement('small'); small.textContent = hint; wrap.appendChild(small); }
     return wrap;
   }
 
-  async function initIntegrationEditor() {
+  function integrationForm(fields, csrf, state, keys) {
+    const form = document.createElement('form');
+    form.className = 'dnb-integration-editor'; form.style.padding = '1rem';
+    const grid = document.createElement('div'); grid.className = 'dnb-integration-editor__grid';
+    keys.forEach((key) => {
+      const meta = fields[key];
+      if (!meta) return;
+      grid.appendChild(field(meta.label,key,meta.type,meta.value,meta.hint));
+    });
+    form.appendChild(grid);
+    const actions = document.createElement('div'); actions.className = 'flex items-center flex-wrap gap-2 mt-3';
+    const submit = document.createElement('button'); submit.type='submit'; submit.className='rounded-lg px-4 py-2 text-sm font-bold text-white'; submit.style.background='#003060'; submit.textContent='Salvar conexão';
+    const feedback = document.createElement('span'); feedback.className='dnb-integration-feedback';
+    actions.append(submit,feedback); form.appendChild(actions);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault(); submit.disabled=true; feedback.textContent='Salvando…'; feedback.classList.remove('is-error');
+      const payload = Object.fromEntries(new FormData(form).entries());
+      try {
+        const response = await fetch('/api/v1/integrations.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)});
+        const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.erro || 'Falha ao salvar.');
+        feedback.textContent='Conexão atualizada.'; form.querySelectorAll('input[type="password"]').forEach((input)=>{input.value='';});
+      } catch (error) { feedback.classList.add('is-error'); feedback.textContent=error.message; } finally { submit.disabled=false; }
+    });
+    return form;
+  }
+
+  async function initDirectIntegrationEditors() {
+    if (!isAdmin() || !location.pathname.endsWith('/configuracoes.php')) return;
+    const whatsappCard = findCardByText('conexão whatsapp');
+    const aiCard = findCardByText('conexão ia & rag');
+    if (!whatsappCard && !aiCard) return;
+    try {
+      const response = await fetch('/api/v1/integrations.php',{credentials:'same-origin'});
+      const state = await response.json(); if (!response.ok || !state.ok) throw new Error(state.erro || 'Não foi possível carregar integrações.');
+      const fields = {
+        DNB_AI_VPS_ENDPOINT:{label:'Endpoint da IA (HTTPS)',type:'url',value:state.fields.DNB_AI_VPS_ENDPOINT},
+        DNB_AI_TIMEOUT:{label:'Timeout da IA (segundos)',type:'number',value:state.fields.DNB_AI_TIMEOUT},
+        DNB_AI_VPS_TOKEN:{label:'Bearer Token da IA',type:'password',value:'',hint:state.secrets.DNB_AI_VPS_TOKEN?'Definido — deixe em branco para manter.':'Ainda não definido.'},
+        DNB_WHATSAPP_SEND_URL:{label:'URL de envio WhatsApp (HTTPS)',type:'url',value:state.fields.DNB_WHATSAPP_SEND_URL},
+        DNB_WHATSAPP_TIMEOUT:{label:'Timeout WhatsApp (segundos)',type:'number',value:state.fields.DNB_WHATSAPP_TIMEOUT},
+        DNB_WHATSAPP_API_TOKEN:{label:'Token da API WhatsApp',type:'password',value:'',hint:state.secrets.DNB_WHATSAPP_API_TOKEN?'Definido — deixe em branco para manter.':'Ainda não definido.'},
+        DNB_WHATSAPP_WEBHOOK_TOKEN:{label:'Token do webhook',type:'password',value:'',hint:state.secrets.DNB_WHATSAPP_WEBHOOK_TOKEN?'Definido — deixe em branco para manter.':'Ainda não definido.'},
+        DNB_WHATSAPP_CRON_TOKEN:{label:'Token do Cron Job',type:'password',value:'',hint:state.secrets.DNB_WHATSAPP_CRON_TOKEN?'Definido — deixe em branco para manter.':'Ainda não definido.'}
+      };
+      if (whatsappCard && !whatsappCard.dataset.directEdit) {
+        whatsappCard.dataset.directEdit='1'; const body=whatsappCard.querySelector('.p-4'); if(body) body.replaceWith(integrationForm(fields,state.csrf,state,['DNB_WHATSAPP_SEND_URL','DNB_WHATSAPP_TIMEOUT','DNB_WHATSAPP_API_TOKEN','DNB_WHATSAPP_WEBHOOK_TOKEN','DNB_WHATSAPP_CRON_TOKEN']));
+      }
+      if (aiCard && !aiCard.dataset.directEdit) {
+        aiCard.dataset.directEdit='1'; const body=aiCard.querySelector('.p-4'); if(body) body.replaceWith(integrationForm(fields,state.csrf,state,['DNB_AI_VPS_ENDPOINT','DNB_AI_TIMEOUT','DNB_AI_VPS_TOKEN']));
+      }
+    } catch (error) { console.error(error); }
+  }
+
+  async function initTaskSettingsEditor() {
+    if (!isAdmin() || !location.pathname.endsWith('/configuracoes.php')) return;
     const panel = document.querySelector('#tab-integracoes');
-    if (!panel || panel.querySelector('[data-integration-editor]')) return;
-    const card = document.createElement('section');
-    card.className = 'bg-white rounded-xl shadow-sm mb-4 p-4 dnb-integration-editor';
-    card.dataset.integrationEditor = '1';
-    card.innerHTML = '<span class="dnb-eyebrow">Configuração funcional</span><h2 class="dnb-section-title">Editar integrações e tokens</h2><p class="text-sm text-slate-500 mt-1">Segredos ficam somente no servidor. Deixe um token em branco para manter o atual.</p><div data-loading class="text-sm text-slate-500 mt-4">Carregando configuração…</div>';
+    if (!panel || panel.querySelector('[data-task-settings]')) return;
+    const card = document.createElement('section'); card.className='bg-white rounded-xl shadow-sm mb-4 p-4 dnb-task-settings'; card.dataset.taskSettings='1';
+    card.innerHTML='<span class="dnb-eyebrow">Tarefas comerciais</span><h2 class="dnb-section-title">Template de lembrete de prazo</h2><p class="text-sm text-slate-500 mt-1">Notificação interna enviada ao responsável quando o prazo estiver próximo.</p><div data-task-settings-loading class="text-sm text-slate-500 mt-3">Carregando…</div>';
     panel.prepend(card);
     try {
-      const response = await fetch('/api/v1/integrations.php', {credentials: 'same-origin'});
-      const state = await response.json();
-      if (!response.ok || !state.ok) throw new Error(state.erro || 'Não foi possível carregar as integrações.');
-      const form = document.createElement('form');
-      form.className = 'mt-4';
-      const grid = document.createElement('div');
-      grid.className = 'dnb-integration-editor__grid';
-      grid.append(
-        field('Endpoint da IA (HTTPS)', 'DNB_AI_VPS_ENDPOINT', 'url', state.fields.DNB_AI_VPS_ENDPOINT),
-        field('Timeout da IA (segundos)', 'DNB_AI_TIMEOUT', 'number', state.fields.DNB_AI_TIMEOUT),
-        field('Token da IA', 'DNB_AI_VPS_TOKEN', 'password', '', state.secrets.DNB_AI_VPS_TOKEN ? 'Definido — deixe em branco para manter.' : 'Ainda não definido.'),
-        field('URL de envio WhatsApp (HTTPS)', 'DNB_WHATSAPP_SEND_URL', 'url', state.fields.DNB_WHATSAPP_SEND_URL),
-        field('Timeout WhatsApp (segundos)', 'DNB_WHATSAPP_TIMEOUT', 'number', state.fields.DNB_WHATSAPP_TIMEOUT),
-        field('Token da API WhatsApp', 'DNB_WHATSAPP_API_TOKEN', 'password', '', state.secrets.DNB_WHATSAPP_API_TOKEN ? 'Definido — deixe em branco para manter.' : 'Ainda não definido.'),
-        field('Token do webhook', 'DNB_WHATSAPP_WEBHOOK_TOKEN', 'password', '', state.secrets.DNB_WHATSAPP_WEBHOOK_TOKEN ? 'Definido — deixe em branco para manter.' : 'Ainda não definido.'),
-        field('Token do Cron Job', 'DNB_WHATSAPP_CRON_TOKEN', 'password', '', state.secrets.DNB_WHATSAPP_CRON_TOKEN ? 'Definido — deixe em branco para manter.' : 'Ainda não definido.')
-      );
-      form.appendChild(grid);
-      const status = document.createElement('div');
-      status.className = 'dnb-integration-status';
-      const renderStatus = (s) => { status.innerHTML = '<span class="dnb-integration-pill ' + (s.ai ? 'is-ok' : '') + '">IA: ' + (s.ai ? 'configurada' : 'pendente') + '</span><span class="dnb-integration-pill ' + (s.whatsapp ? 'is-ok' : '') + '">WhatsApp: ' + (s.whatsapp ? 'configurado' : 'pendente') + '</span>'; };
-      renderStatus(state.status);
-      form.appendChild(status);
-      const actions = document.createElement('div');
-      actions.className = 'flex items-center flex-wrap gap-2';
-      const submit = document.createElement('button');
-      submit.type = 'submit';
-      submit.className = 'rounded-lg px-4 py-2 text-sm font-bold text-white';
-      submit.style.background = '#003060';
-      submit.textContent = 'Salvar integrações';
-      const feedback = document.createElement('span');
-      feedback.className = 'dnb-integration-feedback';
-      actions.append(submit, feedback);
-      form.appendChild(actions);
-      card.querySelector('[data-loading]').replaceWith(form);
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        submit.disabled = true;
-        feedback.classList.remove('is-error');
-        feedback.textContent = 'Salvando…';
-        const payload = Object.fromEntries(new FormData(form).entries());
-        try {
-          const saved = await fetch('/api/v1/integrations.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf}, body: JSON.stringify(payload)});
-          const result = await saved.json();
-          if (!saved.ok || !result.ok) throw new Error(result.erro || 'Falha ao salvar.');
-          feedback.textContent = result.mensagem || 'Integrações atualizadas.';
-          form.querySelectorAll('input[type="password"]').forEach((input) => { input.value = ''; });
-          renderStatus(result.status);
-        } catch (error) {
-          feedback.classList.add('is-error');
-          feedback.textContent = error.message || 'Não foi possível salvar.';
-        } finally { submit.disabled = false; }
-      });
-    } catch (error) {
-      card.querySelector('[data-loading]').textContent = error.message || 'Não foi possível carregar as integrações.';
-    }
+      const response=await fetch('/api/v1/task-settings.php',{credentials:'same-origin'}); const state=await response.json(); if(!response.ok||!state.ok) throw new Error(state.erro||'Não foi possível carregar.');
+      const s=state.settings; const form=document.createElement('form'); form.className='grid gap-3 mt-4';
+      form.innerHTML='<label class="flex items-center gap-2"><input type="checkbox" name="reminder_enabled" value="1" '+(Number(s.reminder_enabled)?'checked':'')+'><span style="margin:0">Ativar lembretes automáticos</span></label><label><span>Avisar quantos dias antes</span><input class="'+inputClass+'" type="number" min="0" max="30" name="reminder_days_before" value="'+Number(s.reminder_days_before||1)+'"></label><label><span>Mensagem</span><textarea class="'+inputClass+'" name="reminder_template" maxlength="1000"></textarea></label><p class="text-xs text-slate-500">Variáveis: {tarefa}, {orcamento}, {cliente}, {dias}, {data}, {vendedor}.</p><div class="flex items-center gap-2"><button class="rounded-lg px-4 py-2 text-sm font-bold text-white" style="background:#003060">Salvar template</button><span data-task-feedback class="text-xs text-slate-500"></span></div>';
+      form.querySelector('textarea').value=String(s.reminder_template||''); card.querySelector('[data-task-settings-loading]').replaceWith(form);
+      form.addEventListener('submit',async(event)=>{event.preventDefault();const data=new FormData(form);data.set('csrf_token',state.csrf);const feedback=form.querySelector('[data-task-feedback]');feedback.textContent='Salvando…';const saved=await fetch('/api/v1/task-settings.php',{method:'POST',body:data,credentials:'same-origin'});const result=await saved.json();feedback.textContent=saved.ok&&result.ok?'Template salvo.':(result.erro||'Falha ao salvar.');});
+    } catch(error){card.querySelector('[data-task-settings-loading]').textContent=error.message;}
   }
 
   addProfileLink();
   addCrmInfoButtons();
-  hideAdminOnlyNavigation();
   reorderOpportunityAboveFilters();
   hideAdminOnlyOpportunityTools();
   initKanbanAjaxFilters();
-  initIntegrationEditor();
+  injectTaskFieldsIntoCreate();
+  initTaskCompletion();
+  initDirectIntegrationEditors();
+  initTaskSettingsEditor();
 })();

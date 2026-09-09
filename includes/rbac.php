@@ -58,8 +58,13 @@ function aplicarRestricoesAdministrativasDaRequisicao(): void
 {
     $script = basename((string) ($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? ''));
 
-    // Auditoria de fluxos é exclusiva do administrador.
-    if ($script === 'auditoria.php' && !temPapel(PAPEL_ADMINISTRADOR)) {
+    // Atendimento, Agente de IA, Auditoria, Gestão e Configurações são exclusivos do ADM.
+    $modulosSomenteAdmin = [
+        'chat.php', 'casos.php',
+        'ia.php', 'cadencia.php',
+        'auditoria.php', 'usuarios.php', 'configuracoes.php',
+    ];
+    if (in_array($script, $modulosSomenteAdmin, true) && !temPapel(PAPEL_ADMINISTRADOR)) {
         negarAcessoModulo();
     }
 
@@ -255,7 +260,7 @@ function podeAcessarConversaWhatsapp(PDO $pdo, int $conversationId, ?array $usua
 
 function paginaInicialPorPapel(): string
 {
-    return temPapel(PAPEL_SUPORTE) && !temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR) ? '/casos.php' : '/painel.php';
+    return temPapel(PAPEL_SUPORTE) && !temPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR) ? '/perfil.php' : '/painel.php';
 }
 
 function csrfToken(): string

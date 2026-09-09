@@ -1,10 +1,11 @@
 <?php
 /**
- * Shell responsivo da aplicação - UI DNB v3.2.
+ * Shell responsivo da aplicação - UI DNB v3.4.
  * Espera (opcionais): $tabAtual (string), $mes (string YYYY-MM)
  */
 require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/profile_service.php';
 $tabAtual = $tabAtual ?? '';
 $mes = $mes ?? mesAtual();
 $usuario = usuarioLogado();
@@ -14,8 +15,8 @@ $gruposNavegacao = [
         'id' => 'atendimento',
         'rotulo' => 'Atendimento',
         'itens' => [
-            ['wpp', 'WhatsApp', 'chat.php', 'whatsapp', PAPEIS_CRM],
-            ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
+            ['wpp', 'WhatsApp', 'chat.php', 'whatsapp', [PAPEL_ADMINISTRADOR]],
+            ['cas', 'Casos', 'casos.php', 'cases', [PAPEL_ADMINISTRADOR]],
         ],
     ],
     [
@@ -32,8 +33,8 @@ $gruposNavegacao = [
         'id' => 'agente-ia',
         'rotulo' => 'Agente de IA',
         'itens' => [
-            ['ia', 'IA central', 'ia.php', 'ai', PAPEIS_CRM],
-            ['cad', 'Follow-ups', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['ia', 'IA central', 'ia.php', 'ai', [PAPEL_ADMINISTRADOR]],
+            ['cad', 'Follow-ups', 'cadencia.php', 'cadence', [PAPEL_ADMINISTRADOR]],
         ],
     ],
     [
@@ -41,7 +42,7 @@ $gruposNavegacao = [
         'rotulo' => 'Análise',
         'itens' => [
             ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-            ['audit', 'Audit Log', 'auditoria.php', 'audit', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_SUPORTE]],
+            ['audit', 'Audit Log', 'auditoria.php', 'audit', [PAPEL_ADMINISTRADOR]],
         ],
     ],
     [
@@ -57,21 +58,30 @@ $itemConfiguracoes = ['cfg', 'Configurações', 'configuracoes.php', 'settings',
 $papeisUsuario = papeisAtuais();
 
 $paginas = [
-    'painel' => ['Visão geral', 'Acompanhe metas, desempenho e indicadores comerciais.'],
-    'orc' => ['Orçamentos', 'Gerencie oportunidades e avance negociações no funil.'],
+    'painel' => ['Visão geral', 'Acompanhe metas, desempenho e tarefas comerciais.'],
+    'orc' => ['Orçamentos', 'Gerencie oportunidades, tarefas e avance negociações no funil.'],
     'ped' => ['Pedidos', 'Acompanhe vendas, faturamento e entregas comerciais.'],
     'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
     'cad' => ['Follow-ups', 'Desenhe fluxos visuais e acompanhe as cadências automáticas.'],
     'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
     'audit' => ['Auditoria de fluxos', 'Investigue execuções, falhas e o caminho percorrido por cada automação.'],
     'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
-    'wpp' => ['WhatsApp', 'Atenda conversas dentro do seu escopo comercial com Human Lock.'],
+    'wpp' => ['WhatsApp', 'Atenda conversas dentro do CRM com Human Lock.'],
     'cas' => ['Casos de atendimento', 'Faça a triagem dos atendimentos transbordados pela IA.'],
     'usr' => ['Gestão de usuários', 'Administre pessoas, múltiplos cargos, credenciais e equipes.'],
-    'cfg' => ['Configurações', 'Administre políticas, usuários e dados do CRM.'],
+    'cfg' => ['Configurações', 'Administre políticas, integrações, tarefas, usuários e dados do CRM.'],
 ];
 [$tituloPagina, $descricaoPagina] = $paginas[$tabAtual] ?? ['CRM Comercial', 'Gestão comercial DNB em um só lugar.'];
 $iniciais = $usuario ? mb_strtoupper(mb_substr(trim($usuario['nome']), 0, 1)) : 'D';
+$humorAtual = $usuario ? humorUsuario(db(), (int) $usuario['id']) : '';
+$avatarAtual = '';
+if ($usuario && perfilTabelasHumorDisponiveis(db())) {
+    try {
+        $stmtPerfilHeader = db()->prepare('SELECT avatar_path FROM user_profiles WHERE user_id=? LIMIT 1');
+        $stmtPerfilHeader->execute([(int)$usuario['id']]);
+        $avatarAtual = (string) ($stmtPerfilHeader->fetchColumn() ?: '');
+    } catch (Throwable) { $avatarAtual = ''; }
+}
 $notificacoes = $usuario ? listarNotificacoes(db(), (int) $usuario['id']) : [];
 $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuario['id']) : 0;
 ?><!DOCTYPE html>
@@ -134,7 +144,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
       <?php endif; ?>
       <div class="dnb-sidebar__meta">
         <div class="dnb-sidebar__status"><span></span>Sistema operacional</div>
-        <small>CRM DNB v3.3</small>
+        <small>CRM DNB v3.4</small>
       </div>
     </div>
   </aside>
@@ -167,8 +177,8 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
             </div>
           </details>
           <div class="dnb-user">
-            <span class="dnb-user__avatar" aria-hidden="true"><?= e($iniciais) ?></span>
-            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?></strong><small><?= e(resumoTitulosCargos((array)($usuario['cargos']??[]))) ?></small></span>
+            <?php if ($avatarAtual !== ''): ?><img src="<?= e($avatarAtual) ?>" class="dnb-user__avatar" alt="Foto de <?= e($usuario['nome']) ?>"><?php else: ?><span class="dnb-user__avatar" aria-hidden="true"><?= e($iniciais) ?></span><?php endif; ?>
+            <span class="dnb-user__identity"><strong><?= e($usuario['nome']) ?><?= $humorAtual !== '' ? ' ' . e($humorAtual) : '' ?></strong><small><?= e(resumoTitulosCargos((array)($usuario['cargos']??[]))) ?></small></span>
             <a class="dnb-icon-button" href="/logout.php" title="Sair" aria-label="Sair da conta"><?= dnbIcon('logout') ?></a>
           </div>
         <?php endif; ?>

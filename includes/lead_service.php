@@ -1,6 +1,7 @@
 <?php
 /** Serviços de oportunidades (leads), scoring e linha do tempo. */
 require_once __DIR__ . '/rbac.php';
+require_once __DIR__ . '/profile_service.php';
 
 function buscarLead(PDO $pdo, int $leadId): ?array
 {
@@ -69,7 +70,8 @@ function registrarTimeline(PDO $pdo, int $leadId, string $tipo, string $descrica
 {
     $ator = $ator ?? usuarioLogado();
     $contexto = $ator ? resumoTitulosCargos((array) ($ator['cargos'] ?? [])) : '';
-    $nomeAtor = $ator ? ($ator['nome'] . ' (' . ($contexto !== 'Sem cargo' ? $contexto : ($ator['role'] ?? 'USUARIO')) . ')') : 'Sistema';
+    $nomeBase = $ator ? nomeUsuarioComHumor($pdo, (int) $ator['id'], (string) $ator['nome']) : 'Sistema';
+    $nomeAtor = $ator ? ($nomeBase . ' (' . ($contexto !== 'Sem cargo' ? $contexto : ($ator['role'] ?? 'USUARIO')) . ')') : 'Sistema';
     if (timelineTemActorUserId($pdo)) {
         $stmt = $pdo->prepare('INSERT INTO lead_timeline (lead_id,event_type,description,actor,actor_user_id,created_at) VALUES (?,?,?,?,?,NOW())');
         $stmt->execute([$leadId, mb_substr($tipo, 0, 60), mb_substr($descricao, 0, 4000), mb_substr($nomeAtor, 0, 180), $ator ? (int) $ator['id'] : null]);
