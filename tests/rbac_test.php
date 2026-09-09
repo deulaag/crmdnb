@@ -23,7 +23,7 @@ confirmar(!podeReatribuirLead(), 'Vendedor não pode reatribuir leads.');
 confirmar(paginaInicialPorPapel() === '/painel.php', 'Vendedor inicia no painel.');
 
 $_SESSION['usuario']['role'] = PAPEL_SUPORTE;
-confirmar(podeGerenciarCasos(), 'Suporte pode gerenciar casos.');
-confirmar(paginaInicialPorPapel() === '/casos.php', 'Suporte inicia em Casos.');
+confirmar(podeGerenciarCasos(), 'A função interna de suporte mantém compatibilidade, embora Atendimento seja protegido no módulo.');
+confirmar(paginaInicialPorPapel() === '/perfil.php', 'Suporte sem papel ADM deve iniciar no próprio perfil, pois Atendimento é exclusivo do ADM.');
 
 echo "RBAC: OK\n";
