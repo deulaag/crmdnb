@@ -9,5 +9,6 @@
 <script src="/assets/ui.js?v=3.7.0"></script>
 <script src="/assets/crm-enhancements.js?v=3.5.0"></script>
 <script src="/assets/crm-v36.js?v=3.6.0"></script>
+<script src="/assets/crm-v36-stabilize.js?v=3.6.0"></script>
 </body>
 </html>
