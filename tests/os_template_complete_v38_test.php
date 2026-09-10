@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root=dirname(__DIR__);
 require_once $root.'/includes/os_template_service.php';
+require_once $root.'/includes/os_template_parser_strict.php';
 
 function v38ok(bool $ok,string $msg):void{if(!$ok){fwrite(STDERR,"FALHA: {$msg}\n");exit(1);}}
 function v38file(string $path):string{global $root;$v=file_get_contents($root.'/'.$path);if($v===false){fwrite(STDERR,"FALHA: {$path} ausente\n");exit(1);}return $v;}
@@ -40,11 +41,18 @@ foreach($estrutura as [$titulo,$keys]){
  foreach($keys as $key)$partes[]=$campos[$key].': VAL_'.$key;
 }
 $texto=implode("\n",$partes);
-$extraido=extrairTemplateOsTexto($texto);
+$extraido=extrairTemplateOsTextoEstrito($texto);
 foreach($esperados as $key)v38ok(($extraido[$key]??'')==='VAL_'.$key,"PDF deve mapear {$key} para seu campo exato");
 v38ok(($extraido['equipamento_comentario']??'')==='VAL_equipamento_comentario','Comentário técnico deve ficar nos equipamentos');
 v38ok(($extraido['oportunidade_comentario']??'')==='VAL_oportunidade_comentario','Comentário comercial deve ficar em oportunidades');
 v38ok(count($extraido['eventos_campo']??[])===1,'evento do PDF deve ser estruturado');
+
+// Garante que palavras iguais a rótulos dentro do conteúdo não deslocam os campos.
+$textoColisao=str_replace('VAL_evento_hora','texto com EVENTO e TIPO sem dois pontos',$texto);
+$colisao=extrairTemplateOsTextoEstrito($textoColisao);
+v38ok(($colisao['evento_hora']??'')==='texto com EVENTO e TIPO sem dois pontos','palavras EVENTO/TIPO dentro do valor não podem virar rótulos');
+v38ok(($colisao['evento']??'')==='VAL_evento','EVENTO real deve continuar no campo correto');
+v38ok(($colisao['evento_tipo']??'')==='VAL_evento_tipo','TIPO real deve continuar no campo correto');
 
 $json=[
  'IDENTIFICAÇÃO DO CLIENTE'=>['NOME/CNPJ'=>'Empresa JSON 12.345.678/0001-90','EMAIL'=>'principal@empresa.test','PESSOA DE CONTATO'=>'Maria'],
@@ -59,6 +67,12 @@ v38ok(($j['email_cliente']??'')==='operacao@empresa.test','Email do checklist de
 v38ok(($j['equipamento_comentario']??'')==='Comentário técnico JSON','JSON deve separar comentário técnico');
 v38ok(($j['oportunidade_comentario']??'')==='Comentário comercial JSON','JSON deve separar comentário comercial');
 v38ok(count($j['eventos_campo']??[])===2,'JSON deve preservar todos os eventos em campo');
+
+// O JSON canônico precisa aceitar e preservar todos os 72 campos do contrato.
+$jsonCompleto=[];
+foreach($esperados as $key)$jsonCompleto[$key]='JSON_'.$key;
+$jc=normalizarTemplateOsJson($jsonCompleto);
+foreach($esperados as $key)v38ok(($jc[$key]??'')==='JSON_'.$key,"JSON deve mapear {$key} para seu campo exato");
 
 $base=$j;$post=['os_fields'=>array_fill_keys($esperados,'')];$post['os_fields']['nome_cnpj']='Empresa corrigida 98.765.432/0001-10';$post['os_fields']['relatorio_visita_tecnica']='Texto corrigido pelo usuário';$post['eventos_campo']=[['hora'=>'10:00','evento'=>'Teste final','tipo'=>'Validação']];
 $final=templateOsDoFormulario($post,$base);
@@ -83,6 +97,7 @@ v38ok(str_contains($visitas,'Registrar visita e abrir oportunidade'),'botão exp
 $pdfService=v38file('includes/pdf_service.php');
 v38ok(str_contains($pdfService,'getDataTm'),'leitor deve reconstruir texto por coordenadas além do texto corrido');
 v38ok(str_contains($pdfService,'mesclarTemplatesExtraidosOs'),'as duas estratégias de leitura devem ser mescladas campo a campo');
+v38ok(str_contains($pdfService,'extrairTemplateOsTextoEstrito'),'leitor de produção deve usar o parser estrito');
 
 $oportunidade=v38file('oportunidade.php');
 v38ok(str_contains($oportunidade,'gruposTemplateOsSimplificada()'),'oportunidade deve usar o mesmo contrato completo da tela de OS');
