@@ -23,55 +23,52 @@ function recursosPdfOsDisponiveis(PDO $pdo): bool
 }
 
 /**
- * Cria exatamente uma oportunidade por visita e marca a visita como promovida.
+ * Persiste a oportunidade vinculada à visita APENAS depois que visitas.php recebe
+ * a confirmação explícita do formulário "Registrar visita e abrir oportunidade".
+ * A leitura de PDF/JSON nunca chama esta função.
+ *
  * @param array{storage_name?:string,original_name?:string,sha256?:string,size?:int} $pdfMeta
- * @return int ID da oportunidade ou 0 quando a migracao v3.6 ainda nao estiver instalada.
  */
-function criarOportunidadeDaVisita(PDO $pdo, int $visitaId, array $dados, array $template, ?string $vendedorId, ?int $assignedTo, array $pdfMeta=[]): int
+function criarOportunidadeDaVisita(PDO $pdo,int $visitaId,array $dados,array $template,?string $vendedorId,?int $assignedTo,array $pdfMeta=[]): int
 {
-    if(!recursosVisitaOportunidadeDisponiveis($pdo)) return 0;
-    if($pdfMeta && !recursosPdfOsDisponiveis($pdo)) throw new RuntimeException('Execute a migração 20260910_os_pdf_taskboard_metrics.sql para anexar o PDF original à oportunidade.');
+    if(!recursosVisitaOportunidadeDisponiveis($pdo))return 0;
+    if($pdfMeta&&!recursosPdfOsDisponiveis($pdo))throw new RuntimeException('Execute a migração 20260910_os_pdf_taskboard_metrics.sql para anexar o PDF original à oportunidade.');
 
     $stmt=$pdo->prepare('SELECT id FROM orcamentos WHERE source_visit_id=? LIMIT 1');
     $stmt->execute([$visitaId]);
-    if($id=(int)$stmt->fetchColumn()) return $id;
+    if($id=(int)$stmt->fetchColumn())return $id;
 
     $dir=resolverEmpresaContatoCrm($pdo,[
         'company_name'=>(string)($dados['cliente']??''),'cnpj'=>(string)($dados['cnpj']??''),
         'address'=>(string)($dados['endereco']??''),'locality'=>(string)($dados['localidade']??''),
         'contact_name'=>(string)($dados['contato']??''),'phone'=>(string)($dados['telefone']??''),'email'=>(string)($dados['email']??''),
     ]);
-    $companyId=(int)($dir['company']['id']??0) ?: null;
-    $contactId=(int)($dir['contact']['id']??0) ?: null;
+    $companyId=(int)($dir['company']['id']??0)?:null;
+    $contactId=(int)($dir['contact']['id']??0)?:null;
     $textoLinha=implode(' ',[(string)($dados['tipo_servico']??''),(string)($dados['oportunidade']??''),(string)($dados['resumo']??'')]);
-    $linha=mapLinha($textoLinha);
-    $funil=funilDe($linha);
-    $funis=funis();
-    $etapa=(string)($funis[$funil]['etapas'][0]??'Prospecção');
-    $numero=trim((string)($dados['os']??''));
-    $numero=$numero!==''?'OS-'.$numero:'VIS-'.$visitaId;
+    $linha=mapLinha($textoLinha);$funil=funilDe($linha);$funis=funis();$etapa=(string)($funis[$funil]['etapas'][0]??'Prospecção');
+    $numero=trim((string)($dados['os']??''));$numero=$numero!==''?'OS-'.$numero:'VIS-'.$visitaId;
     $cargoId=cargoParaRegistroComercial($pdo,$assignedTo);
-    $obs=trim((string)($dados['resumo']??''));
-    if(($dados['oportunidade']??'')!=='') $obs=trim($obs."\nOportunidade: ".$dados['oportunidade']);
+    $obs=trim((string)($dados['resumo']??''));if(($dados['oportunidade']??'')!=='')$obs=trim($obs."\nOportunidade: ".$dados['oportunidade']);
 
     if(recursosPdfOsDisponiveis($pdo)){
         $stmt=$pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,company_id,contact_id,source_visit_id,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,visit_template_json,visit_pdf_storage_name,visit_pdf_original_name,visit_pdf_sha256,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([
             mb_substr($numero,0,40),(string)($dados['data']?:hoje()),mb_substr((string)($dados['cliente']??'Cliente da visita'),0,200),$companyId,$contactId,$visitaId,$vendedorId,
-            $linha,tipoDe($linha),$funil,$etapa,0,'Aberta','visita-auto',$obs,templateOsJson($template),
+            $linha,tipoDe($linha),$funil,$etapa,0,'Aberta','visita',$obs,templateOsJson($template),
             ($pdfMeta['storage_name']??'')?:null,($pdfMeta['original_name']??'')?:null,($pdfMeta['sha256']??'')?:null,$assignedTo,$cargoId,
         ]);
     }else{
         $stmt=$pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,company_id,contact_id,source_visit_id,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,visit_template_json,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([
             mb_substr($numero,0,40),(string)($dados['data']?:hoje()),mb_substr((string)($dados['cliente']??'Cliente da visita'),0,200),$companyId,$contactId,$visitaId,$vendedorId,
-            $linha,tipoDe($linha),$funil,$etapa,0,'Aberta','visita-auto',$obs,templateOsJson($template),$assignedTo,$cargoId,
+            $linha,tipoDe($linha),$funil,$etapa,0,'Aberta','visita',$obs,templateOsJson($template),$assignedTo,$cargoId,
         ]);
     }
     $leadId=(int)$pdo->lastInsertId();
     $pdo->prepare('UPDATE visitas SET company_id=?,contact_id=?,template_data_json=?,lead_status=? WHERE id=?')->execute([$companyId,$contactId,templateOsJson($template),'promovida',$visitaId]);
-    registrarTimeline($pdo,$leadId,'created','Oportunidade criada automaticamente a partir da visita/OS #'.$visitaId.'.');
-    registrarTimeline($pdo,$leadId,'visit_import','Dados completos do template de Ordem de Serviço de Campo vinculados à oportunidade.');
-    if(!empty($pdfMeta['storage_name'])) registrarTimeline($pdo,$leadId,'visit_pdf_attached','PDF original da Ordem de Serviço anexado à oportunidade: '.mb_substr((string)($pdfMeta['original_name']??'ordem-servico.pdf'),0,200).'.');
+    registrarTimeline($pdo,$leadId,'created','Oportunidade criada após confirmação da visita/OS #'.$visitaId.'.');
+    registrarTimeline($pdo,$leadId,'visit_import','Dados completos e conferidos da Ordem de Serviço de Campo vinculados à oportunidade.');
+    if(!empty($pdfMeta['storage_name']))registrarTimeline($pdo,$leadId,'visit_pdf_attached','PDF original da Ordem de Serviço anexado à oportunidade: '.mb_substr((string)($pdfMeta['original_name']??'ordem-servico.pdf'),0,200).'.');
     return $leadId;
 }
