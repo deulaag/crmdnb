@@ -51,7 +51,7 @@ include __DIR__ . '/includes/layout_header.php';
         <div class="dnb-kpi-goal-card__top"><span><?=e($label)?></span><?php if($meta>0):?><b><?=round($pct)?>%</b><?php endif;?></div>
         <strong><?=$tipo==='money'?fmtBRL($real):(string)(int)$real?></strong>
         <small><?=e($sub)?></small>
-        <div class="dnb-kpi-goal-card__meta"><span>Meta: <?=$meta>0?($tipo==='money'?fmtBRL($meta):(string)(int)$meta):'não definida'?></span><?php if($meta>0):?><span><?=farol($pct)?></span><?php endif;?></div>
+        <div class="dnb-kpi-goal-card__meta"><span>Meta: <?=$meta>0?($tipo==='money'?fmtBRL($meta):(string)(int)$meta):'não definida'?></span><?php if($meta>0):?><div><?=farol($pct)?></div><?php endif;?></div>
       </article>
     <?php endforeach;?>
   </div>
@@ -73,7 +73,7 @@ include __DIR__ . '/includes/layout_header.php';
     <div class="dnb-task-board-actions"><span class="dnb-eyebrow">Acompanhamento diário</span><small data-task-count>Carregando tarefas…</small></div>
   </div>
   <div class="dnb-task-board-filters">
-    <label><span>Funil / linha</span><select data-task-filter="funil"><option value="">Todos os funis</option><option value="equipamentos">Equipamentos</option><option value="servicos">Serviços e Locação</option><option value="pecas">Peças e Revenda</option></select></label>
+    <label><span>Funil / linha</span><select data-task-filter="funil"><option value="">Todos os funis</option><option value="equipamentos">Equipamento</option><option value="servicos">Serviço e Locação</option><option value="pecas">Peça e Revenda</option></select></label>
     <label><span>Responsável</span><select data-task-filter="mine"><option value="<?=ehOperadorVendedor()?'1':'0'?>"><?=ehOperadorVendedor()?'Minhas tarefas':'Meu escopo'?></option><?php if(!ehOperadorVendedor()):?><option value="1">Somente minhas tarefas</option><?php endif;?></select></label>
     <label><span>Status da tarefa</span><select data-task-filter="stage"><option value="">Todos os status</option><option value="todo">A fazer</option><option value="doing">Em andamento</option><option value="waiting">Aguardando</option><option value="done">Concluídas</option></select></label>
     <label><span>Período / criação</span><select data-task-filter="period_sort"><option value="newest">Criadas mais recentes</option><option value="oldest">Criadas primeiro</option><option value="7d">Últimos 7 dias</option><option value="all">Todo o período</option></select></label>
