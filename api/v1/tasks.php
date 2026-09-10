@@ -8,10 +8,26 @@ exigirPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR);
 $pdo=db();
 if(!tarefasDisponiveis($pdo)){http_response_code(503);echo json_encode(['ok'=>false,'erro'=>'Módulo de tarefas não instalado.']);exit;}
 if(($_SERVER['REQUEST_METHOD']??'GET')==='GET'){
-  $items=listarTarefasKanban($pdo,usuarioLogado());
+  $sort=trim((string)($_GET['period_sort']??''));
+  $period=trim((string)($_GET['period']??'all'));$order=trim((string)($_GET['order']??'due'));
+  if($sort==='newest'){$period='all';$order='newest';}
+  elseif($sort==='oldest'){$period='all';$order='oldest';}
+  elseif($sort==='7d'){$period='7d';$order='newest';}
+  elseif($sort==='all'){$period='all';$order='due';}
+  $filtros=[
+    'q'=>(string)($_GET['q']??''),'funil'=>(string)($_GET['funil']??''),'stage'=>(string)($_GET['stage']??''),
+    'period'=>$period,'order'=>$order,'mine'=>($_GET['mine']??'')==='1',
+  ];
+  $items=listarTarefasKanban($pdo,usuarioLogado(),$filtros);
   $out=[];
-  foreach($items as $t){$out[]=['id'=>(int)$t['id'],'orcamento_id'=>(int)$t['orcamento_id'],'title'=>(string)$t['title'],'description'=>(string)($t['description']??''),'due_date'=>(string)$t['due_date'],'status'=>(string)$t['status'],'stage'=>(string)($t['board_stage']??'todo'),'cliente'=>(string)$t['cliente'],'numero'=>(string)$t['numero'],'linha'=>(string)$t['linha'],'responsavel'=>nomeUsuarioComHumor($pdo,(int)$t['assigned_to_user_id'],(string)$t['responsavel_nome'])];}
-  echo json_encode(['ok'=>true,'csrf'=>csrfToken(),'kanban_available'=>tarefasKanbanDisponivel($pdo),'items'=>$out],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;
+  foreach($items as $t){$out[]=[
+    'id'=>(int)$t['id'],'orcamento_id'=>(int)$t['orcamento_id'],'title'=>(string)$t['title'],'description'=>(string)($t['description']??''),
+    'due_date'=>(string)$t['due_date'],'created_at'=>(string)($t['created_at']??''),'completed_at'=>(string)($t['completed_at']??''),
+    'status'=>(string)$t['status'],'stage'=>(string)($t['board_stage']??'todo'),'cliente'=>(string)$t['cliente'],'numero'=>(string)$t['numero'],
+    'linha'=>(string)$t['linha'],'funil'=>(string)($t['funil']??''),'opportunity_stage'=>(string)($t['opportunity_stage']??''),
+    'responsavel'=>nomeUsuarioComHumor($pdo,(int)$t['assigned_to_user_id'],(string)$t['responsavel_nome'])
+  ];}
+  echo json_encode(['ok'=>true,'csrf'=>csrfToken(),'kanban_available'=>tarefasKanbanDisponivel($pdo),'items'=>$out,'filters'=>$filtros],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;
 }
 if(($_SERVER['REQUEST_METHOD']??'')!=='POST'){http_response_code(405);echo json_encode(['ok'=>false,'erro'=>'Método não permitido.']);exit;}
 exigirCsrf();
