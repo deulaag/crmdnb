@@ -42,16 +42,40 @@ function listarTarefasPainel(PDO $pdo, ?array $usuario = null, int $limite = 120
     if(!tarefasDisponiveis($pdo))return[];
     $usuario=$usuario??usuarioLogado();[$filtro,$params]=filtroEscopoAtribuicao($pdo,'t.assigned_to_user_id',$usuario);$limite=max(10,min(300,$limite));
     $extra=tarefasKanbanDisponivel($pdo)?',t.board_stage,t.description':',\'todo\' board_stage,\'\' description';
-    $stmt=$pdo->prepare("SELECT t.*{$extra},o.numero,o.cliente,o.linha,u.nome responsavel_nome FROM crm_tasks t JOIN orcamentos o ON o.id=t.orcamento_id JOIN usuarios u ON u.id=t.assigned_to_user_id WHERE {$filtro} AND t.status='pending' ORDER BY t.due_date,t.id LIMIT {$limite}");
+    $stmt=$pdo->prepare("SELECT t.*{$extra},o.numero,o.cliente,o.linha,o.funil,u.nome responsavel_nome FROM crm_tasks t JOIN orcamentos o ON o.id=t.orcamento_id JOIN usuarios u ON u.id=t.assigned_to_user_id WHERE {$filtro} AND t.status='pending' ORDER BY t.due_date,t.id LIMIT {$limite}");
     $stmt->execute($params);return $stmt->fetchAll();
 }
 
-function listarTarefasKanban(PDO $pdo, ?array $usuario=null, int $limite=250): array
+/**
+ * Lista as tarefas do escopo com filtros usados no Painel.
+ * filtros: q, funil [equipamentos|servicos|pecas], stage, period [all|7d|30d|today], order [newest|oldest|due], mine.
+ */
+function listarTarefasKanban(PDO $pdo, ?array $usuario=null, array $filtros=[], int $limite=500): array
 {
     if(!tarefasDisponiveis($pdo))return[];
-    $usuario=$usuario??usuarioLogado();[$filtro,$params]=filtroEscopoAtribuicao($pdo,'t.assigned_to_user_id',$usuario);$limite=max(20,min(500,$limite));
-    $stage=tarefasKanbanDisponivel($pdo)?'t.board_stage':'\'todo\'';$desc=tarefasKanbanDisponivel($pdo)?'t.description':'\'\'';
-    $stmt=$pdo->prepare("SELECT t.*,{$stage} board_stage,{$desc} description,o.numero,o.cliente,o.linha,u.nome responsavel_nome FROM crm_tasks t JOIN orcamentos o ON o.id=t.orcamento_id JOIN usuarios u ON u.id=t.assigned_to_user_id WHERE {$filtro} AND (t.status='pending' OR (t.status='done' AND t.completed_at>=DATE_SUB(NOW(),INTERVAL 7 DAY))) ORDER BY t.due_date,t.id LIMIT {$limite}");
+    $usuario=$usuario??usuarioLogado();[$filtro,$params]=filtroEscopoAtribuicao($pdo,'t.assigned_to_user_id',$usuario);$limite=max(20,min(800,$limite));
+    $where=["({$filtro})","t.status<>'cancelled'"];
+
+    $q=mb_strtolower(trim((string)($filtros['q']??'')));
+    if($q!==''){$where[]="LOWER(CONCAT_WS(' ',t.title,COALESCE(t.description,''),o.cliente,COALESCE(o.numero,''),COALESCE(o.linha,''))) LIKE ?";$params[]='%'.$q.'%';}
+    $funil=trim((string)($filtros['funil']??''));
+    if(in_array($funil,['equipamentos','servicos','pecas'],true)){$where[]='o.funil=?';$params[]=$funil;}
+    if(!empty($filtros['mine']) && $usuario){$where[]='t.assigned_to_user_id=?';$params[]=(int)$usuario['id'];}
+
+    $stage=trim((string)($filtros['stage']??''));
+    if($stage!=='' && in_array($stage,['todo','doing','waiting','done'],true)){
+        if(tarefasKanbanDisponivel($pdo)){$where[]='t.board_stage=?';$params[]=$stage;}
+        elseif($stage!=='todo')return[];
+    }
+    $period=trim((string)($filtros['period']??'all'));
+    if($period==='today')$where[]='DATE(t.created_at)=CURDATE()';
+    elseif($period==='7d')$where[]='t.created_at>=DATE_SUB(NOW(),INTERVAL 7 DAY)';
+    elseif($period==='30d')$where[]='t.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)';
+
+    $order=trim((string)($filtros['order']??'due'));
+    $orderSql=$order==='newest'?'t.created_at DESC,t.id DESC':($order==='oldest'?'t.created_at ASC,t.id ASC':"CASE WHEN t.status='done' THEN 1 ELSE 0 END,t.due_date ASC,t.created_at DESC,t.id DESC");
+    $stageSql=tarefasKanbanDisponivel($pdo)?'t.board_stage':'\'todo\'';$descSql=tarefasKanbanDisponivel($pdo)?'t.description':'\'\'';
+    $stmt=$pdo->prepare("SELECT t.*,{$stageSql} board_stage,{$descSql} description,o.numero,o.cliente,o.linha,o.funil,o.etapa opportunity_stage,u.nome responsavel_nome FROM crm_tasks t JOIN orcamentos o ON o.id=t.orcamento_id JOIN usuarios u ON u.id=t.assigned_to_user_id WHERE ".implode(' AND ',$where)." ORDER BY {$orderSql} LIMIT {$limite}");
     $stmt->execute($params);return $stmt->fetchAll();
 }
 

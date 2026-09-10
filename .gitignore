@@ -3,3 +3,6 @@ whatsapp.local.php
 integrations.local.php
 uploads/avatars/*
 !uploads/avatars/.gitkeep
+storage/os-pdfs/*
+!storage/os-pdfs/.gitkeep
+!storage/os-pdfs/.htaccess
