@@ -1,6 +1,7 @@
 <?php
 /** Extração robusta do TEMPLATE: ORDEM DE SERVIÇO DE CAMPO SIMPLIFICADA. */
 require_once __DIR__ . '/os_template_service.php';
+require_once __DIR__ . '/os_template_parser_strict.php';
 
 /** Reconstrói linhas da página pelas coordenadas do texto para preservar label -> valor. */
 function reconstruirTextoPaginaPdf(array $dataTm): string
@@ -37,17 +38,18 @@ function reconstruirTextoPaginaPdf(array $dataTm): string
 function pontuarMarcadoresTemplateOs(string $texto): int
 {
     $score=0;
-    foreach(array_keys(camposTemplateOsSimplificada()) as $key)if(localizarTextoOs($texto,variantesRotuloOs($key)))$score++;
+    foreach(array_keys(camposTemplateOsSimplificada()) as $key)if(localizarCampoOsEstrito($texto,(string)$key))$score++;
     foreach(['IDENTIFICAÇÃO DO CLIENTE','DETALHAMENTO DO SERVIÇO','EVENTOS EM CAMPO','TOTAIS','0-INFORMAÇÃO DO CLIENTE','1- CONDIÇÕES GERAIS DA INSTALAÇÃO','2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS','3-DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.','4-ABORDAGEM COMERCIAL - MANUTENÇÃO PREVENTIVA','5-PERCEPÇÃO DO CLIENTE - PROBLEMAS COMUNS','6-OPORTUNIDADES IDENTIFICADAS'] as $secao){
-        if(localizarTextoOs($texto,variantesSecaoOs($secao)))$score+=3;
+        if(localizarSecaoOsEstrita($texto,$secao))$score+=3;
     }
     return $score;
 }
 
 /**
  * Lê o PDF uma única vez e produz duas visões: texto corrido e texto por posição.
- * As duas são extraídas e mescladas campo a campo, reduzindo perdas causadas pela
- * ordem interna de objetos do PDF.
+ * As duas são interpretadas pelo parser estrito e mescladas campo a campo.
+ * O parser só reconhece rótulos reais terminados por ':', evitando confundir
+ * palavras HORA/EVENTO/TIPO ou outros nomes de campos que apareçam nas respostas.
  *
  * @return array{texto:string,texto_layout:string,template:array}
  */
@@ -74,8 +76,8 @@ function extrairConteudoPdfOs(string $caminhoArquivo): array
     if($texto===''&&$layout==='')throw new RuntimeException('O PDF não contém texto extraível. Use um PDF gerado pelo template da OS ou preencha os campos manualmente.');
 
     $templates=[];
-    if($layout!=='')$templates[]=extrairTemplateOsTexto($layout);
-    if($texto!=='')$templates[]=extrairTemplateOsTexto($texto);
+    if($layout!=='')$templates[]=extrairTemplateOsTextoEstrito($layout);
+    if($texto!=='')$templates[]=extrairTemplateOsTextoEstrito($texto);
     $template=$templates?mesclarTemplatesExtraidosOs(...$templates):templateOsVazio();
     $template['_raw_text']=$texto!==''?$texto:$layout;
     if($layout!=='')$template['_raw_layout_text']=$layout;
@@ -114,7 +116,7 @@ function mapearVisitaDeDocumentoPdf(array $documento,string $nomeArquivo): array
 
 function mapearVisitaDeTextoPdf(string $texto,string $nomeArquivo): array
 {
-    return prefillVisitaDoTemplate(extrairTemplateOsTexto($texto),$nomeArquivo,'pdf');
+    return prefillVisitaDoTemplate(extrairTemplateOsTextoEstrito($texto),$nomeArquivo,'pdf');
 }
 
 function mapearVisitaDeJson(array $dados,string $nomeArquivo=''): array
