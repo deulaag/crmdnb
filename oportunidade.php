@@ -26,19 +26,7 @@ if(!$pdfDisponivel&&!empty($lead['source_visit_id'])){try{$s=$pdo->prepare('SELE
 $pedido=null;$s=$pdo->prepare('SELECT * FROM pedidos WHERE orcamento_id=? ORDER BY id DESC LIMIT 1');$s->execute([$id]);$pedido=$s->fetch()?:null;
 $funil=funis()[$lead['funil']?:funilDe((string)$lead['linha'])]??['etapas'=>[$lead['etapa']]];$etapas=$funil['etapas'];$etapaAtual=array_search($lead['etapa'],$etapas,true);if($etapaAtual===false)$etapaAtual=0;
 $flash=$_SESSION['flash']??'';unset($_SESSION['flash']);$tabAtual='orc';include __DIR__.'/includes/layout_header.php';
-$gruposOs=[
- 'Cabeçalho da OS'=>['os','codigo_checklist','data_envio_sistema'],
- 'Identificação do cliente'=>['endereco','nome_cnpj','pessoa_contato','telefone_1','email','identificacao_localidade'],
- 'Detalhamento do serviço'=>['projeto_contrato','formulario_servico','profissionais','descricao_atividade','tipo_servico'],
- 'Totais de campo'=>['por_profissional','total_hh','tempo_trabalho','tempo_deslocamento'],
- 'Informações do cliente · checklist'=>['informacoes_cliente','responsavel_cliente','numero_contato','email_cliente','setor','local_instalacao','vendedor'],
- 'Condições gerais da instalação'=>['equipamento_operando','instalacao_conforme','possui_secador','secador_funcionando','possui_reservatorio_dreno','agua_dreno','possui_filtros','filtros_dreno','fotos','foto_1','foto_2','foto_3','foto_4','relatorio_descritivo'],
- 'Ordem de instalação dos equipamentos'=>['ordem_compressor','ordem_secador'],
- 'Dados técnicos dos equipamentos'=>['compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo'],
- 'Abordagem comercial · manutenção preventiva'=>['indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva'],
- 'Percepção do cliente · problemas comuns'=>['informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular'],
- 'Oportunidades identificadas'=>['oportunidade_comercial','oportunidade_comentario','relatorio_visita_tecnica','proximos_passos','assinatura_vendedor']
-];
+$gruposOs=gruposTemplateOsSimplificada();$labelsOs=camposTemplateOsSimplificada();
 ?>
 <?php if($flash):?><div class="dnb-alert dnb-alert--success mb-4"><?=e($flash)?></div><?php endif;?>
 <section class="dnb-op-page" data-opportunity-page data-lead-id="<?=$id?>" data-csrf="<?=e(csrfToken())?>">
@@ -61,10 +49,23 @@ $gruposOs=[
    <section data-op-panel="os" class="dnb-op-panel">
     <?php if($pdfDisponivel):?><div class="dnb-op-attachment"><div><span class="dnb-eyebrow">Arquivo anexado</span><strong>PDF da Ordem de Serviço</strong><small><?=e($pdfNome?:'ordem-servico.pdf')?></small></div><a class="<?=BTN_P?>" href="/arquivo-oportunidade.php?id=<?=$id?>" target="_blank" rel="noopener">Abrir PDF original</a></div><?php endif;?>
     <?php if($template):?>
-      <?php foreach($gruposOs as $grupo=>$keys):$temGrupo=false;foreach($keys as $key)if(trim((string)($template[$key]??''))!==''){$temGrupo=true;break;}if(!$temGrupo)continue;?><details class="dnb-os-group" open><summary><?=e($grupo)?></summary><dl><?php foreach($keys as $key):$value=trim((string)($template[$key]??''));if($value==='')continue;$label=camposTemplateOsSimplificada()[$key]??$key;?><div><dt><?=e($label)?></dt><dd><?=nl2br(e($value))?></dd></div><?php endforeach;?></dl></details><?php endforeach;?>
-      <?php if(!empty($template['eventos_campo'])&&is_array($template['eventos_campo'])):?><details class="dnb-os-group" open><summary>Eventos em campo</summary><div class="dnb-os-events"><?php foreach($template['eventos_campo'] as $idx=>$ev):?><article><strong>Evento <?=($idx+1)?></strong><span><?=e((string)($ev['hora']??''))?><?=!empty($ev['tipo'])?' · '.e((string)$ev['tipo']):''?></span><p><?=nl2br(e((string)($ev['evento']??'')))?></p></article><?php endforeach;?></div></details><?php elseif(trim((string)($template['evento']??''))!==''):?><details class="dnb-os-group" open><summary>Eventos em campo</summary><dl><div><dt>HORA</dt><dd><?=e((string)($template['evento_hora']??''))?></dd></div><div><dt>EVENTO</dt><dd><?=nl2br(e((string)$template['evento']))?></dd></div><div><dt>TIPO</dt><dd><?=e((string)($template['evento_tipo']??''))?></dd></div></dl></details><?php endif;?>
+      <div class="dnb-os-completeness"><strong>Ordem de Serviço de Campo Simplificada completa</strong><span><?=totalCamposTemplateOs()?> campos do template permanecem representados abaixo; campos sem conteúdo aparecem como “—”.</span></div>
+      <?php foreach($gruposOs as $grupo):?>
+        <details class="dnb-os-group" open data-os-section="<?=e($grupo['id'])?>"><summary><?=e($grupo['titulo'])?></summary>
+          <?php if(!empty($grupo['eventos'])):?>
+            <div class="dnb-os-events">
+              <?php $eventos=is_array($template['eventos_campo']??null)?$template['eventos_campo']:[];if(!$eventos)$eventos=[['hora'=>$template['evento_hora']??'','evento'=>$template['evento']??'','tipo'=>$template['evento_tipo']??'']];foreach($eventos as $idx=>$ev):?>
+                <article><strong>Evento <?=($idx+1)?></strong><span><b>HORA:</b> <?=e(trim((string)($ev['hora']??''))?:'—')?> · <b>TIPO:</b> <?=e(trim((string)($ev['tipo']??''))?:'—')?></span><p><b>EVENTO:</b> <?=nl2br(e(trim((string)($ev['evento']??''))?:'—'))?></p></article>
+              <?php endforeach;?>
+            </div>
+          <?php else:?>
+            <dl><?php foreach($grupo['campos'] as $key):$value=trim((string)($template[$key]??''));?><div data-os-field="<?=e($key)?>"><dt><?=e($labelsOs[$key]??$key)?></dt><dd><?=$value!==''?nl2br(e($value)):'<span class="text-slate-400">—</span>'?></dd></div><?php endforeach;?></dl>
+          <?php endif;?>
+        </details>
+      <?php endforeach;?>
       <?php if(!empty($template['_raw_text'])):?><details class="dnb-os-group"><summary>Texto integral extraído do PDF</summary><pre class="dnb-os-raw-text"><?=e((string)$template['_raw_text'])?></pre></details><?php endif;?>
-    <?php elseif(!$pdfDisponivel):?><div class="dnb-empty-state"><p>Esta oportunidade não nasceu de uma OS importada.</p></div><?php endif;?>
+      <?php if(!empty($template['_raw_json'])):?><details class="dnb-os-group"><summary>JSON original importado</summary><pre class="dnb-os-raw-text"><?=e((string)json_encode($template['_raw_json'],JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))?></pre></details><?php endif;?>
+    <?php elseif(!$pdfDisponivel):?><div class="dnb-empty-state"><p>Esta oportunidade não possui uma Ordem de Serviço vinculada.</p></div><?php endif;?>
    </section>
    <section data-op-panel="order" class="dnb-op-panel"><?php if($pedido):?><div class="dnb-lead-summary"><div><span>Pedido</span><strong><?=e($pedido['numero'])?></strong></div><div><span>Data</span><strong><?=e($pedido['data'])?></strong></div><div><span>Valor</span><strong><?=fmtBRL($pedido['valor'])?></strong></div><div><span>Faturamento</span><strong><?=$pedido['faturado']?'Faturado':'Pendente'?></strong></div></div><?php else:?><div class="dnb-empty-state"><p>O pedido será criado automaticamente quando a oportunidade entrar em Fechamento.</p></div><?php endif;?></section>
   </main>
