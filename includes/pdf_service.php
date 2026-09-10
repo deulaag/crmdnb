@@ -16,7 +16,7 @@ function extrairTextoPdf(string $caminhoArquivo): string
         throw new RuntimeException('Não foi possível ler o PDF enviado. Verifique se o arquivo não está corrompido.');
     }
     if ($texto === '') {
-        throw new RuntimeException('O PDF não contém texto extraível — provavelmente é uma imagem escaneada. Preencha manualmente ou use um arquivo com texto selecionável.');
+        throw new RuntimeException('O PDF não contém texto extraível — provavelmente é uma imagem escaneada. Use um PDF com texto selecionável ou preencha a OS manualmente.');
     }
     return $texto;
 }
@@ -25,12 +25,13 @@ function mapearVisitaDeTextoPdf(string $texto, string $nomeArquivo): array
 {
     $template = extrairTemplateOsTexto($texto);
     $basicos = dadosBasicosDaOs($template);
-    if ($basicos['cliente'] === '') $basicos['cliente'] = pathinfo($nomeArquivo, PATHINFO_FILENAME);
     return [
         'os'=>$basicos['os'], 'cliente'=>$basicos['cliente'], 'cnpj'=>$basicos['cnpj'], 'data'=>$basicos['data'],
         'vendedor'=>$basicos['vendedor'], 'contato'=>$basicos['contato'], 'telefone'=>$basicos['telefone'], 'email'=>$basicos['email'],
         'setor'=>$basicos['setor'], 'endereco'=>$basicos['endereco'], 'localidade'=>$basicos['localidade'],
         'oportunidade'=>$basicos['oportunidade'], 'resumo'=>$basicos['resumo'], 'tipo_servico'=>$basicos['tipo_servico'],
         'template'=>$template, 'template_json'=>templateOsJson($template),
+        'campos_extraidos'=>contarCamposPreenchidosTemplateOs($template),
+        'arquivo_original'=>mb_substr(basename($nomeArquivo),0,240),
     ];
 }
