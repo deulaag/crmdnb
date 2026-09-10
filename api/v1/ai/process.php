@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../../includes/lead_service.php';
 require_once __DIR__ . '/../../../includes/notifications.php';
 
 header('Content-Type: application/json; charset=utf-8');
-exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR, PAPEL_SUPORTE);
+exigirPapel(PAPEL_ADMINISTRADOR);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'erro' => 'Método não permitido.']);
@@ -20,12 +20,12 @@ try {
     $dados = json_decode((string) file_get_contents('php://input'), true, 32, JSON_THROW_ON_ERROR);
     $leadId = (int) ($dados['lead_id'] ?? 0);
     $consulta = trim((string) ($dados['message'] ?? ''));
-    if (!$leadId || $consulta === '') throw new InvalidArgumentException('Selecione um lead e informe a solicitação.');
+    if (!$leadId || $consulta === '') throw new InvalidArgumentException('Selecione uma oportunidade e informe a solicitação.');
     if (mb_strlen($consulta) > AI_MAX_PROMPT_LENGTH) throw new InvalidArgumentException('A solicitação excede o limite de ' . AI_MAX_PROMPT_LENGTH . ' caracteres.');
     $lead = buscarLeadAutorizado($pdo, $leadId);
     if (!$lead) {
         http_response_code(403);
-        throw new RuntimeException('Lead fora do seu escopo de acesso.');
+        throw new RuntimeException('Oportunidade fora do seu escopo de acesso.');
     }
 
     $usuario = usuarioLogado();
@@ -59,7 +59,7 @@ try {
 
     $casoId = null;
     if ($resposta['escalated'] || $resposta['guardrail_status'] === 'blocked') {
-        $stmt = $pdo->prepare('INSERT INTO support_cases (lead_id,ai_interaction_id,reason_blocked,customer_query,status,created_at,updated_at) VALUES (?,?,?,?,"open",NOW(),NOW())');
+        $stmt = $pdo->prepare('INSERT INTO support_cases (lead_id,ai_interaction_id,reason_blocked,customer_query,status,created_at,updated_at) VALUES (?,?,?,?,' . "'open'" . ',NOW(),NOW())');
         $stmt->execute([$leadId, $interacaoId, $resposta['reason_blocked'] ?: $resposta['guardrail_reason'], $consulta]);
         $casoId = (int) $pdo->lastInsertId();
         notificarTransbordo($pdo, $casoId, $leadId, $lead['cliente'], $lead['assigned_to_user_id'] ? (int) $lead['assigned_to_user_id'] : null);
