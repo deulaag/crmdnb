@@ -50,7 +50,7 @@ ok(str_contains($enhancements, 'addCrmInfoButtons'), 'módulos CRM devem receber
 ok(str_contains($enhancements, 'initDirectIntegrationEditors'), 'cartões de integração devem possuir edição direta');
 ok(str_contains($enhancements, 'injectTaskFieldsIntoCreate'), 'novo orçamento deve permitir cadastrar tarefa e prazo');
 ok(str_contains($enhancements, "result.stage === 'Fechamento'"), 'UI deve exibir modal ao entrar em Fechamento');
-ok(str_contains($opportunities, "if (\$novaEtapa === 'Fechamento')"), 'API deve tratar Fechamento como conversão automática');
+ok((bool) preg_match('/if\s*\(\s*\$novaEtapa\s*===\s*[\'\"]Fechamento[\'\"]\s*\)/', $opportunities), 'API deve tratar Fechamento como conversão automática');
 ok(str_contains($opportunities, 'SELECT id,numero FROM pedidos WHERE orcamento_id=?'), 'conversão automática deve impedir pedido duplicado');
 ok(str_contains($opportunities, "status='Ganha'"), 'Fechamento deve marcar oportunidade como ganha');
 ok(str_contains($taskService, 'function criarTarefaOrcamento'), 'serviço de tarefas deve criar tarefa vinculada ao orçamento');
