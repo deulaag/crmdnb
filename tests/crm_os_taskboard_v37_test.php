@@ -141,8 +141,11 @@ v37Ok(str_contains($servePdf, 'buscarLeadAutorizado'), 'download/visualização 
 v37Ok(str_contains($servePdf, "Cache-Control: private, no-store"), 'PDF autenticado não deve ser cacheado publicamente');
 v37Ok(str_contains($opportunity, '/arquivo-oportunidade.php?id='), 'página da oportunidade deve expor o anexo autorizado');
 v37Ok(str_contains($opportunity, 'Texto integral extraído do PDF'), 'oportunidade deve permitir consultar o texto integral da OS');
-v37Ok(str_contains($opportunity, "'equipamento_comentario'"), 'página deve mostrar comentário técnico');
-v37Ok(str_contains($opportunity, "'oportunidade_comentario'"), 'página deve mostrar comentário comercial');
+$contratoOs = gruposTemplateOsSimplificada();
+$camposContratoOs = array_merge(...array_map(static fn(array $g): array => $g['campos'], $contratoOs));
+v37Ok(in_array('equipamento_comentario', $camposContratoOs, true), 'contrato da página deve incluir comentário técnico');
+v37Ok(in_array('oportunidade_comentario', $camposContratoOs, true), 'contrato da página deve incluir comentário comercial');
+v37Ok(str_contains($opportunity, 'gruposTemplateOsSimplificada()'), 'página deve renderizar os comentários e demais campos pelo contrato compartilhado');
 
 v37Ok(str_contains($painel, 'data-v36-task-board'), 'Kanban de tarefas deve viver no Painel');
 v37Ok(!str_contains($painel, 'Tarefas dos orçamentos'), 'lista antiga de tarefas não deve permanecer');
