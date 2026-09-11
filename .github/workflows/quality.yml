@@ -25,6 +25,7 @@ jobs:
           node --check assets/crm-enhancements.js
           node --check assets/crm-v36.js
           node --check assets/crm-v36-stabilize.js
+          node --check assets/os-analyzer.js
       - name: Testar RBAC
         run: php tests/rbac_test.php
       - name: Testar estrutura da sidebar
@@ -41,6 +42,7 @@ jobs:
           php tests/crm_enhancements_test.php
           php tests/crm_os_taskboard_v37_test.php
           php tests/os_template_complete_v38_test.php
+          php tests/os_n8n_analyzer_test.php
       - name: Testar CSRF e importação de PDF em Visitas
         run: php tests/visitas_csrf_test.php
       - name: Testar contrato da IA

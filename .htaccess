@@ -2,3 +2,8 @@ Options -Indexes
 <FilesMatch "^(config(\.local|\.local\.example)?|whatsapp\.local(\.example)?)\.php$">
   Require all denied
 </FilesMatch>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^os/analisar/?$ os/analisar.php [L,QSA]
+</IfModule>

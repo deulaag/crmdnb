@@ -16,6 +16,23 @@ const DNB_INTEGRATION_KEYS = [
     'DNB_WHATSAPP_WEBHOOK_TOKEN',
     'DNB_WHATSAPP_CRON_TOKEN',
     'DNB_WHATSAPP_TIMEOUT',
+
+    // Leitura inteligente da Ordem de Serviço (CRM -> n8n -> Extrator/Azure/IA).
+    'DNB_OS_N8N_ENABLED',
+    'DNB_OS_N8N_WEBHOOK_URL',
+    'DNB_OS_N8N_TOKEN',
+    'DNB_OS_N8N_TIMEOUT',
+    'DNB_OS_N8N_FALLBACK_LOCAL',
+    'DNB_OS_EXTRACTOR_URL',
+    'DNB_OS_EXTRACTOR_TOKEN',
+    'DNB_OS_AZURE_ENDPOINT',
+    'DNB_OS_AZURE_KEY',
+    'DNB_OS_AZURE_MODEL',
+    'DNB_OS_AZURE_API_VERSION',
+    'DNB_OS_AI_VISUAL_ENABLED',
+    'DNB_OS_AI_VISUAL_ENDPOINT',
+    'DNB_OS_AI_VISUAL_TOKEN',
+    'DNB_OS_AI_VISUAL_MODEL',
 ];
 
 function integracaoConfigPath(): string
@@ -43,6 +60,12 @@ function integracaoConfigValor(string $chave, string $padrao = ''): string
     if (array_key_exists($chave, $local)) return (string) $local[$chave];
     $ambiente = getenv($chave);
     return $ambiente === false ? $padrao : trim((string) $ambiente);
+}
+
+function integracaoConfigBool(string $chave, bool $padrao = false): bool
+{
+    $valor = mb_strtolower(integracaoConfigValor($chave, $padrao ? '1' : '0'));
+    return in_array($valor, ['1','true','yes','sim','on'], true);
 }
 
 /** @param array<string,string> $novos */
