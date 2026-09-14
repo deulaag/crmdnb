@@ -41,6 +41,7 @@ jobs:
           php tests/crm_enhancements_test.php
           php tests/crm_os_taskboard_v37_test.php
           php tests/os_template_complete_v38_test.php
+          php tests/audit_dashboard_report_test.php
       - name: Testar CSRF e importação de PDF em Visitas
         run: php tests/visitas_csrf_test.php
       - name: Testar contrato da IA

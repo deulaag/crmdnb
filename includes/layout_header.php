@@ -42,7 +42,14 @@ $gruposNavegacao = [
         'rotulo' => 'Análise',
         'itens' => [
             ['com', 'Comissões', 'comissoes.php', 'commissions', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-            ['audit', 'Audit Log', 'auditoria.php', 'audit', [PAPEL_ADMINISTRADOR]],
+        ],
+    ],
+    [
+        'id' => 'auditoria',
+        'rotulo' => 'Auditoria',
+        'itens' => [
+            ['auditpanel', 'Relatório do Painel', 'auditoria-relatorios.php', 'dashboard', [PAPEL_ADMINISTRADOR]],
+            ['audit', 'Log de Fluxos', 'auditoria.php', 'audit', [PAPEL_ADMINISTRADOR]],
         ],
     ],
     [
@@ -64,6 +71,7 @@ $paginas = [
     'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
     'cad' => ['Follow-ups', 'Desenhe fluxos visuais e acompanhe as cadências automáticas.'],
     'com' => ['Comissões', 'Consulte a apuração mensal por política comercial.'],
+    'auditpanel' => ['Auditoria · Relatório do Painel', 'Revise os negócios mês a mês e exporte cada competência em PDF.'],
     'audit' => ['Auditoria de fluxos', 'Investigue execuções, falhas e o caminho percorrido por cada automação.'],
     'ia' => ['IA central', 'Roteie análises, aplique guardrails e qualifique oportunidades.'],
     'wpp' => ['WhatsApp', 'Atenda conversas dentro do CRM com Human Lock.'],
