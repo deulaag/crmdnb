@@ -53,6 +53,11 @@ CALL dnb_p2_add_index('crm_contacts','idx_crm_contacts_creator','`created_by_use
 CALL dnb_p2_add_fk('crm_companies','fk_crm_companies_creator','FOREIGN KEY (`created_by_user_id`) REFERENCES `usuarios`(`id`) ON DELETE SET NULL');
 CALL dnb_p2_add_fk('crm_contacts','fk_crm_contacts_creator','FOREIGN KEY (`created_by_user_id`) REFERENCES `usuarios`(`id`) ON DELETE SET NULL');
 
+UPDATE crm_companies
+SET review_status='needs_review',
+    review_reason=COALESCE(NULLIF(review_reason,''),'Empresa sem CNPJ: conferir cadastro')
+WHERE (cnpj_digits IS NULL OR cnpj_digits='') AND review_status='ok';
+
 DROP PROCEDURE dnb_p2_add_column;
 DROP PROCEDURE dnb_p2_add_index;
 DROP PROCEDURE dnb_p2_add_fk;
