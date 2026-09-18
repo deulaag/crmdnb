@@ -269,7 +269,7 @@ function atualizarEmpresaCrmUi(PDO $pdo,int $id,array $dados): void
     $nome=trim((string)($dados['name']??''));if($nome==='')throw new InvalidArgumentException('Informe o nome da empresa.');
     $cnpj=trim((string)($dados['cnpj']??''));$digits=crmCoreCnpjDigits($cnpj);$dups=$digits!==''?empresasDuplicadasPorCnpj($pdo,$digits,$id):[];
     if($dups&&!temPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR))throw new DomainException('CNPJ duplicado precisa de revisão administrativa.');
-    $review=$dups?'needs_review':'ok';$reason=$dups?'CNPJ duplicado: conferir antes de mesclar':null;
+    $review=($dups||$digits==='')?'needs_review':'ok';$reason=$dups?'CNPJ duplicado: conferir antes de mesclar':($digits===''?'Empresa sem CNPJ: conferir cadastro':null);
     $stmt=$pdo->prepare('UPDATE crm_companies SET name=?,trade_name=?,cnpj=NULLIF(?,\'\'),cnpj_digits=NULLIF(?,\'\'),primary_email=?,phone=?,website=?,address=?,locality=?,review_status=?,review_reason=? WHERE id=?');
     $stmt->execute([
         mb_substr($nome,0,200),mb_substr(trim((string)($dados['trade_name']??'')),0,200),mb_substr($cnpj,0,18),mb_substr($digits,0,14),
