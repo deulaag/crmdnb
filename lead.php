@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/lead_service.php';
 require_once __DIR__ . '/includes/whatsapp_service.php';
+require_once __DIR__ . '/includes/crm_core_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR, PAPEL_SUPORTE);
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
@@ -35,6 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$novoId || !in_array($novoId, $permitidos, true)) leadRedirect($leadId, 'Responsável fora do seu escopo.');
         $stmt = $pdo->prepare('SELECT nome,COALESCE(pessoa_id,vendedor_id) pessoa_id FROM usuarios WHERE id=?'); $stmt->execute([$novoId]); $novo = $stmt->fetch();
         $pdo->prepare('UPDATE orcamentos SET assigned_to_user_id=?,vendedor_id=COALESCE(?,vendedor_id) WHERE id=?')->execute([$novoId, $novo['pessoa_id'] ?: null, $leadId]);
+        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
         registrarTimeline($pdo, $leadId, 'assignment', 'Lead atribuído a ' . $novo['nome'] . '.');
         leadRedirect($leadId, 'Responsável atualizado.');
     }
@@ -43,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $etapa = mb_substr(trim((string) ($_POST['etapa'] ?? $lead['etapa'])), 0, 80);
         $nota = trim((string) ($_POST['nota'] ?? ''));
         $pdo->prepare('UPDATE orcamentos SET etapa=?,status=? WHERE id=?')->execute([$etapa, $status, $leadId]);
+        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
         registrarTimeline($pdo, $leadId, 'funnel_update', 'Etapa atualizada para ' . $etapa . ' e status para ' . $status . '.');
         if ($nota !== '') registrarTimeline($pdo, $leadId, 'note', $nota);
         leadRedirect($leadId, 'Lead atualizado.');
@@ -82,7 +85,7 @@ include __DIR__ . '/includes/layout_header.php';
       <?php if ($lead['score_justification']): ?><div class="dnb-insight mt-4"><b>Justificativa do score</b><p><?= e($lead['score_justification']) ?></p></div><?php endif; ?>
       <?php if (podeReatribuirLead()): ?><form method="post" class="flex gap-2 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="reatribuir"><input type="hidden" name="id" value="<?= $leadId ?>"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Reatribuir responsável</label><select name="assigned_to_user_id" class="<?= INPUT_CLS ?>" required><option value="">Selecione</option><?php foreach($responsaveis as $u):?><option value="<?= (int)$u['id'] ?>" <?= (int)$lead['assigned_to_user_id']===(int)$u['id']?'selected':'' ?>><?= e($u['nome']) ?> · <?= e($u['cargos']) ?></option><?php endforeach;?></select></div><button class="<?= BTN_P ?>">Reatribuir</button></form><?php endif; ?>
       <?php if (!temPapel(PAPEL_SUPORTE) || temPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR)): ?><form method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-4"><?= csrfInput() ?><input type="hidden" name="acao" value="atualizar"><input type="hidden" name="id" value="<?= $leadId ?>"><div><label class="block text-xs font-semibold mb-1">Etapa</label><select name="etapa" class="<?= INPUT_CLS ?>"><?php foreach(($funil['etapas']??[$lead['etapa']]) as $et):?><option <?= $lead['etapa']===$et?'selected':'' ?>><?= e($et) ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Status</label><select name="status" class="<?= INPUT_CLS ?>"><?php foreach(['Aberta','Ganha','Perdida'] as $st):?><option <?= $lead['status']===$st?'selected':'' ?>><?= $st ?></option><?php endforeach;?></select></div><div><label class="block text-xs font-semibold mb-1">Nota na timeline</label><input name="nota" class="<?= INPUT_CLS ?>" placeholder="Contexto da atualização"></div><button class="<?= BTN_P ?> md:col-span-3">Salvar evolução</button></form><?php endif; ?>
-      <div class="flex gap-2 mt-4"><a href="/ia.php?lead_id=<?= $leadId ?>" class="<?= BTN_P ?> inline-flex">Abrir na IA</a><a href="/orcamentos.php" class="<?= BTN_S ?> inline-flex">Voltar ao funil</a></div>
+      <div class="flex gap-2 mt-4 flex-wrap"><a href="/ia.php?lead_id=<?= $leadId ?>" class="<?= BTN_P ?> inline-flex">Abrir na IA</a><?php if(!empty($lead['negotiation_id'])):?><a href="/negociacao.php?id=<?=(int)$lead['negotiation_id']?>" class="<?=BTN_S?> inline-flex">Abrir negociação</a><?php endif;?><a href="/orcamentos.php" class="<?= BTN_S ?> inline-flex">Voltar aos orçamentos</a></div>
     </div>
   </section>
   <section class="bg-white rounded-xl border border-slate-200 shadow-sm">
