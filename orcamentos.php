@@ -83,11 +83,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $funilEtapa = $leadEtapa ? funilDe((string)$leadEtapa['linha']) : '';
         $novaEtapa = trim((string)($_POST['etapa']??''));
         if (!$leadEtapa || $leadEtapa['status'] !== 'Aberta' || !in_array($novaEtapa,$funisArr[$funilEtapa]['etapas']??[],true)) { http_response_code(422); exit; }
-        $stmt = $pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?');
-        $stmt->execute([$novaEtapa, $leadId]);
-        registrarTimeline($pdo, $leadId, 'funnel_update', 'Etapa atualizada para ' . $novaEtapa . '.');
+        if($novaEtapa==='Fechamento'){
+            $pdo->prepare("UPDATE orcamentos SET etapa='Fechamento',status='Ganha',cad_pausada=1 WHERE id=?")->execute([$leadId]);
+            registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para Fechamento. A proposta foi marcada como ganha; o Pedido de Venda aguarda confirmação manual.');
+            registrarTimeline($pdo,$leadId,'status_update','Status atualizado para Ganha. Nenhum pedido foi criado automaticamente.');
+        }else{
+            $stmt = $pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?');
+            $stmt->execute([$novaEtapa, $leadId]);
+            registrarTimeline($pdo, $leadId, 'funnel_update', 'Etapa atualizada para ' . $novaEtapa . '.');
+        }
         if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
-        orcRedirect();
+        orcRedirect($novaEtapa==='Fechamento'?'Proposta ganha. Pedido pendente de confirmação manual.':'');
     }
 
     if ($acao === 'set_valor') {
