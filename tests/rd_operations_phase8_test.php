@@ -35,7 +35,7 @@ rd8ok(str_contains($service,'last_incremental_success'),'saúde deve mostrar úl
 rd8ok(str_contains($service,'crm_incremental_checkpoint'),'saúde deve mostrar checkpoint');
 
 rd8ok(str_contains($service,"SET status='pending',attempts=0"),'reprocessamento deve reabrir somente evento em erro');
-rd8ok(str_contains($service,"WHERE id IN ({$marks}) AND status='error'"),'reprocessamento não pode recolocar sucessos na fila');
+rd8ok(str_contains($service,'WHERE id IN ({$marks}) AND status=\'error\''),'reprocessamento não pode recolocar sucessos na fila');
 rd8ok(str_contains($service,'requeue_count=requeue_count+1'),'nova tentativa deve ser auditada no evento');
 rd8ok(str_contains($service,'last_requeued_by_user_id'),'nova tentativa deve registrar ADM');
 rd8ok(str_contains($service,'rdPhase8RecordAction'),'reprocessamentos devem gerar trilha própria');
