@@ -145,8 +145,10 @@ function rdSyncConflict(PDO $pdo,int $jobId,string $product,string $entity,strin
       VALUES (?,?,?,?,?,?,?,'pending')
       ON DUPLICATE KEY UPDATE candidates_json=VALUES(candidates_json),payload_json=VALUES(payload_json),updated_at=NOW()");
     $stmt->execute([$jobId,$product,$entity,mb_substr($externalId,0,191),mb_substr($type,0,80),json_encode($candidates,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
-    $counters['conflicts']=(int)($counters['conflicts']??0)+1;
-    rdSyncLog($pdo,$jobId,'warning',$entity,'Conflito enviado para revisão: '.$type.'.',['external_id'=>$externalId,'candidates'=>$candidates]);
+    if($stmt->rowCount()===1){
+        $counters['conflicts']=(int)($counters['conflicts']??0)+1;
+        rdSyncLog($pdo,$jobId,'warning',$entity,'Conflito enviado para revisão: '.$type.'.',['external_id'=>$externalId,'candidates'=>$candidates]);
+    }
 }
 
 function rdSyncExternalId(array $item): string
