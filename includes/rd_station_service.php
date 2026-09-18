@@ -66,7 +66,7 @@ function rdValidarPublicBaseUrl(string $url): string
     if ($parts === false || strtolower((string)($parts['scheme'] ?? '')) !== 'https' || empty($parts['host'])) {
         throw new InvalidArgumentException('A URL pública do CRM deve usar HTTPS.');
     }
-    if (isset($parts['user'], $parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
+    if (isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
         throw new InvalidArgumentException('A URL pública não pode conter credenciais, query string ou fragmento.');
     }
     return $url;
