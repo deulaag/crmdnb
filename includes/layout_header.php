@@ -24,7 +24,9 @@ $gruposNavegacao = [
         'rotulo' => 'CRM',
         'itens' => [
             ['painel', 'Painel', 'painel.php', 'dashboard', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
-            ['orc', 'Orçamentos', 'orcamentos.php', 'quotes', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['empresas', 'Empresas', 'empresas.php', 'users', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['contatos', 'Contatos', 'contatos.php', 'users', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
+            ['neg', 'Negociações', 'negociacoes.php', 'quotes', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
             ['ped', 'Pedidos', 'pedidos.php', 'orders', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
             ['vis', 'Visitas', 'visitas.php', 'visits', [PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR]],
         ],
@@ -66,7 +68,10 @@ $papeisUsuario = papeisAtuais();
 
 $paginas = [
     'painel' => ['Visão geral', 'Acompanhe metas, desempenho e tarefas comerciais.'],
-    'orc' => ['Orçamentos', 'Gerencie oportunidades, tarefas e avance negociações no funil.'],
+    'empresas' => ['Empresas', 'Centralize clientes, contatos e todo o histórico comercial por empresa.'],
+    'contatos' => ['Contatos', 'Organize pessoas, empresa vinculada, negociações, visitas e origem comercial.'],
+    'neg' => ['Negociações', 'Gerencie o negócio comercial e relacione contatos, propostas, pedidos e visitas.'],
+    'orc' => ['Orçamentos', 'Gerencie propostas vinculadas às negociações comerciais.'],
     'ped' => ['Pedidos', 'Acompanhe vendas, faturamento e entregas comerciais.'],
     'vis' => ['Visitas', 'Registre atividades de campo e novas prospecções.'],
     'cad' => ['Follow-ups', 'Desenhe fluxos visuais e acompanhe as cadências automáticas.'],
@@ -128,7 +133,7 @@ $notificacoesNaoLidas = $usuario ? contarNotificacoesNaoLidas(db(), (int) $usuar
         <div class="dnb-nav__group" aria-labelledby="<?= e($grupoId) ?>">
           <span class="dnb-nav__eyebrow" id="<?= e($grupoId) ?>"><?= e($grupo['rotulo']) ?></span>
           <?php foreach ($itensVisiveis as [$k, $l, $href, $icone, $papeis]):
-              $ativo = $tabAtual === $k;
+              $ativo = $tabAtual === $k || ($k === 'neg' && $tabAtual === 'orc');
               $qs = $mes ? ('?mes=' . urlencode($mes)) : '';
           ?>
             <a href="<?= e($href . $qs) ?>" class="dnb-nav__link<?= $ativo ? ' is-active' : '' ?>"<?= $ativo ? ' aria-current="page"' : '' ?>>

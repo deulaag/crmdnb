@@ -95,8 +95,8 @@ function criarEmpresaCrmCore(PDO $pdo, array $dados, bool $permitirDuplicidade =
         throw new DomainException('Já existe empresa com este CNPJ. Envie para conferência em vez de mesclar automaticamente.');
     }
 
-    $review = $duplicadas ? 'needs_review' : 'ok';
-    $reason = $duplicadas ? 'CNPJ duplicado: conferir antes de mesclar' : null;
+    $review = ($duplicadas || $digits === '') ? 'needs_review' : 'ok';
+    $reason = $duplicadas ? 'CNPJ duplicado: conferir antes de mesclar' : ($digits === '' ? 'Empresa sem CNPJ: conferir cadastro' : null);
     $stmt = $pdo->prepare('INSERT INTO crm_companies (cnpj,cnpj_digits,name,trade_name,primary_email,phone,website,address,locality,status,review_status,review_reason,source) VALUES (NULLIF(?,\'\'),NULLIF(?,\'\'),?,?,?,?,?,?,?,\'active\',?,?,?)');
     $stmt->execute([
         mb_substr($cnpj,0,18),
