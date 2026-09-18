@@ -172,7 +172,7 @@ function rdDiscoveryCrmFetchAll(string $path,int $maxPages=100): array
         }
         foreach(rdDiscoveryExtractList($res['json']) as $item)$items[]=$item;
         $next=trim((string)($res['json']['links']['next']??''));
-        if($next===''||$next===$url)break;
+        if($next===''||$next===$url){$url='';break;}
         $parts=parse_url($next);
         if(($parts['scheme']??'')!=='https'||strtolower((string)($parts['host']??''))!=='api.rd.services')throw new RuntimeException('Paginação RD retornou endpoint não permitido.');
         $url=$next;
@@ -280,11 +280,13 @@ function rdDiscoveryRefreshDerivedMappings(PDO $pdo): void
         elseif(isset($a['status']))$active=in_array(strtolower((string)$a['status']),['active','enabled','ativo'],true)?1:0;
         $stmtUser->execute([$u['external_id'],$u['name'],$email,$active]);
     }
+    $pdo->exec("UPDATE rd_user_mappings m JOIN usuarios u ON LOWER(TRIM(u.email))=LOWER(TRIM(m.rd_user_email)) SET m.local_user_id=u.id WHERE m.local_user_id IS NULL AND TRIM(m.rd_user_email)<>'' AND u.ativo=1");
 
     // Funis/etapas: nomes do RD viram os nomes locais por padrão. IDs externos ficam só nesta tabela.
     $pipelines=[];
     foreach($pdo->query("SELECT external_id,name,sort_order FROM rd_discovery_items WHERE product='crm' AND resource_type='pipeline' AND active=1")->fetchAll() as $p)$pipelines[$p['external_id']]=$p;
     $stages=$pdo->query("SELECT external_id,parent_external_id,name,sort_order FROM rd_discovery_items WHERE product='crm' AND resource_type='stage' AND active=1 ORDER BY parent_external_id,sort_order,name")->fetchAll();
+    $pdo->exec("UPDATE rd_pipeline_mappings m LEFT JOIN rd_discovery_items d ON d.product='crm' AND d.resource_type='stage' AND d.external_id=m.rd_stage_external_id AND d.parent_external_id=m.rd_pipeline_external_id AND d.active=1 SET m.enabled=0 WHERE d.id IS NULL");
     $stmtPipe=$pdo->prepare("INSERT INTO rd_pipeline_mappings (rd_pipeline_external_id,rd_stage_external_id,pipeline_name,stage_name,enabled,sort_order)
       VALUES (?,?,?,?,1,?)
       ON DUPLICATE KEY UPDATE pipeline_name=VALUES(pipeline_name),stage_name=VALUES(stage_name),sort_order=VALUES(sort_order)");
