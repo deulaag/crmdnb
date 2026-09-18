@@ -25,6 +25,7 @@ $integration=rd9file('includes/integration_config.php');
 $empresa=rd9file('empresa.php');
 $contato=rd9file('contato.php');
 $negociacao=rd9file('negociacao.php');
+$phase8=rd9file('includes/rd_phase8_service.php');
 
 foreach(['rd_outbound_field_rules','rd_outbound_queue'] as $table)
     rd9ok(str_contains($migration,'CREATE TABLE IF NOT EXISTS '.$table),'migração deve criar '.$table);
@@ -91,6 +92,9 @@ foreach(['Fase 9 · DNB → RD CRM','Saída controlada para o RD CRM','Ativar en
     rd9ok(str_contains($panel,$label),'painel deve mostrar '.$label);
 foreach([$empresa,$contato,$negociacao] as $entityPage)
     rd9ok(str_contains($entityPage,'Colocar na fila RD')&&str_contains($entityPage,'\$acao===\'send_rd\''),'detalhes CRM devem permitir envio manual ADM');
+
+rd9ok(str_contains($phase8,'SAÍDA DNB → RD CRM')&&str_contains($phase8,'rd_outbound_queue'),'auditoria operacional deve incorporar a fila outbound sanitizada');
+rd9ok(!str_contains($phase8,'SELECT payload_json FROM rd_outbound_queue'),'auditoria outbound não pode exportar payload bruto');
 
 rd9ok(!str_contains($service,'INSERT INTO pedidos')&&!str_contains($service,'UPDATE pedidos')&&!str_contains($service,'DELETE FROM pedidos'),'Fase 9 não pode criar/alterar Pedido');
 rd9ok(!str_contains($service,'INSERT INTO orcamentos')&&!str_contains($service,'UPDATE orcamentos'),'Fase 9 não pode fabricar/alterar Orçamento');
