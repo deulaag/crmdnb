@@ -41,7 +41,7 @@ foreach ($rotas as $rota) {
 
 verificar(!str_contains($header, "['orc', 'Orçamentos', 'orcamentos.php'"), 'Orçamentos não deve permanecer como item isolado da lateral');
 verificar(str_contains($header, "['neg', 'Negociações', 'negociacoes.php'"), 'Negociações deve ser o módulo comercial principal');
-verificar(str_contains($header, "($k === 'neg' && $tabAtual === 'orc')"), 'Orçamentos deve manter Negociações ativo na lateral');
+verificar(str_contains($header, "(\$k === 'neg' && \$tabAtual === 'orc')"), 'Orçamentos deve manter Negociações ativo na lateral');
 
 verificar(str_contains($header, "['cad', 'Follow-ups', 'cadencia.php'"), 'Cadência deve aparecer como Follow-ups sem alterar sua rota');
 verificar(str_contains($header, '$papeisUsuario = papeisAtuais();'), 'perfis do usuário devem ser calculados uma única vez');
