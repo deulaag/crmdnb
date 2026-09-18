@@ -79,11 +79,35 @@ function rdSyncConflicts(PDO $pdo,int $jobId,int $limit=100): array
     $stmt->execute([$jobId]);return $stmt->fetchAll();
 }
 
+/** @return array<int,string> */
+function rdSyncPrerequisiteIssues(PDO $pdo): array
+{
+    $issues=[];
+    if(!rdSyncDisponivel($pdo))return ['Instale as migrações das Fases 1 a 5.'];
+    if(!rdEstadoProduto('marketing')['connected'])$issues[]='RD Station Marketing não está conectado.';
+    if(!rdEstadoProduto('crm')['connected'])$issues[]='RD Station CRM não está conectado.';
+    foreach(['name'=>'contact.name','email'=>'contact.email'] as $source=>$target){
+        $stmt=$pdo->prepare("SELECT COUNT(*) FROM rd_discovery_items d
+          JOIN rd_field_mappings m ON m.product='marketing' AND m.source_entity='contact'
+            AND m.source_key=COALESCE(NULLIF(d.api_identifier,''),d.external_id) AND m.enabled=1
+          WHERE d.product='marketing' AND d.resource_type='contact_field' AND d.active=1
+            AND d.selected_for_sync=1 AND COALESCE(NULLIF(d.api_identifier,''),d.external_id)=?
+            AND CONCAT(m.target_entity,'.',m.target_field)=?");
+        $stmt->execute([$source,$target]);
+        if((int)$stmt->fetchColumn()!==1)$issues[]='Mapeie e selecione o campo '.$source.' do RD Marketing para '.$target.'.';
+    }
+    if((int)$pdo->query("SELECT COUNT(*) FROM rd_pipeline_mappings WHERE enabled=1")->fetchColumn()===0){
+        $issues[]='Descubra e habilite ao menos um funil/etapa do RD CRM na Fase 4.';
+    }
+    return $issues;
+}
+
 /** @return array<string,mixed> */
 function rdSyncCriarJob(PDO $pdo,int $userId): array
 {
     if(!rdSyncDisponivel($pdo))throw new RuntimeException('Instale a migração da Fase 5.');
-    if(!rdEstadoProduto('marketing')['connected']||!rdEstadoProduto('crm')['connected'])throw new RuntimeException('Conecte RD Marketing e RD CRM antes da primeira sincronização.');
+    $issues=rdSyncPrerequisiteIssues($pdo);
+    if($issues)throw new RuntimeException('Pré-requisitos da sincronização: '.implode(' ', $issues));
 
     $active=$pdo->query("SELECT id FROM rd_sync_jobs WHERE status IN ('queued','running','paused') ORDER BY id DESC LIMIT 1")->fetchColumn();
     if($active){
@@ -213,7 +237,15 @@ function rdSyncRelationshipIds(array $item,string $relation): array
 /** @return array<string,array{source_key:string,value:string,truth:string}> */
 function rdSyncMappedValues(PDO $pdo,string $product,string $sourceEntity,array $attrs,string $targetEntity): array
 {
-    $stmt=$pdo->prepare("SELECT source_key,target_field,source_of_truth FROM rd_field_mappings WHERE product=? AND source_entity=? AND target_entity=? AND enabled=1");
+    if($product==='marketing'){
+        $stmt=$pdo->prepare("SELECT m.source_key,m.target_field,m.source_of_truth
+          FROM rd_field_mappings m
+          JOIN rd_discovery_items d ON d.product='marketing' AND d.resource_type='contact_field' AND d.active=1
+            AND d.selected_for_sync=1 AND (d.api_identifier=m.source_key OR (d.api_identifier='' AND d.external_id=m.source_key))
+          WHERE m.product=? AND m.source_entity=? AND m.target_entity=? AND m.enabled=1 ORDER BY m.id");
+    }else{
+        $stmt=$pdo->prepare("SELECT source_key,target_field,source_of_truth FROM rd_field_mappings WHERE product=? AND source_entity=? AND target_entity=? AND enabled=1 ORDER BY id");
+    }
     $stmt->execute([$product,$sourceEntity,$targetEntity]);$out=[];
     foreach($stmt->fetchAll() as $m){
         $value=rdSyncScalar(rdSyncPayloadValue($attrs,(string)$m['source_key']));
@@ -391,20 +423,27 @@ function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $extern
         if($mktCompany)$companyId=(int)$mktCompany['id'];
     }
     $linked=rdSyncExternalLocal($pdo,$provider,'contact',$externalId);
-    $phone=rdSyncScalar($attrs['phone']??$attrs['mobile_phone']??$attrs['personal_phone']??'');
-    $fields=array_merge([
-        'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>'rd'],
-        'email'=>['source_key'=>'email','value'=>crmCoreEmail(rdSyncScalar($attrs['email']??'')),'truth'=>'rd'],
-        'phone'=>['source_key'=>'phone','value'=>$phone,'truth'=>'rd'],
-        'role_title'=>['source_key'=>'job_title','value'=>rdSyncScalar($attrs['job_title']??$attrs['title']??''),'truth'=>'rd'],
-    ],rdSyncMappedValues($pdo,$product,'contact',$attrs,'contact'));
+    $mappedContact=rdSyncMappedValues($pdo,$product,'contact',$attrs,'contact');
+    if($product==='marketing'){
+        $fields=$mappedContact;
+        if(isset($fields['email']))$fields['email']['value']=crmCoreEmail((string)$fields['email']['value']);
+    }else{
+        $phone=rdSyncScalar($attrs['phone']??$attrs['mobile_phone']??$attrs['personal_phone']??'');
+        $fields=array_merge([
+            'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>'rd'],
+            'email'=>['source_key'=>'email','value'=>crmCoreEmail(rdSyncScalar($attrs['email']??'')),'truth'=>'rd'],
+            'phone'=>['source_key'=>'phone','value'=>$phone,'truth'=>'rd'],
+            'role_title'=>['source_key'=>'job_title','value'=>rdSyncScalar($attrs['job_title']??$attrs['title']??''),'truth'=>'rd'],
+        ],$mappedContact);
+    }
     if($companyId)$fields['company_id']=['source_key'=>'organization_id','value'=>$companyId,'truth'=>'rd'];
 
     if($linked){
         $local=$linked['local'];rdSyncUpdateLocal($pdo,$jobId,$product,'contact',$externalId,'contact',(int)$local['id'],$fields,$payload,$counters);
         ++$counters['contacts_updated'];return buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);
     }
-    $email=(string)($fields['email']['value']??'');$candidates=$email!==''?rdSyncFindContactByEmail($pdo,$email):[];
+    $email=crmCoreEmail((string)($fields['email']['value']??($provider==='rd_marketing'?rdSyncScalar($attrs['email']??''):'')));
+    $candidates=$email!==''?rdSyncFindContactByEmail($pdo,$email):[];
     if(count($candidates)>1){rdSyncConflict($pdo,$jobId,$product,'contact',$externalId,'duplicate_email',array_column($candidates,'dnb_id'),$payload,$counters);return null;}
     if(count($candidates)===1){
         $local=$candidates[0];
@@ -414,7 +453,7 @@ function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $extern
         ++$counters['contacts_updated'];return buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);
     }
 
-    $name=trim((string)($fields['name']['value']??''));if($name==='')$name=$email!==''?$email:'Contato RD '.$externalId;
+    $name=trim((string)($fields['name']['value']??($provider==='rd_marketing'?rdSyncScalar($attrs['name']??''):'')));if($name==='')$name=$email!==''?$email:'Contato RD '.$externalId;
     $row=criarContatoCrmCore($pdo,['company_id'=>$companyId,'name'=>$name,'email'=>$email,'phone'=>$fields['phone']['value']??'','role_title'=>$fields['role_title']['value']??'','source'=>$provider],true);
     if($email==='')$pdo->prepare("UPDATE crm_contacts SET review_status='needs_review',review_reason='Contato importado sem e-mail: conferir cadastro' WHERE id=?")->execute([(int)$row['id']]);
     $pdo->prepare('UPDATE crm_contacts SET created_by_user_id=COALESCE(created_by_user_id,(SELECT created_by_user_id FROM rd_sync_jobs WHERE id=?)) WHERE id=?')->execute([$jobId,(int)$row['id']]);
@@ -548,7 +587,7 @@ function rdSyncMarketingDetailsBatch(PDO $pdo,array $job,array &$state,array &$c
             elseif(preg_match('/^[0-9a-fA-F-]{32,36}$/',$external)){$identifier='uuid';$value=$external;}
         }
         if($identifier===''){
-            ++$counters['skipped'];$cursor=(int)$row['link_id'];continue;
+            ++$counters['skipped'];$cursor=(int)$row['link_id'];$state['marketing_detail_cursor']=$cursor;continue;
         }
         try{
             $res=rdSyncFetch('marketing','https://api.rd.services/platform/contacts/'.$identifier.':'.rawurlencode($value));
@@ -559,7 +598,7 @@ function rdSyncMarketingDetailsBatch(PDO $pdo,array $job,array &$state,array &$c
         catch(Throwable $e){
             rdSyncLog($pdo,$jobId,'warning','marketing_detail','Contato '.$row['dnb_id'].' não pôde ser detalhado: '.$e->getMessage());
         }
-        $cursor=(int)$row['link_id'];
+        $cursor=(int)$row['link_id'];$state['marketing_detail_cursor']=$cursor;
     }
     $state['marketing_detail_cursor']=$cursor;
     ++$counters['pages'];
