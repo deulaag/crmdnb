@@ -96,6 +96,8 @@ function rdSyncPrerequisiteIssues(PDO $pdo): array
         $stmt->execute([$source,$target]);
         if((int)$stmt->fetchColumn()!==1)$issues[]='Mapeie e selecione o campo '.$source.' do RD Marketing para '.$target.'.';
     }
+    $cnpjMap=(int)$pdo->query("SELECT COUNT(*) FROM rd_field_mappings WHERE product='crm' AND source_entity='organization' AND target_entity='company' AND target_field='cnpj' AND enabled=1")->fetchColumn();
+    if($cnpjMap===0)$issues[]='Mapeie o campo CNPJ das Empresas do RD CRM para company.cnpj antes da importação, para a deduplicação ser segura.';
     if((int)$pdo->query("SELECT COUNT(*) FROM rd_pipeline_mappings WHERE enabled=1")->fetchColumn()===0){
         $issues[]='Descubra e habilite ao menos um funil/etapa do RD CRM na Fase 4.';
     }
