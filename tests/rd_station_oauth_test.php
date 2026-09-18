@@ -41,15 +41,15 @@ rd3ok(str_contains($service,"'https://api.rd.services/oauth2/token'"),'CRM v2 de
 rd3ok(str_contains($service,"'https://api.rd.services/platform/contacts/fields'"),'teste Marketing deve validar leitura de campos');
 rd3ok(str_contains($service,"'https://api.rd.services/crm/v2/users?page[size]=1'"),'teste CRM deve validar leitura de usuários');
 rd3ok(str_contains($service,"'response_type' => 'code'"),'CRM deve usar authorization code');
-rd3ok(str_contains($service,"'state' => $state"),'OAuth deve enviar state');
-rd3ok(str_contains($service,"'grant_type' => $tipo === 'code' ? 'authorization_code' : 'refresh_token'"),'CRM deve usar grant types corretos');
-rd3ok(str_contains($service,"$expiresAt <= time() + 300"),'token deve ser renovado antes de expirar');
-rd3ok(str_contains($service,"$payload['refresh_token'] ?? ''"),'refresh token novo deve substituir o anterior quando retornado');
-rd3ok(str_contains($service,"'Authorization: Bearer ' . $token"),'APIs RD devem usar bearer token no backend');
+rd3ok(str_contains($service,"'state' => \$state"),'OAuth deve enviar state');
+rd3ok(str_contains($service,"'grant_type' => \$tipo === 'code' ? 'authorization_code' : 'refresh_token'"),'CRM deve usar grant types corretos');
+rd3ok(str_contains($service,'$expiresAt <= time() + 300'),'token deve ser renovado antes de expirar');
+rd3ok(str_contains($service,"\$payload['refresh_token'] ?? ''"),'refresh token novo deve substituir o anterior quando retornado');
+rd3ok(str_contains($service,"'Authorization: Bearer ' . \$token"),'APIs RD devem usar bearer token no backend');
 rd3ok(str_contains($service,"['api.rd.services']"),'cliente HTTP deve limitar chamadas ao domínio da API RD');
 
-rd3ok(str_contains($controller,"hash('sha256',$state)"),'state OAuth deve ser guardado como hash');
-rd3ok(str_contains($controller,"time()-(int)$saved['created_at']>900"),'state OAuth precisa expirar');
+rd3ok(str_contains($controller,"hash('sha256',\$state)"),'state OAuth deve ser guardado como hash');
+rd3ok(str_contains($controller,"time()-(int)\$saved['created_at']>900"),'state OAuth precisa expirar');
 rd3ok(str_contains($controller,'hash_equals'),'state OAuth deve usar comparação segura');
 rd3ok(str_contains($controller,'rdTrocarCodePorTokens'),'callback deve trocar code por tokens');
 rd3ok(str_contains($controller,'rdTestarConexao'),'callback deve validar leitura após autenticar');
@@ -61,7 +61,7 @@ rd3ok(str_contains($crmCallback,"rdOAuthCallback('crm')"),'rota CRM callback inc
 
 rd3ok(str_contains($page,"'rdstation'    => 'RD Station'"),'Configurações deve possuir aba RD Station');
 foreach(['salvar_rd_base','salvar_rd_app','testar_rdstation','renovar_rdstation','desconectar_rdstation'] as $action)
-    rd3ok(str_contains($page,'value="'.$action.'"')||str_contains($page,"$acao === '{$action}'"),"ação {$action} ausente");
+    rd3ok(str_contains($page,'value="'.$action.'"')||str_contains($page,"\$acao === '{$action}'"),"ação {$action} ausente");
 rd3ok(str_contains($page,"rdEstadoProduto('marketing')")&&str_contains($page,"rdEstadoProduto('crm')"),'tela deve separar Marketing e CRM');
 rd3ok(str_contains($page,'Callback para cadastrar no App Publisher'),'callbacks devem ficar visíveis ao ADM');
 rd3ok(str_contains($page,'Nenhuma sincronização completa'),'Fase 3 não pode sugerir sync já ativo');
