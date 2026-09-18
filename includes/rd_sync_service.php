@@ -640,6 +640,80 @@ function rdSyncCrmPage(PDO $pdo,array $job,string $resource,string $scope,callab
     return ['done'=>$done,'count'=>count($items),'next'=>$page+1];
 }
 
+function rdSyncPhase6Disponivel(PDO $pdo): bool
+{
+    try{
+        $stmt=$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('rd_sync_state','rd_webhook_events','rd_webhook_subscriptions')");
+        return (int)$stmt->fetchColumn()===3;
+    }catch(Throwable){return false;}
+}
+
+function rdSyncStateGet(PDO $pdo,string $key,string $default=''): string
+{
+    if(!rdSyncPhase6Disponivel($pdo))return $default;
+    $stmt=$pdo->prepare('SELECT state_value FROM rd_sync_state WHERE state_key=? LIMIT 1');
+    $stmt->execute([$key]);$v=$stmt->fetchColumn();
+    return $v===false?$default:(string)$v;
+}
+
+function rdSyncStateSet(PDO $pdo,string $key,string $value): void
+{
+    if(!rdSyncPhase6Disponivel($pdo))return;
+    $stmt=$pdo->prepare('INSERT INTO rd_sync_state (state_key,state_value) VALUES (?,?) ON DUPLICATE KEY UPDATE state_value=VALUES(state_value),updated_at=NOW()');
+    $stmt->execute([mb_substr($key,0,100),$value]);
+}
+
+function rdSyncRdqlDate(string $value): string
+{
+    $ts=strtotime($value.' UTC');
+    if($ts===false)$ts=time();
+    return gmdate('Y-m-d\TH:i:s\Z',$ts);
+}
+
+function rdSyncIncrementalExtraQuery(array $job,string $sortField='updated_at'): string
+{
+    $since=rdSyncRdqlDate((string)$job['since_at']);
+    $cutoff=rdSyncRdqlDate((string)($job['state']['cutoff_at']??gmdate('Y-m-d H:i:s')));
+    $filter='updated_at:>="'.$since.'" updated_at:<="'.$cutoff.'"';
+    return 'filter='.rawurlencode($filter).'&sort['.rawurlencode($sortField).']=asc';
+}
+
+/** @return array<string,mixed>|null */
+function rdSyncCriarIncrementalJob(PDO $pdo,int $userId=0,bool $forcar=false): ?array
+{
+    if(!rdSyncPhase6Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 6.');
+    $issues=rdSyncPrerequisiteIssues($pdo);
+    if($issues)throw new RuntimeException('Pré-requisitos da sincronização: '.implode(' ',$issues));
+
+    $active=$pdo->query("SELECT id FROM rd_sync_jobs WHERE status IN ('queued','running','paused') ORDER BY id DESC LIMIT 1")->fetchColumn();
+    if($active)return rdSyncJob($pdo,(int)$active);
+
+    $checkpoint=rdSyncStateGet($pdo,'crm_incremental_checkpoint','');
+    if($checkpoint===''){
+        $checkpoint=(string)($pdo->query("SELECT finished_at FROM rd_sync_jobs WHERE mode='first_sync' AND status='completed' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1")->fetchColumn()?:'');
+    }
+    if($checkpoint==='')throw new RuntimeException('Conclua a primeira sincronização da Fase 5 antes de ativar a incremental.');
+
+    $interval=max(5,min(1440,(int)integracaoConfigValor('DNB_RD_INCREMENTAL_MINUTES','15')));
+    if(!$forcar){
+        $last=(string)($pdo->query("SELECT finished_at FROM rd_sync_jobs WHERE mode='incremental' AND status='completed' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1")->fetchColumn()?:'');
+        if($last!==''&&time()-(strtotime($last)?:0)<$interval*60)return null;
+    }
+
+    $overlap=max(1,min(120,(int)integracaoConfigValor('DNB_RD_INCREMENTAL_OVERLAP_MINUTES','10')));
+    $sinceTs=(strtotime($checkpoint.' UTC')?:time())-$overlap*60;
+    $since=gmdate('Y-m-d H:i:s',$sinceTs);
+    $cutoff=gmdate('Y-m-d H:i:s');
+    $state=['cutoff_at'=>$cutoff,'retry_after'=>0];
+    $counters=rdSyncCounterDefault();
+
+    $stmt=$pdo->prepare("INSERT INTO rd_sync_jobs (mode,status,stage,since_at,page_number,page_size,state_json,counters_json,created_by_user_id) VALUES ('incremental','queued','crm_organizations',?,1,100,?,?,NULLIF(?,0))");
+    $stmt->execute([$since,json_encode($state),json_encode($counters),$userId]);
+    $id=(int)$pdo->lastInsertId();
+    rdSyncLog($pdo,$id,'info','job','Sincronização incremental criada.',['since_at'=>$since,'cutoff_at'=>$cutoff,'overlap_minutes'=>$overlap]);
+    return rdSyncJob($pdo,$id);
+}
+
 function rdSyncProcessStep(PDO $pdo,int $jobId): array
 {
     if(!rdSyncDisponivel($pdo))throw new RuntimeException('Fase 5 não instalada.');
@@ -649,7 +723,8 @@ function rdSyncProcessStep(PDO $pdo,int $jobId): array
         $job=rdSyncJob($pdo,$jobId);if(!$job)throw new RuntimeException('Job de sincronização não encontrado.');
         if(in_array($job['status'],['completed','error','cancelled'],true))return $job;
         $state=$job['state'];$counters=$job['counters'];if((int)($state['retry_after']??0)>time())return $job;$state['retry_after']=0;
-        if($job['status']==='queued'){rdSyncSetJob($pdo,$jobId,'init',1,$state,$counters,'running');$job=rdSyncJob($pdo,$jobId)??$job;}
+        if($job['status']==='queued'){rdSyncSetJob($pdo,$jobId,(string)$job['stage'],(int)$job['page_number'],$state,$counters,'running');$job=rdSyncJob($pdo,$jobId)??$job;}
+        $incremental=((string)($job['mode']??''))==='incremental';
         try{
             switch((string)$job['stage']){
                 case 'init':
@@ -662,17 +737,29 @@ function rdSyncProcessStep(PDO $pdo,int $jobId): array
                     $r=rdSyncMarketingDetailsBatch($pdo,$job,$state,$counters);
                     if($r['done']){rdSyncLog($pdo,$jobId,'info','marketing','Detalhamento concluído. O campo Empresa do Marketing não é disponibilizado por esta API; Empresas serão consolidadas pelo RD CRM ou por CNPJ explicitamente mapeado.');rdSyncAdvance($pdo,$job,'crm_organizations',$state,$counters);}else rdSyncSetJob($pdo,$jobId,'marketing_contact_details',1,$state,$counters);break;
                 case 'crm_organizations':
-                    $r=rdSyncCrmPage($pdo,$job,'organizations','organization',function(array $item)use($pdo,$jobId,&$counters){rdSyncUpsertCompany($pdo,$jobId,'rd_crm',rdSyncExternalId($item),rdDiscoveryAttrs($item),$item,$counters);},$counters,'crm_companies_seen','sort[updated_at]=asc');
+                    $orgQuery=$incremental?rdSyncIncrementalExtraQuery($job,'updated_at'):'sort[updated_at]=asc';
+                    $r=rdSyncCrmPage($pdo,$job,'organizations','organization',function(array $item)use($pdo,$jobId,&$counters){rdSyncUpsertCompany($pdo,$jobId,'rd_crm',rdSyncExternalId($item),rdDiscoveryAttrs($item),$item,$counters);},$counters,'crm_companies_seen',$orgQuery);
                     if($r['done'])rdSyncAdvance($pdo,$job,'crm_contacts',$state,$counters);else rdSyncSetJob($pdo,$jobId,'crm_organizations',(int)$r['next'],$state,$counters);break;
                 case 'crm_contacts':
-                    $r=rdSyncCrmPage($pdo,$job,'contacts','contact',function(array $item)use($pdo,$jobId,&$counters){$attrs=rdDiscoveryAttrs($item);$orgId=rdSyncRelationshipIds($item,'organization')[0]??'';$company=$orgId?rdSyncLocalByExternal($pdo,'rd_crm','organization',$orgId):null;rdSyncUpsertContact($pdo,$jobId,'rd_crm',rdSyncExternalId($item),$attrs,$item,(int)($company['id']??0),$counters);},$counters,'crm_contacts_seen','sort[created_at]=asc');
+                    $contactQuery=$incremental?rdSyncIncrementalExtraQuery($job,'created_at'):'sort[created_at]=asc';
+                    $r=rdSyncCrmPage($pdo,$job,'contacts','contact',function(array $item)use($pdo,$jobId,&$counters){$attrs=rdDiscoveryAttrs($item);$orgId=rdSyncRelationshipIds($item,'organization')[0]??'';$company=$orgId?rdSyncLocalByExternal($pdo,'rd_crm','organization',$orgId):null;rdSyncUpsertContact($pdo,$jobId,'rd_crm',rdSyncExternalId($item),$attrs,$item,(int)($company['id']??0),$counters);},$counters,'crm_contacts_seen',$contactQuery);
                     if($r['done'])rdSyncAdvance($pdo,$job,'crm_deals',$state,$counters);else rdSyncSetJob($pdo,$jobId,'crm_contacts',(int)$r['next'],$state,$counters);break;
                 case 'crm_deals':
-                    $filter='filter='.rawurlencode('created_at:>="'.date('Y-m-d H:i:s',strtotime((string)$job['since_at'])).'"').'&sort[created_at]=asc';
+                    $filter=$incremental?rdSyncIncrementalExtraQuery($job,'updated_at'):('filter='.rawurlencode('created_at:>="'.date('Y-m-d H:i:s',strtotime((string)$job['since_at'])).'"').'&sort[created_at]=asc');
                     $r=rdSyncCrmPage($pdo,$job,'deals','deal',function(array $item)use($pdo,$jobId,&$counters){rdSyncUpsertDeal($pdo,$jobId,rdSyncExternalId($item),$item,$counters);},$counters,'crm_deals_seen',$filter);
                     if($r['done'])rdSyncAdvance($pdo,$job,'finish',$state,$counters);else rdSyncSetJob($pdo,$jobId,'crm_deals',(int)$r['next'],$state,$counters);break;
                 case 'finish':
-                    rdSyncSetJob($pdo,$jobId,'done',1,$state,$counters,'completed');rdSyncLog($pdo,$jobId,'success','job','Primeira sincronização concluída. Revise os conflitos pendentes antes da automação recorrente.');break;
+                    if($incremental){
+                        $checkpoint=(string)($state['cutoff_at']??gmdate('Y-m-d H:i:s'));
+                        rdSyncStateSet($pdo,'crm_incremental_checkpoint',$checkpoint);
+                        rdSyncSetJob($pdo,$jobId,'done',1,$state,$counters,'completed');
+                        rdSyncLog($pdo,$jobId,'success','job','Sincronização incremental concluída.',['checkpoint'=>$checkpoint]);
+                    }else{
+                        rdSyncSetJob($pdo,$jobId,'done',1,$state,$counters,'completed');
+                        rdSyncLog($pdo,$jobId,'success','job','Primeira sincronização concluída. Revise os conflitos pendentes antes da automação recorrente.');
+                        if(rdSyncPhase6Disponivel($pdo))rdSyncStateSet($pdo,'crm_incremental_checkpoint',(string)($job['state']['cutoff_at']??gmdate('Y-m-d H:i:s')));
+                    }
+                    break;
                 default:throw new RuntimeException('Etapa de sincronização desconhecida: '.(string)$job['stage']);
             }
         }catch(RdSyncRateLimitException $e){
