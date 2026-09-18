@@ -55,6 +55,8 @@ if($jobId<=0)rdSyncApiOut(['ok'=>false,'error'=>'job_id obrigatório.'],422);
 try{
     if($action==='cancel'){
         rdSyncCancelar($pdo,$jobId);
+    }elseif($action==='resume'){
+        rdSyncRetomar($pdo,$jobId);
     }elseif($action==='step'){
         rdSyncProcessStep($pdo,$jobId);
     }else{
