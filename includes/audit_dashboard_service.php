@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/calc.php';
+require_once __DIR__ . '/rd_reporting_service.php';
 
 /** @return string[] meses YYYY-MM do primeiro registro comercial até o mês atual. */
 function mesesAuditoriaPainel(PDO $pdo): array
@@ -11,6 +12,7 @@ function mesesAuditoriaPainel(PDO $pdo): array
         "SELECT MIN(data) FROM orcamentos WHERE data IS NOT NULL",
         "SELECT MIN(COALESCE(data_fat,data)) FROM pedidos WHERE COALESCE(data_fat,data) IS NOT NULL",
         "SELECT MIN(data) FROM visitas WHERE data IS NOT NULL",
+        "SELECT MIN(COALESCE(business_created_at,created_at)) FROM crm_negotiations WHERE COALESCE(business_created_at,created_at) IS NOT NULL",
     ] as $sql){
         try{$v=$pdo->query($sql)->fetchColumn();if($v)$datas[]=(string)$v;}catch(Throwable){}
     }
@@ -88,9 +90,12 @@ function relatorioAuditoriaPainelMes(PDO $pdo,string $mes): array
     foreach($vis as &$r)$r['_responsavel']=$nomePessoa($r['vendedor_id']??null);unset($r);
     $contRev=count(array_filter($ped,static fn($p)=>(string)($p['modalidade']??'')!=='agenciada'));
     $contAg=count(array_filter($ped,static fn($p)=>(string)($p['modalidade']??'')==='agenciada'));
+    $rdNegotiations=rdReportingSummary($pdo,$mes,false);
     return [
         'mes'=>$mes,'rotulo'=>rotuloMes($mes),'resumo'=>$resumo,'pessoas'=>$pessoas,
         'orcamentos'=>$orc,'pedidos'=>$ped,'visitas'=>$vis,
+        'rd_negotiations'=>$rdNegotiations,
+        'rd_pipeline'=>rdReportingByPipeline($rdNegotiations['items']),
         'contagens'=>['propostas'=>count($orc),'revenda'=>$contRev,'agenciadas'=>$contAg,'atividade'=>count($vis)],
     ];
 }
