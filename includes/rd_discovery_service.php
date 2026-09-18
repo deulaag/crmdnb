@@ -430,3 +430,19 @@ function rdPipelineMappings(PDO $pdo): array
     if(!rdDiscoveryDisponivel($pdo))return [];
     return $pdo->query('SELECT * FROM rd_pipeline_mappings ORDER BY pipeline_name,sort_order,stage_name,id')->fetchAll();
 }
+
+
+/** @return array<string,array<int,string>> */
+function rdPipelineCatalogo(PDO $pdo): array
+{
+    if(!rdDiscoveryDisponivel($pdo))return [];
+    $out=[];
+    foreach(rdPipelineMappings($pdo) as $row){
+        if(empty($row['enabled']))continue;
+        $pipe=trim((string)$row['pipeline_name']);$stage=trim((string)$row['stage_name']);
+        if($pipe===''||$stage==='')continue;
+        $out[$pipe]??=[];
+        if(!in_array($stage,$out[$pipe],true))$out[$pipe][]=$stage;
+    }
+    return $out;
+}
