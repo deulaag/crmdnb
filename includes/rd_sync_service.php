@@ -279,6 +279,12 @@ function rdSyncRegisterLink(PDO $pdo,string $provider,string $externalEntity,str
     $counters['links_created']=(int)($counters['links_created']??0)+1;
 }
 
+function rdSyncTouchLink(PDO $pdo,string $provider,string $externalEntity,string $externalId): void
+{
+    $stmt=$pdo->prepare('UPDATE crm_external_links SET last_sync_at=NOW() WHERE provider=? AND external_entity=? AND external_id=?');
+    $stmt->execute([$provider,$externalEntity,$externalId]);
+}
+
 /** @return array<string,string> */
 function rdSyncTableAllowed(string $entity): array
 {
@@ -381,7 +387,7 @@ function rdSyncUpsertCompany(PDO $pdo,int $jobId,string $provider,string $extern
     if($cnpj!=='')$fields['cnpj']=$fields['cnpj']??['source_key'=>'cnpj','value'=>$cnpj,'truth'=>'rd'];
 
     if($linked){
-        $local=$linked['local'];rdSyncUpdateLocal($pdo,$jobId,$product,'organization',$externalId,'company',(int)$local['id'],$fields,$payload,$counters);
+        $local=$linked['local'];rdSyncTouchLink($pdo,$provider,'organization',$externalId);rdSyncUpdateLocal($pdo,$jobId,$product,'organization',$externalId,'company',(int)$local['id'],$fields,$payload,$counters);
         ++$counters['companies_updated'];return buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);
     }
 
@@ -441,7 +447,7 @@ function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $extern
     if($companyId)$fields['company_id']=['source_key'=>'organization_id','value'=>$companyId,'truth'=>'rd'];
 
     if($linked){
-        $local=$linked['local'];rdSyncUpdateLocal($pdo,$jobId,$product,'contact',$externalId,'contact',(int)$local['id'],$fields,$payload,$counters);
+        $local=$linked['local'];rdSyncTouchLink($pdo,$provider,'contact',$externalId);rdSyncUpdateLocal($pdo,$jobId,$product,'contact',$externalId,'contact',(int)$local['id'],$fields,$payload,$counters);
         ++$counters['contacts_updated'];return buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);
     }
     $email=crmCoreEmail((string)($fields['email']['value']??($provider==='rd_marketing'?rdSyncScalar($attrs['email']??''):'')));
@@ -531,7 +537,7 @@ function rdSyncUpsertDeal(PDO $pdo,int $jobId,string $externalId,array $item,arr
     ],rdSyncMappedValues($pdo,'crm','deal',$attrs,'negotiation'));
 
     if($linked){
-        $local=$linked['local'];rdSyncUpdateLocal($pdo,$jobId,'crm','deal',$externalId,'negotiation',(int)$local['id'],$fields,$item,$counters);
+        $local=$linked['local'];rdSyncTouchLink($pdo,'rd_crm','deal',$externalId);rdSyncUpdateLocal($pdo,$jobId,'crm','deal',$externalId,'negotiation',(int)$local['id'],$fields,$item,$counters);
         $neg=buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);++$counters['negotiations_updated'];
     }else{
         $title=trim((string)($fields['title']['value']??''));if($title==='')$title='Negociação RD '.$externalId;
