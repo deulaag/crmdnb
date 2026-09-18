@@ -109,17 +109,24 @@ function rdPhase6WebhookItems(?array $json): array
     return rdSyncList($json,['data','items','webhooks','subscriptions']);
 }
 
+function rdPhase6WebhookResource(array $item): array
+{
+    $data=$item['data']??null;
+    if(is_array($data)&&!array_is_list($data))return rdDiscoveryAttrs($data);
+    return rdDiscoveryAttrs($item);
+}
+
 function rdPhase6WebhookRemoteId(array $item): string
 {
-    $a=rdDiscoveryAttrs($item);
+    $a=rdPhase6WebhookResource($item);
     foreach(['id','uuid'] as $k){if(isset($a[$k])&&is_scalar($a[$k])&&trim((string)$a[$k])!=='')return trim((string)$a[$k]);}
     return '';
 }
 
 function rdPhase6WebhookRemoteEvent(array $item): string
 {
-    $a=rdDiscoveryAttrs($item);
-    foreach(['event_type','event_name'] as $k){if(isset($a[$k])&&is_scalar($a[$k]))return trim((string)$a[$k]);}
+    $a=rdPhase6WebhookResource($item);
+    foreach(['event_type','event_name'] as $k){if(isset($a[$k])&&is_scalar($a[$k])&&trim((string)$a[$k])!=='')return trim((string)$a[$k]);}
     return '';
 }
 
@@ -441,6 +448,9 @@ function rdPhase6ReplayLinkedConflict(PDO $pdo,array $conflict,string $dnbId): v
     $provider=$product==='marketing'?'rd_marketing':'rd_crm';
     $localEntity=rdPhase6LocalEntityForExternal($externalEntity);
     if($localEntity==='')throw new RuntimeException('Entidade externa incompatível com vínculo.');
+    if(!rdSyncCanLinkLocal($pdo,$provider,$localEntity,$dnbId,$externalId)){
+        throw new RuntimeException('O registro DNB selecionado já possui outro ID externo deste provedor.');
+    }
     registrarVinculoExternoCrm($pdo,$provider,$externalEntity,$externalId,$localEntity,$dnbId);
     if(rdPhase6Disponivel($pdo))rdPhase6MarkLinkEvent($pdo,$provider,$externalEntity,$externalId,false);
 
@@ -456,7 +466,8 @@ function rdPhase6UseRdConflictValue(PDO $pdo,array $conflict): string
         throw new RuntimeException('Este conflito não é de campo.');
     }
     $entity=$m[1];$field=$m[2];
-    if(!isset(rdSyncTableAllowed($entity)[$field]))throw new RuntimeException('Campo não permitido para resolução automática.');
+    $allowed=rdSyncTableAllowed($entity);
+    if(!isset($allowed[$field]))throw new RuntimeException('Campo não permitido para resolução automática.');
     $items=rdSyncJsonObject((string)$conflict['candidates_json']);
     $candidate=is_array($items[0]??null)?$items[0]:[];
     $dnbId=strtoupper(trim((string)($candidate['dnb_id']??'')));
