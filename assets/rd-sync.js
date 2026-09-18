@@ -11,6 +11,7 @@
   const pageEl = root.querySelector('[data-rd-sync-page]');
   const conflictsEl = root.querySelector('[data-rd-sync-conflicts]');
   const cancelButton = root.querySelector('[data-rd-sync-cancel]');
+  const resumeButton = root.querySelector('[data-rd-sync-resume]');
   let lastLogId = 0;
   let stopped = !['queued', 'running', 'paused'].includes(root.dataset.jobStatus || '');
   let firstPayload = true;
@@ -68,6 +69,7 @@
     appendLogs(payload.logs || []);
     stopped = ['completed', 'error', 'cancelled'].includes(String(job.status || ''));
     if (cancelButton) cancelButton.hidden = stopped;
+    if (resumeButton) resumeButton.hidden = String(job.status || '') !== 'error';
   };
 
   const post = async (action) => {
@@ -106,6 +108,19 @@
       if (!confirm('Cancelar esta sincronização? O que já foi importado será mantido.')) return;
       try {
         render(await post('cancel'));
+      } catch (error) {
+        alert(String(error?.message || error));
+      }
+    });
+  }
+
+  if (resumeButton) {
+    resumeButton.addEventListener('click', async () => {
+      try {
+        const payload = await post('resume');
+        render(payload);
+        stopped = false;
+        setTimeout(step, 250);
       } catch (error) {
         alert(String(error?.message || error));
       }
