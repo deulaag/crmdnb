@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../includes/lead_service.php';
 require_once __DIR__ . '/../../includes/task_service.php';
 require_once __DIR__ . '/../../includes/crm_directory_service.php';
 require_once __DIR__ . '/../../includes/crm_core_service.php';
+require_once __DIR__ . '/../../includes/crm_phase2_service.php';
 
 header('Content-Type: application/json; charset=utf-8');
 exigirPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR);
@@ -38,12 +39,14 @@ try{
    $stmt->execute([$numero,$data,$cliente,$vendedorId,$suporteId,$linha,tipoDe($linha),$funil,$funis[$funil]['etapas'][0],$valor,(float)($_POST['comissao_dnb_estimada']??0),'Aberta','manual',$assignedTo,$cargoId]);
   }
   $leadId=(int)$pdo->lastInsertId();
-  if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$leadId);
+  $negotiationId=(int)($_POST['negotiation_id']??0);
+  if($negotiationId>0&&crmPhase2Disponivel($pdo)&&podeAcessarNegociacaoCrm($pdo,$negotiationId)) vincularOrcamentoNegociacaoCrmUi($pdo,$negotiationId,$leadId);
+  elseif(crmCoreFase1Disponivel($pdo)) $negotiationId=garantirNegociacaoParaOrcamento($pdo,$leadId);
   registrarTimeline($pdo,$leadId,'created','Oportunidade criada manualmente para '.$cliente.'.');
   if($companyId)registrarTimeline($pdo,$leadId,'directory_link','Empresa e contato sincronizados com o diretório do CRM.');
   $taskTitle=trim((string)($_POST['task_title']??''));$taskDue=trim((string)($_POST['task_due_date']??''));$taskId=null;
   if($taskDue!==''){$taskId=criarTarefaOrcamento($pdo,$leadId,$assignedTo,$taskTitle?:'Acompanhar orçamento',$taskDue,(int)usuarioLogado()['id'],(string)($_POST['task_description']??''));registrarTimeline($pdo,$leadId,'task_created','Tarefa criada para '.$taskDue.': '.($taskTitle?:'Acompanhar orçamento').'.');}
-  $pdo->commit();echo json_encode(['ok'=>true,'lead_id'=>$leadId,'numero'=>textoSeguroModal($numero),'task_id'=>$taskId,'company_id'=>$companyId,'contact_id'=>$contactId]);exit;
+  $pdo->commit();echo json_encode(['ok'=>true,'lead_id'=>$leadId,'numero'=>textoSeguroModal($numero),'task_id'=>$taskId,'company_id'=>$companyId,'contact_id'=>$contactId,'negotiation_id'=>$negotiationId]);exit;
  }
 
  if($acao==='set_stage'){
