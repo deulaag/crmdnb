@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/dnb_id_service.php';
+
 function diretorioCrmDisponivel(PDO $pdo): bool
 {
     static $ok = null;
@@ -84,13 +86,23 @@ function salvarEmpresaCrm(PDO $pdo, string $nome, string $cnpj = '', string $end
         $novoCnpj = $cnpj !== '' ? $cnpj : (string)($existente['cnpj']??'');
         $novoEndereco = trim($endereco) !== '' ? trim($endereco) : (string)($existente['address']??'');
         $novaLocalidade = trim($localidade) !== '' ? trim($localidade) : (string)($existente['locality']??'');
+        $id=(int)$existente['id'];
         $pdo->prepare('UPDATE crm_companies SET name=?,cnpj=NULLIF(?,\'\'),address=?,locality=? WHERE id=?')
-            ->execute([mb_substr($novoNome,0,200),mb_substr($novoCnpj,0,18),mb_substr($novoEndereco,0,255),mb_substr($novaLocalidade,0,180),(int)$existente['id']]);
-        return array_merge($existente,['name'=>$novoNome,'cnpj'=>$novoCnpj,'address'=>$novoEndereco,'locality'=>$novaLocalidade]);
+            ->execute([mb_substr($novoNome,0,200),mb_substr($novoCnpj,0,18),mb_substr($novoEndereco,0,255),mb_substr($novaLocalidade,0,180),$id]);
+        if(tabelaSuportaDnbId($pdo,'crm_companies')){
+            $pdo->prepare('UPDATE crm_companies SET cnpj_digits=NULLIF(?,\'\') WHERE id=?')->execute([cnpjSomenteDigitos($novoCnpj),$id]);
+        }
+        $dnbId=garantirDnbIdRegistro($pdo,'crm_companies',$id);
+        return array_merge($existente,['dnb_id'=>$dnbId,'name'=>$novoNome,'cnpj'=>$novoCnpj,'address'=>$novoEndereco,'locality'=>$novaLocalidade]);
     }
     $pdo->prepare('INSERT INTO crm_companies (cnpj,name,address,locality) VALUES (NULLIF(?,\'\'),?,?,?)')
         ->execute([mb_substr($cnpj,0,18),mb_substr($nome,0,200),mb_substr(trim($endereco),0,255),mb_substr(trim($localidade),0,180)]);
-    return ['id'=>(int)$pdo->lastInsertId(),'name'=>$nome,'cnpj'=>$cnpj,'address'=>$endereco,'locality'=>$localidade];
+    $id=(int)$pdo->lastInsertId();
+    if(tabelaSuportaDnbId($pdo,'crm_companies')){
+        $pdo->prepare('UPDATE crm_companies SET cnpj_digits=NULLIF(?,\'\') WHERE id=?')->execute([cnpjSomenteDigitos($cnpj),$id]);
+    }
+    $dnbId=garantirDnbIdRegistro($pdo,'crm_companies',$id);
+    return ['id'=>$id,'dnb_id'=>$dnbId,'name'=>$nome,'cnpj'=>$cnpj,'address'=>$endereco,'locality'=>$localidade];
 }
 
 /** @return array<string,mixed>|null */
@@ -107,11 +119,14 @@ function salvarContatoCrm(PDO $pdo, int $companyId, string $nome, string $telefo
             $cargo !== '' ? mb_substr($cargo,0,120) : (string)$row['role_title'],
             (int)$row['id'],
         ]);
-        return array_merge($row,['phone'=>$telefone ?: $row['phone'],'email'=>$email ?: $row['email'],'role_title'=>$cargo ?: $row['role_title']]);
+        $dnbId=garantirDnbIdRegistro($pdo,'crm_contacts',(int)$row['id']);
+        return array_merge($row,['dnb_id'=>$dnbId,'phone'=>$telefone ?: $row['phone'],'email'=>$email ?: $row['email'],'role_title'=>$cargo ?: $row['role_title']]);
     }
     $pdo->prepare('INSERT INTO crm_contacts (company_id,name,phone,email,role_title) VALUES (?,?,?,?,?)')
         ->execute([$companyId,mb_substr($nome,0,180),mb_substr($telefone,0,40),mb_substr($email,0,190),mb_substr($cargo,0,120)]);
-    return ['id'=>(int)$pdo->lastInsertId(),'company_id'=>$companyId,'name'=>$nome,'phone'=>$telefone,'email'=>$email,'role_title'=>$cargo];
+    $id=(int)$pdo->lastInsertId();
+    $dnbId=garantirDnbIdRegistro($pdo,'crm_contacts',$id);
+    return ['id'=>$id,'dnb_id'=>$dnbId,'company_id'=>$companyId,'name'=>$nome,'phone'=>$telefone,'email'=>$email,'role_title'=>$cargo];
 }
 
 /** @return array{company:?array,contact:?array} */

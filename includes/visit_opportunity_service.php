@@ -5,6 +5,7 @@ require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/lead_service.php';
 require_once __DIR__ . '/crm_directory_service.php';
 require_once __DIR__ . '/os_template_service.php';
+require_once __DIR__ . '/crm_core_service.php';
 
 function recursosVisitaOportunidadeDisponiveis(PDO $pdo): bool
 {
@@ -66,7 +67,16 @@ function criarOportunidadeDaVisita(PDO $pdo,int $visitaId,array $dados,array $te
         ]);
     }
     $leadId=(int)$pdo->lastInsertId();
-    $pdo->prepare('UPDATE visitas SET company_id=?,contact_id=?,template_data_json=?,lead_status=? WHERE id=?')->execute([$companyId,$contactId,templateOsJson($template),'promovida',$visitaId]);
+    $negotiationId=0;
+    if(crmCoreFase1Disponivel($pdo)){
+        garantirVisitaCore($pdo,$visitaId);
+        $negotiationId=garantirNegociacaoParaOrcamento($pdo,$leadId);
+    }
+    if($negotiationId>0){
+        $pdo->prepare('UPDATE visitas SET company_id=?,contact_id=?,negotiation_id=?,template_data_json=?,lead_status=? WHERE id=?')->execute([$companyId,$contactId,$negotiationId,templateOsJson($template),'promovida',$visitaId]);
+    }else{
+        $pdo->prepare('UPDATE visitas SET company_id=?,contact_id=?,template_data_json=?,lead_status=? WHERE id=?')->execute([$companyId,$contactId,templateOsJson($template),'promovida',$visitaId]);
+    }
     registrarTimeline($pdo,$leadId,'created','Oportunidade criada após confirmação da visita/OS #'.$visitaId.'.');
     registrarTimeline($pdo,$leadId,'visit_import','Dados completos e conferidos da Ordem de Serviço de Campo vinculados à oportunidade.');
     if(!empty($pdfMeta['storage_name']))registrarTimeline($pdo,$leadId,'visit_pdf_attached','PDF original da Ordem de Serviço anexado à oportunidade: '.mb_substr((string)($pdfMeta['original_name']??'ordem-servico.pdf'),0,200).'.');

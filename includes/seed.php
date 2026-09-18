@@ -4,6 +4,7 @@
  * porte fiel de SEED_VENDEDORES / SEED_LINHAS / carregarDemo() do JS original.
  */
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/crm_core_service.php';
 
 function seedVendedoresPadrao(): array
 {
@@ -47,6 +48,7 @@ function carregarDadosDemo(PDO $pdo): void
     restaurarEquipePadrao($pdo);
 
     $pdo->exec('DELETE FROM orcamento_cadencia_log');
+    if (crmCoreFase1Disponivel($pdo)) $pdo->exec('DELETE FROM crm_negotiations');
     $pdo->exec('DELETE FROM orcamentos');
     $pdo->exec('DELETE FROM pedidos');
     $pdo->exec('DELETE FROM visitas');
@@ -113,12 +115,14 @@ function carregarDadosDemo(PDO $pdo): void
     }
 
     $pdo->prepare('INSERT INTO apuracao (mes, vendedor_id, ocorrencias) VALUES (?,?,?)')->execute([$M, 'v2', 1]);
+    if (crmCoreFase1Disponivel($pdo)) sincronizarNucleoLegadoCrm($pdo);
 }
 
 /** Zera todos os dados comerciais e volta a equipe ao padrão de fábrica. */
 function limparTudo(PDO $pdo): void
 {
     $pdo->exec('DELETE FROM orcamento_cadencia_log');
+    if (crmCoreFase1Disponivel($pdo)) $pdo->exec('DELETE FROM crm_negotiations');
     $pdo->exec('DELETE FROM orcamentos');
     $pdo->exec('DELETE FROM pedidos');
     $pdo->exec('DELETE FROM visitas');

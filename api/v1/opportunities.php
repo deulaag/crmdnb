@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/calc.php';
 require_once __DIR__ . '/../../includes/lead_service.php';
 require_once __DIR__ . '/../../includes/task_service.php';
 require_once __DIR__ . '/../../includes/crm_directory_service.php';
+require_once __DIR__ . '/../../includes/crm_core_service.php';
 
 header('Content-Type: application/json; charset=utf-8');
 exigirPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR);
@@ -36,7 +37,9 @@ try{
    $stmt=$pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
    $stmt->execute([$numero,$data,$cliente,$vendedorId,$suporteId,$linha,tipoDe($linha),$funil,$funis[$funil]['etapas'][0],$valor,(float)($_POST['comissao_dnb_estimada']??0),'Aberta','manual',$assignedTo,$cargoId]);
   }
-  $leadId=(int)$pdo->lastInsertId();registrarTimeline($pdo,$leadId,'created','Oportunidade criada manualmente para '.$cliente.'.');
+  $leadId=(int)$pdo->lastInsertId();
+  if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$leadId);
+  registrarTimeline($pdo,$leadId,'created','Oportunidade criada manualmente para '.$cliente.'.');
   if($companyId)registrarTimeline($pdo,$leadId,'directory_link','Empresa e contato sincronizados com o diretório do CRM.');
   $taskTitle=trim((string)($_POST['task_title']??''));$taskDue=trim((string)($_POST['task_due_date']??''));$taskId=null;
   if($taskDue!==''){$taskId=criarTarefaOrcamento($pdo,$leadId,$assignedTo,$taskTitle?:'Acompanhar orçamento',$taskDue,(int)usuarioLogado()['id'],(string)($_POST['task_description']??''));registrarTimeline($pdo,$leadId,'task_created','Tarefa criada para '.$taskDue.': '.($taskTitle?:'Acompanhar orçamento').'.');}
@@ -50,9 +53,9 @@ try{
   $pdo->beginTransaction();$pedido=null;$gerado=false;
   if ($novaEtapa === 'Fechamento') {
    $stmtPed=$pdo->prepare('SELECT id,numero FROM pedidos WHERE orcamento_id=? ORDER BY id DESC LIMIT 1');$stmtPed->execute([$leadId]);$pedido=$stmtPed->fetch()?:null;
-   if(!$pedido){$numeroPedido='PV-'.((string)($o['numero']?:$o['id']));$modalidade=ehAgenciamento((string)$o['linha'])?'agenciada':'revenda';$pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)')->execute([$numeroPedido,hoje(),$o['cliente'],$o['vendedor_id'],$o['suporte_id'],$o['linha'],(float)$o['valor'],$modalidade,$modalidade==='agenciada'?(float)$o['comissao_dnb_estimada']:0,$leadId,$o['assigned_to_user_id'],$o['cargo_id']]);$pedido=['id'=>(int)$pdo->lastInsertId(),'numero'=>$numeroPedido];$gerado=true;}
-   $pdo->prepare("UPDATE orcamentos SET etapa='Fechamento',status='Ganha',cad_pausada=1 WHERE id=?")->execute([$leadId]);registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para Fechamento. Pedido de venda '.($gerado?'gerado automaticamente':'já existente').'.');registrarTimeline($pdo,$leadId,'status_update','Status atualizado automaticamente para Ganha ao entrar em Fechamento.');
-  }else{$pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?')->execute([$novaEtapa,$leadId]);registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para '.$novaEtapa.'.');}
+   if(!$pedido){$numeroPedido='PV-'.((string)($o['numero']?:$o['id']));$modalidade=ehAgenciamento((string)$o['linha'])?'agenciada':'revenda';$pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)')->execute([$numeroPedido,hoje(),$o['cliente'],$o['vendedor_id'],$o['suporte_id'],$o['linha'],(float)$o['valor'],$modalidade,$modalidade==='agenciada'?(float)$o['comissao_dnb_estimada']:0,$leadId,$o['assigned_to_user_id'],$o['cargo_id']]);$pedido=['id'=>(int)$pdo->lastInsertId(),'numero'=>$numeroPedido];if(crmCoreFase1Disponivel($pdo))garantirPedidoCore($pdo,(int)$pedido['id'],$leadId);$gerado=true;}
+   $pdo->prepare("UPDATE orcamentos SET etapa='Fechamento',status='Ganha',cad_pausada=1 WHERE id=?")->execute([$leadId]);if(crmCoreFase1Disponivel($pdo)){sincronizarNegociacaoDoOrcamento($pdo,$leadId);if($pedido)garantirPedidoCore($pdo,(int)$pedido['id'],$leadId);}registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para Fechamento. Pedido de venda '.($gerado?'gerado automaticamente':'já existente').'.');registrarTimeline($pdo,$leadId,'status_update','Status atualizado automaticamente para Ganha ao entrar em Fechamento.');
+  }else{$pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?')->execute([$novaEtapa,$leadId]);if(crmCoreFase1Disponivel($pdo))sincronizarNegociacaoDoOrcamento($pdo,$leadId);registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para '.$novaEtapa.'.');}
   $pdo->commit();if(is_array($pedido))$pedido['numero']=textoSeguroModal((string)($pedido['numero']??''));echo json_encode(['ok'=>true,'stage'=>$novaEtapa,'order_generated'=>$gerado,'order'=>$pedido]);exit;
  }
 
