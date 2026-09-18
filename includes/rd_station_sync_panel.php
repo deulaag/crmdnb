@@ -18,6 +18,11 @@ $rdPhase8Health=$rdPhase8Ready?rdPhase8Health($pdo):null;
 $rdPhase8Errors=$rdPhase8Ready?rdPhase8ErrorEvents($pdo,30):[];
 $rdPhase8FailedJobs=$rdPhase8Ready?rdPhase8FailedJobs($pdo,20):[];
 $rdPhase8Actions=$rdPhase8Ready?rdPhase8Actions($pdo,20):[];
+$rdPhase9Ready=$rdPhase8Ready&&rdPhase9Disponivel($pdo);
+$rdPhase9Rules=$rdPhase9Ready?rdPhase9Rules($pdo):[];
+$rdPhase9Stats=$rdPhase9Ready?rdPhase9Stats($pdo):['pending'=>0,'processing'=>0,'success'=>0,'error'=>0,'blocked'=>0];
+$rdPhase9Queue=$rdPhase9Ready?rdPhase9RecentQueue($pdo,35):[];
+$rdPhase9Auto=$rdPhase9Ready?rdPhase9AutoEnabled():false;
 ?>
 <section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
   <div class="p-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
@@ -187,6 +192,68 @@ $rdPhase8Actions=$rdPhase8Ready?rdPhase8Actions($pdo,20):[];
       <div class="overflow-x-auto"><table class="w-full text-xs min-w-[860px]"><thead><tr class="text-left text-slate-500 border-t border-b"><th class="p-2">Data</th><th class="p-2">Ação</th><th class="p-2">Alvo</th><th class="p-2">Quantidade</th><th class="p-2">Solicitado por</th><th class="p-2">Observação</th></tr></thead><tbody>
         <?php foreach($rdPhase8Actions as $a):?><tr class="border-b border-slate-100"><td class="p-2"><?=e($a['created_at'])?></td><td class="p-2 font-mono"><?=e($a['action_type'])?></td><td class="p-2"><?=e($a['target_type'])?><?=$a['target_id']?' #'.(int)$a['target_id']:''?></td><td class="p-2"><?=(int)$a['affected_count']?></td><td class="p-2"><?=e($a['requested_by_name']?:'sistema')?></td><td class="p-2"><?=e((string)$a['note'])?></td></tr><?php endforeach;?>
         <?php if(!$rdPhase8Actions):?><tr><td colspan="6" class="p-5 text-center text-slate-400">Nenhuma ação de reprocessamento registrada.</td></tr><?php endif;?>
+      </tbody></table></div>
+    </div>
+  <?php endif;?>
+</section>
+
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
+  <div class="p-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <span class="dnb-eyebrow">Fase 9 · DNB → RD CRM</span>
+      <h2 class="dnb-section-title">Saída controlada para o RD CRM</h2>
+      <p class="text-sm text-slate-500 mt-1 max-w-3xl">Empresa, Contato e Negociação podem ser criados/atualizados no RD usando o <code>dnb_id</code> como identidade local. O ID remoto continua somente em <code>crm_external_links</code>. A automação vem desligada por padrão.</p>
+    </div>
+    <?php if($rdPhase9Ready):?><form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="processar_rd_outbound_now"><button class="<?=BTN_S?>">Processar saída agora</button></form><?php endif;?>
+  </div>
+
+  <?php if(!$rdPhase9Ready):?>
+    <div class="p-4"><div class="dnb-alert dnb-alert--warning">Instale <code>sql/migrations/20260918_rd_phase9_outbound_sync.sql</code> para habilitar DNB → RD CRM.</div></div>
+  <?php else:?>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-px bg-slate-200">
+      <div class="bg-white p-3"><small class="block text-slate-500">Aguardando</small><strong class="text-xl"><?=(int)$rdPhase9Stats['pending']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Processando</small><strong class="text-xl"><?=(int)$rdPhase9Stats['processing']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Sucesso</small><strong class="text-xl text-emerald-700"><?=(int)$rdPhase9Stats['success']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Bloqueados</small><strong class="text-xl <?=((int)$rdPhase9Stats['blocked']>0)?'text-amber-700':''?>"><?=(int)$rdPhase9Stats['blocked']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Erros</small><strong class="text-xl <?=((int)$rdPhase9Stats['error']>0)?'text-rose-700':''?>"><?=(int)$rdPhase9Stats['error']?></strong></div>
+    </div>
+
+    <form method="post">
+      <?=csrfInput()?><input type="hidden" name="acao" value="salvar_rd_outbound">
+      <div class="p-4 border-t border-slate-200 flex items-center justify-between gap-4 flex-wrap">
+        <div><h3 class="font-semibold" style="color:<?=NAVY?>;">Propriedade dos campos</h3><p class="text-xs text-slate-500 mt-1">Somente campos marcados como <b>CRM DNB prevalece</b> são enviados do DNB para o RD. Campos RD continuam apenas entrada; Revisão manual nunca sobrescreve automaticamente.</p></div>
+        <label class="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="outbound_auto_enabled" value="1" <?=$rdPhase9Auto?'checked':''?>> Ativar envio automático DNB → RD</label>
+      </div>
+      <div class="overflow-x-auto"><table class="w-full text-sm min-w-[900px]"><thead><tr class="text-left text-xs text-slate-500 border-y"><th class="p-2">Usar</th><th class="p-2">Entidade</th><th class="p-2">Campo DNB</th><th class="p-2">Campo RD</th><th class="p-2">Quem prevalece</th></tr></thead><tbody>
+        <?php foreach($rdPhase9Rules as $rule):?>
+          <tr class="border-b border-slate-100">
+            <td class="p-2"><input type="checkbox" name="outbound_rule[<?=(int)$rule['id']?>][enabled]" value="1" <?=!empty($rule['enabled'])?'checked':''?>></td>
+            <td class="p-2"><?=e($rule['entity'])?></td>
+            <td class="p-2 font-mono text-xs"><?=e($rule['local_field'])?></td>
+            <td class="p-2 font-mono text-xs"><?=e($rule['rd_field'])?></td>
+            <td class="p-2"><select name="outbound_rule[<?=(int)$rule['id']?>][source_of_truth]" class="<?=INPUT_CLS?>">
+              <option value="rd" <?=$rule['source_of_truth']==='rd'?'selected':''?>>RD Station prevalece</option>
+              <option value="dnb" <?=$rule['source_of_truth']==='dnb'?'selected':''?>>CRM DNB prevalece</option>
+              <option value="manual_review" <?=$rule['source_of_truth']==='manual_review'?'selected':''?>>Revisar conflito</option>
+            </select></td>
+          </tr>
+        <?php endforeach;?>
+      </tbody></table></div>
+      <div class="p-4 flex justify-between items-center gap-4 flex-wrap">
+        <p class="text-xs text-slate-500 max-w-3xl">Status e motivo de perda começam sob domínio do RD. Funil/etapa, responsável, empresa, contato, nome e valor podem ser enviados quando o ADM mantiver DNB como fonte oficial. Campos personalizados seguem o mapeamento da Fase 4.</p>
+        <button class="<?=BTN_P?>">Salvar regras da saída</button>
+      </div>
+    </form>
+
+    <div class="border-t border-slate-200">
+      <div class="px-4 py-3 flex justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Fila de saída</span><h3 class="font-semibold" style="color:<?=NAVY?>;">DNB → RD CRM</h3></div><span class="text-xs text-slate-500"><?=count($rdPhase9Queue)?> registro(s) recente(s)</span></div>
+      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[1050px]"><thead><tr class="text-left text-slate-500 border-y"><th class="p-2">ID</th><th class="p-2">Entidade</th><th class="p-2">DNB ID</th><th class="p-2">Motivo</th><th class="p-2">Status</th><th class="p-2">Tentativas</th><th class="p-2">Solicitado por</th><th class="p-2">HTTP</th><th class="p-2">Último erro / bloqueio</th><th class="p-2">Atualizado</th></tr></thead><tbody>
+        <?php foreach($rdPhase9Queue as $q):?><tr class="border-b border-slate-100 align-top">
+          <td class="p-2">#<?=(int)$q['id']?></td><td class="p-2"><?=e($q['entity'])?></td><td class="p-2 font-mono"><?=e($q['dnb_id'])?></td><td class="p-2"><?=e($q['reason'])?></td>
+          <td class="p-2"><?=$q['status']==='success'?tag('sucesso','green'):($q['status']==='blocked'?tag('bloqueado','amber'):($q['status']==='error'?tag('erro','red'):tag($q['status'],'blue')))?></td>
+          <td class="p-2"><?=(int)$q['attempts']?></td><td class="p-2"><?=e($q['requested_by_name']?:'sistema')?></td><td class="p-2"><?=e((string)($q['last_http_status']??'—'))?></td><td class="p-2 max-w-[300px] break-words <?=in_array($q['status'],['error','blocked'],true)?'text-rose-700':''?>"><?=e((string)($q['last_error']??''))?></td><td class="p-2"><?=e($q['updated_at'])?></td>
+        </tr><?php endforeach;?>
+        <?php if(!$rdPhase9Queue):?><tr><td colspan="10" class="p-5 text-center text-slate-400">Nenhuma saída DNB → RD registrada.</td></tr><?php endif;?>
       </tbody></table></div>
     </div>
   <?php endif;?>
