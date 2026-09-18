@@ -266,6 +266,34 @@ function garantirNegociacaoParaOrcamento(PDO $pdo, int $orcamentoId): int
     return $negId;
 }
 
+function sincronizarNegociacaoDoOrcamento(PDO $pdo, int $orcamentoId): int
+{
+    if ($orcamentoId<=0 || !crmCoreFase1Disponivel($pdo)) return 0;
+    $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+    if($negId<=0) return 0;
+
+    $stmt=$pdo->prepare('SELECT * FROM orcamentos WHERE id=? LIMIT 1');
+    $stmt->execute([$orcamentoId]);
+    $o=$stmt->fetch();
+    if(!$o) return 0;
+
+    $status=crmCoreStatusNegociacao((string)($o['status']??'Aberta'));
+    $closed=in_array($status,['won','lost'],true)?date('Y-m-d H:i:s'):null;
+    $pdo->prepare('UPDATE crm_negotiations SET company_id=?,category=?,pipeline_name=?,stage_name=?,estimated_value=?,status=?,vendedor_id=?,assigned_to_user_id=?,business_updated_at=NOW(),closed_at=CASE WHEN ? IS NULL THEN closed_at ELSE ? END WHERE id=?')
+        ->execute([
+            !empty($o['company_id'])?(int)$o['company_id']:null,
+            mb_substr((string)(($o['tipo']??'')!==''?$o['tipo']:($o['linha']??'')),0,120),
+            mb_substr((string)($o['funil']??''),0,160),
+            mb_substr((string)($o['etapa']??''),0,160),
+            max(0,(float)($o['valor']??0)),
+            $status,
+            trim((string)($o['vendedor_id']??''))?:null,
+            !empty($o['assigned_to_user_id'])?(int)$o['assigned_to_user_id']:null,
+            $closed,$closed,$negId
+        ]);
+    return $negId;
+}
+
 function garantirPedidoCore(PDO $pdo, int $pedidoId, ?int $orcamentoId=null): string
 {
     $dnbId=garantirDnbIdRegistro($pdo,'pedidos',$pedidoId);
