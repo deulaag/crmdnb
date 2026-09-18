@@ -2,6 +2,7 @@
 /** @var PDO $pdo */
 $rdSyncReady=rdSyncDisponivel($pdo);
 $rdSyncJobs=$rdSyncReady?rdSyncRecentJobs($pdo,10):[];
+$rdSyncIssues=$rdSyncReady?rdSyncPrerequisiteIssues($pdo):[];
 $rdSelectedJobId=(int)($_GET['rd_job']??0);
 if($rdSelectedJobId<=0&&$rdSyncJobs)$rdSelectedJobId=(int)$rdSyncJobs[0]['id'];
 $rdSelectedJob=$rdSelectedJobId>0&&$rdSyncReady?rdSyncJob($pdo,$rdSelectedJobId):null;
@@ -18,7 +19,7 @@ $rdSelectedConflicts=$rdSelectedJob?rdSyncConflicts($pdo,(int)$rdSelectedJob['id
     <?php if($rdSyncReady):?>
       <form method="post" onsubmit="return confirm('Iniciar a primeira sincronização real com o RD Station? O processo cria/atualiza Empresas, Contatos e Negociações, mas não cria Pedidos automaticamente.');">
         <?=csrfInput()?><input type="hidden" name="acao" value="iniciar_rd_first_sync">
-        <button class="<?=BTN_P?>" <?=(!$rdMarketing['connected']||!$rdCrm['connected'])?'disabled':''?>>Iniciar primeira sincronização</button>
+        <button class="<?=BTN_P?>" <?=($rdSyncIssues?'disabled':'')?>>Iniciar primeira sincronização</button>
       </form>
     <?php endif;?>
   </div>
@@ -26,6 +27,7 @@ $rdSelectedConflicts=$rdSelectedJob?rdSyncConflicts($pdo,(int)$rdSelectedJob['id
   <?php if(!$rdSyncReady):?>
     <div class="p-4"><div class="dnb-alert dnb-alert--warning">Instale <code>sql/migrations/20260918_rd_phase5_first_sync.sql</code> no MySQL para habilitar o processamento real e o Painel CMD.</div></div>
   <?php else:?>
+    <?php if($rdSyncIssues):?><div class="p-4 pb-0"><div class="dnb-alert dnb-alert--warning"><strong>Antes de sincronizar:</strong> <?=e(implode(' ', $rdSyncIssues))?></div></div><?php endif;?>
     <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-px bg-slate-200">
       <div class="bg-white p-3"><small class="block text-slate-500">Empresas criadas</small><strong data-rd-counter="companies_created" class="text-xl" style="color:<?=NAVY?>;"><?= (int)$rdSelectedCounters['companies_created']?></strong></div>
       <div class="bg-white p-3"><small class="block text-slate-500">Contatos criados</small><strong data-rd-counter="contacts_created" class="text-xl" style="color:<?=NAVY?>;"><?= (int)$rdSelectedCounters['contacts_created']?></strong></div>
