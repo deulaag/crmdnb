@@ -244,13 +244,13 @@ CALL dnb_core_add_column('visitas','negotiation_id','INT DEFAULT NULL AFTER cont
 CALL dnb_core_add_index('visitas','uq_vis_dnb_id','`dnb_id`',1);
 CALL dnb_core_add_index('visitas','idx_vis_negotiation','`negotiation_id`',0);
 
-CALL dnb_core_add_fk('orcamentos','fk_orc_core_company','FOREIGN KEY (`company_id`) REFERENCES `crm_companies`(`id`) ON DELETE SET NULL');
-CALL dnb_core_add_fk('orcamentos','fk_orc_core_contact','FOREIGN KEY (`contact_id`) REFERENCES `crm_contacts`(`id`) ON DELETE SET NULL');
+CALL dnb_core_add_fk('orcamentos','fk_orc_company','FOREIGN KEY (`company_id`) REFERENCES `crm_companies`(`id`) ON DELETE SET NULL');
+CALL dnb_core_add_fk('orcamentos','fk_orc_contact','FOREIGN KEY (`contact_id`) REFERENCES `crm_contacts`(`id`) ON DELETE SET NULL');
 CALL dnb_core_add_fk('orcamentos','fk_orc_negotiation','FOREIGN KEY (`negotiation_id`) REFERENCES `crm_negotiations`(`id`) ON DELETE SET NULL');
 CALL dnb_core_add_fk('pedidos','fk_ped_core_company','FOREIGN KEY (`company_id`) REFERENCES `crm_companies`(`id`) ON DELETE SET NULL');
 CALL dnb_core_add_fk('pedidos','fk_ped_negotiation','FOREIGN KEY (`negotiation_id`) REFERENCES `crm_negotiations`(`id`) ON DELETE SET NULL');
-CALL dnb_core_add_fk('visitas','fk_vis_core_company','FOREIGN KEY (`company_id`) REFERENCES `crm_companies`(`id`) ON DELETE SET NULL');
-CALL dnb_core_add_fk('visitas','fk_vis_core_contact','FOREIGN KEY (`contact_id`) REFERENCES `crm_contacts`(`id`) ON DELETE SET NULL');
+CALL dnb_core_add_fk('visitas','fk_vis_company','FOREIGN KEY (`company_id`) REFERENCES `crm_companies`(`id`) ON DELETE SET NULL');
+CALL dnb_core_add_fk('visitas','fk_vis_contact','FOREIGN KEY (`contact_id`) REFERENCES `crm_contacts`(`id`) ON DELETE SET NULL');
 CALL dnb_core_add_fk('visitas','fk_vis_negotiation','FOREIGN KEY (`negotiation_id`) REFERENCES `crm_negotiations`(`id`) ON DELETE SET NULL');
 
 -- ---------------------------------------------------------------------------
