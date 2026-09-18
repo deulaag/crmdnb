@@ -269,7 +269,7 @@ function garantirNegociacaoParaOrcamento(PDO $pdo, int $orcamentoId): int
 function sincronizarNegociacaoDoOrcamento(PDO $pdo, int $orcamentoId): int
 {
     if ($orcamentoId<=0 || !crmCoreFase1Disponivel($pdo)) return 0;
-    $negId=sincronizarNegociacaoDoOrcamento($pdo,$orcamentoId);
+    $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
     if($negId<=0) return 0;
 
     $stmt=$pdo->prepare('SELECT * FROM orcamentos WHERE id=? LIMIT 1');
@@ -298,7 +298,7 @@ function garantirPedidoCore(PDO $pdo, int $pedidoId, ?int $orcamentoId=null): st
 {
     $dnbId=garantirDnbIdRegistro($pdo,'pedidos',$pedidoId);
     if($orcamentoId && crmCoreFase1Disponivel($pdo)){
-        $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+        $negId=sincronizarNegociacaoDoOrcamento($pdo,$orcamentoId);
         if($negId>0){
             $pdo->prepare('UPDATE pedidos p JOIN orcamentos o ON o.id=? SET p.negotiation_id=?,p.company_id=COALESCE(p.company_id,o.company_id) WHERE p.id=?')
                 ->execute([$orcamentoId,$negId,$pedidoId]);
