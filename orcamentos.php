@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/lead_service.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/crm_core_service.php';
+require_once __DIR__ . '/includes/crm_phase2_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
@@ -12,6 +13,11 @@ $mes = $_GET['mes'] ?? mesAtual();
 $vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $linhas = array_column($pdo->query('SELECT nome FROM linhas ORDER BY ordem ASC')->fetchAll(), 'nome');
 $funisArr = funis();
+$negotiationContextId=(int)($_GET['negotiation_id']??$_POST['negotiation_id']??0);
+$negotiationContext=null;
+if($negotiationContextId>0&&crmPhase2Disponivel($pdo)&&podeAcessarNegociacaoCrm($pdo,$negotiationContextId)){
+    $negotiationContext=detalharNegociacaoCrmUi($pdo,$negotiationContextId);
+}else{$negotiationContextId=0;}
 $idsPessoasVisiveis = array_column($vendedores, 'id');
 $cargosRegistro = [];
 if ($idsPessoasVisiveis) {
@@ -31,6 +37,7 @@ function orcRedirect(string $msg = '', ?string $funil = null): void
     $params = [];
     if (!empty($_GET['mes'])) $params['mes'] = $_GET['mes'];
     if ($funil !== null && $funil !== '') $params['funil'] = $funil;
+    $ctx=(int)($_POST['negotiation_id']??$_GET['negotiation_id']??0);if($ctx>0)$params['negotiation_id']=$ctx;
     $qs = $params ? ('?' . http_build_query($params)) : '';
     header('Location: /orcamentos.php' . $qs);
     exit;
@@ -58,7 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
             $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo, $cargoId]);
             $orcamentoId=(int)$pdo->lastInsertId();
-            if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+            if($negotiationContextId>0&&crmPhase2Disponivel($pdo)) vincularOrcamentoNegociacaoCrmUi($pdo,$negotiationContextId,$orcamentoId);
+            elseif(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
             registrarTimeline($pdo, $orcamentoId, 'created', 'Oportunidade criada manualmente.');
         } catch (Throwable $e) {
             error_log('orcamentos.add: ' . $e->getMessage());
@@ -326,6 +334,14 @@ function renderCartaoOportunidade(array $o, array $funisArr, array $vendedores, 
 $tabAtual = 'orc';
 include __DIR__ . '/includes/layout_header.php';
 ?>
+<nav class="dnb-crm-subnav mb-4" aria-label="Módulo Negociações">
+  <a href="/negociacoes.php?view=leads">Leads / Pré-vendas</a>
+  <a href="/negociacoes.php?view=negociacoes">Negociações</a>
+  <a class="is-active" href="/orcamentos.php">Orçamentos</a>
+</nav>
+<?php if($negotiationContext): ?>
+<div class="dnb-alert dnb-alert--info mb-4">Novo orçamento será vinculado à negociação <strong><?=e($negotiationContext['dnb_id'])?> · <?=e($negotiationContext['title'])?></strong>. <a href="/negociacao.php?id=<?=$negotiationContextId?>" class="font-bold underline">Voltar à negociação</a></div>
+<?php endif; ?>
 
 <?php if (count($leadsPendentes)): ?>
 <div class="bg-white rounded-xl border border-amber-300 shadow-sm mb-4">
@@ -408,10 +424,11 @@ include __DIR__ . '/includes/layout_header.php';
   <div class="p-4">
     <form method="post"><?= csrfInput() ?>
       <input type="hidden" name="acao" value="add">
+      <?php if($negotiationContextId>0): ?><input type="hidden" name="negotiation_id" value="<?=$negotiationContextId?>"><?php endif; ?>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Nº (automático)</label><input name="numero" class="<?= INPUT_CLS ?>" placeholder="gerado ao salvar"></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Data</label><input type="date" name="data" value="<?= e(hoje()) ?>" class="<?= INPUT_CLS ?>"></div>
-        <div class="col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">Cliente</label><input name="cliente" required class="<?= INPUT_CLS ?>"></div>
+        <div class="col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">Cliente</label><input name="cliente" required value="<?=e((string)($negotiationContext['company_name']??''))?>" <?=!empty($negotiationContext['company_name'])?'readonly':''?> class="<?= INPUT_CLS ?>"></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Vendedor</label>
           <select name="vendedor_id" class="<?= INPUT_CLS ?>"><option value="">—</option><?php foreach ($vendedores as $v): ?><option value="<?= e($v['id']) ?>"><?= e($v['nome']) ?></option><?php endforeach; ?></select>
         </div>
