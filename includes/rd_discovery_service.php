@@ -222,7 +222,7 @@ function rdDiscoveryRunCrm(PDO $pdo): array
     ];
     $summary=[];$total=0;$errors=[];
     try{
-        $pipelineItems=[];$pipelinesFetched=false;
+        $pipelineItems=[];$pipelinesFetched=false;$customFieldsFetched=false;
         foreach($resources as $type=>$path){
             try{
                 $items=rdDiscoveryCrmFetchAll($path);
@@ -234,6 +234,7 @@ function rdDiscoveryRunCrm(PDO $pdo): array
                 }
                 $summary[$type]=count($items);
                 if($type==='pipeline')$pipelinesFetched=true;
+                if($type==='custom_field')$customFieldsFetched=true;
             }catch(Throwable $e){
                 $summary[$type]=0;
                 $errors[]=$type.': '.$e->getMessage();
@@ -260,7 +261,7 @@ function rdDiscoveryRunCrm(PDO $pdo): array
         $summary['stage']=$stageCount;
 
         rdDiscoveryRefreshDerivedMappings($pdo);
-        if(array_key_exists('custom_field',$summary) && !in_array('custom_field',array_map(fn($e)=>strtok($e,':'),$errors),true)) rdDiscoveryDisableMissingFieldMappings($pdo,'crm');
+        if($customFieldsFetched) rdDiscoveryDisableMissingFieldMappings($pdo,'crm');
         $status=$errors?($total>0?'partial':'error'):'success';
         rdDiscoveryFinishRun($pdo,$runId,$status,$total,$summary,implode(' | ',$errors));
         return ['ok'=>$status!=='error','run_id'=>$runId,'status'=>$status,'total'=>$total,'summary'=>$summary,'errors'=>$errors];
