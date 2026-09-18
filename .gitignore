@@ -1,6 +1,7 @@
 config.local.php
 whatsapp.local.php
 integrations.local.php
+integrations.local.php.lock
 uploads/avatars/*
 !uploads/avatars/.gitkeep
 storage/os-pdfs/*

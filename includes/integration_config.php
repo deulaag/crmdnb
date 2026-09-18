@@ -16,6 +16,27 @@ const DNB_INTEGRATION_KEYS = [
     'DNB_WHATSAPP_WEBHOOK_TOKEN',
     'DNB_WHATSAPP_CRON_TOKEN',
     'DNB_WHATSAPP_TIMEOUT',
+    'DNB_PUBLIC_BASE_URL',
+    'DNB_RD_MARKETING_CLIENT_ID',
+    'DNB_RD_MARKETING_CLIENT_SECRET',
+    'DNB_RD_MARKETING_ACCESS_TOKEN',
+    'DNB_RD_MARKETING_REFRESH_TOKEN',
+    'DNB_RD_MARKETING_ACCESS_EXPIRES_AT',
+    'DNB_RD_MARKETING_CONNECTED_AT',
+    'DNB_RD_MARKETING_LAST_REFRESH_AT',
+    'DNB_RD_MARKETING_LAST_TEST_AT',
+    'DNB_RD_MARKETING_LAST_TEST_STATUS',
+    'DNB_RD_MARKETING_LAST_TEST_MESSAGE',
+    'DNB_RD_CRM_CLIENT_ID',
+    'DNB_RD_CRM_CLIENT_SECRET',
+    'DNB_RD_CRM_ACCESS_TOKEN',
+    'DNB_RD_CRM_REFRESH_TOKEN',
+    'DNB_RD_CRM_ACCESS_EXPIRES_AT',
+    'DNB_RD_CRM_CONNECTED_AT',
+    'DNB_RD_CRM_LAST_REFRESH_AT',
+    'DNB_RD_CRM_LAST_TEST_AT',
+    'DNB_RD_CRM_LAST_TEST_STATUS',
+    'DNB_RD_CRM_LAST_TEST_MESSAGE',
 ];
 
 function integracaoConfigPath(): string
@@ -48,23 +69,36 @@ function integracaoConfigValor(string $chave, string $padrao = ''): string
 /** @param array<string,string> $novos */
 function salvarIntegracaoConfig(array $novos): void
 {
-    $atual = integracaoConfigLocal();
-    foreach ($novos as $chave => $valor) {
-        if (!in_array($chave, DNB_INTEGRATION_KEYS, true)) continue;
-        $atual[$chave] = trim((string) $valor);
+    $arquivo = integracaoConfigPath();
+    $lockPath = $arquivo . '.lock';
+    $lock = @fopen($lockPath, 'c');
+    if ($lock === false || !@flock($lock, LOCK_EX)) {
+        if (is_resource($lock)) @fclose($lock);
+        throw new RuntimeException('Não foi possível bloquear a configuração local de integrações.');
     }
 
-    $conteudo = "<?php\n// Gerado pelo DNB CRM. Não versionar este arquivo.\nreturn "
-        . var_export($atual, true) . ";\n";
-    $arquivo = integracaoConfigPath();
-    $tmp = $arquivo . '.tmp-' . bin2hex(random_bytes(6));
-    if (@file_put_contents($tmp, $conteudo, LOCK_EX) === false) {
-        throw new RuntimeException('Não foi possível gravar a configuração local de integrações. Verifique as permissões do servidor.');
+    try {
+        $atual = integracaoConfigLocal();
+        foreach ($novos as $chave => $valor) {
+            if (!in_array($chave, DNB_INTEGRATION_KEYS, true)) continue;
+            $atual[$chave] = trim((string) $valor);
+        }
+
+        $conteudo = "<?php\n// Gerado pelo DNB CRM. Não versionar este arquivo.\nreturn "
+            . var_export($atual, true) . ";\n";
+        $tmp = $arquivo . '.tmp-' . bin2hex(random_bytes(6));
+        if (@file_put_contents($tmp, $conteudo, LOCK_EX) === false) {
+            throw new RuntimeException('Não foi possível gravar a configuração local de integrações. Verifique as permissões do servidor.');
+        }
+        @chmod($tmp, 0600);
+        if (!@rename($tmp, $arquivo)) {
+            @unlink($tmp);
+            throw new RuntimeException('Não foi possível ativar a nova configuração de integrações.');
+        }
+        @chmod($arquivo, 0600);
+        @chmod($lockPath, 0600);
+    } finally {
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
     }
-    @chmod($tmp, 0600);
-    if (!@rename($tmp, $arquivo)) {
-        @unlink($tmp);
-        throw new RuntimeException('Não foi possível ativar a nova configuração de integrações.');
-    }
-    @chmod($arquivo, 0600);
 }
