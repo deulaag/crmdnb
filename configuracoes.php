@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/seed.php';
 require_once __DIR__ . '/includes/whatsapp_provider.php';
 require_once __DIR__ . '/includes/ai_client.php';
+require_once __DIR__ . '/includes/rd_station_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -15,13 +16,21 @@ $politicasArr = politicas();
 // Provedores aceitos na tabela de instâncias (o adaptador HTTP é genérico).
 const PROVEDORES_WHATSAPP = ['generic' => 'Genérico', 'evolution' => 'Evolution API', 'zapi' => 'Z-API'];
 
-function cfgRedirect(string $msg = '', string $aba = ''): void
+function cfgRedirectTipo(string $msg = '', string $aba = '', string $tipo = 'success'): void
 {
-    if ($msg !== '') $_SESSION['flash'] = $msg;
+    if ($msg !== '') {
+        $chave = $tipo === 'error' ? 'flash_error' : ($tipo === 'warning' ? 'flash_warning' : 'flash');
+        $_SESSION[$chave] = $msg;
+    }
     $qs = !empty($_GET['mes']) ? ('?mes=' . urlencode($_GET['mes'])) : '';
     $hash = $aba !== '' ? ('#tab-' . $aba) : '';
     header('Location: /configuracoes.php' . $qs . $hash);
     exit;
+}
+
+function cfgRedirect(string $msg = '', string $aba = ''): void
+{
+    cfgRedirectTipo($msg, $aba, 'success');
 }
 
 function whatsappInstanciasDisponiveis(PDO $pdo): bool
@@ -144,10 +153,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cfgRedirect('Instância removida.', 'integracoes');
     }
 
+    if ($acao === 'salvar_rd_base') {
+        try {
+            rdSalvarPublicBaseUrl((string)($_POST['public_base_url'] ?? ''));
+            cfgRedirect('URL pública do CRM salva. Use exatamente os callbacks exibidos no App Publisher do RD Station.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_app') {
+        $produto = strtolower(trim((string)($_POST['produto'] ?? '')));
+        try {
+            rdProdutoConfig($produto);
+            rdSalvarCredenciais($produto, (string)($_POST['client_id'] ?? ''), (string)($_POST['client_secret'] ?? ''));
+            cfgRedirect(((string)rdProdutoConfig($produto)['label']) . ' configurado. Agora clique em Conectar / autorizar.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'testar_rdstation') {
+        $produto = strtolower(trim((string)($_POST['produto'] ?? '')));
+        try {
+            $resultado = rdTestarConexao($produto);
+            cfgRedirectTipo($resultado['message'], 'rdstation', $resultado['ok'] ? 'success' : 'warning');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'renovar_rdstation') {
+        $produto = strtolower(trim((string)($_POST['produto'] ?? '')));
+        try {
+            rdRenovarToken($produto);
+            $resultado = rdTestarConexao($produto);
+            cfgRedirectTipo('Token renovado. ' . $resultado['message'], 'rdstation', $resultado['ok'] ? 'success' : 'warning');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Não foi possível renovar o token: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'desconectar_rdstation') {
+        $produto = strtolower(trim((string)($_POST['produto'] ?? '')));
+        try {
+            $label = (string)rdProdutoConfig($produto)['label'];
+            rdDesconectar($produto);
+            cfgRedirect($label . ' desconectado. Client ID e Client Secret foram mantidos.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
 }
 
 $msg = $_SESSION['flash'] ?? '';
-unset($_SESSION['flash']);
+$msgErro = $_SESSION['flash_error'] ?? '';
+$msgAviso = $_SESSION['flash_warning'] ?? '';
+unset($_SESSION['flash'], $_SESSION['flash_error'], $_SESSION['flash_warning']);
 
 $vendedores = obterVendedores($pdo);
 $stmtAp = $pdo->prepare('SELECT vendedor_id, ocorrencias FROM apuracao WHERE mes = ?');
@@ -173,6 +236,7 @@ $abasConfig = [
     'simulacao'   => 'Simulação & Demonstração',
     'apuracao'    => 'Apuração Mensal',
     'politicas'   => 'Políticas por Pessoa',
+    'rdstation'    => 'RD Station',
     'integracoes' => 'Integrações e Tokens',
     'acesso'      => 'Acesso e Suporte',
 ];
@@ -182,6 +246,8 @@ include __DIR__ . '/includes/layout_header.php';
 ?>
 
 <?php if ($msg): ?><div class="dnb-alert dnb-alert--success"><?= e($msg) ?></div><?php endif; ?>
+<?php if ($msgAviso): ?><div class="dnb-alert dnb-alert--warning"><?= e($msgAviso) ?></div><?php endif; ?>
+<?php if ($msgErro): ?><div class="dnb-alert dnb-alert--error"><?= e($msgErro) ?></div><?php endif; ?>
 
 <div class="dnb-tabs" role="tablist" aria-label="Seções de configuração" data-dnb-tabs="dnb-cfg-tab">
   <?php foreach ($abasConfig as $chave => $rotulo): ?>
@@ -343,6 +409,95 @@ include __DIR__ . '/includes/layout_header.php';
       </details>
     <?php endforeach; ?>
     <div class="text-xs text-slate-400">Alterar parâmetros aqui muda o cálculo do mês corrente e seguintes — registre alterações formais com aditivo à política.</div>
+  </div>
+</div>
+
+</section>
+
+<section class="dnb-tabs__panel" role="tabpanel" id="tab-rdstation" aria-labelledby="tabbtn-rdstation" data-tab-panel="rdstation">
+
+<?php
+  $rdBaseUrl = rdPublicBaseUrl();
+  $rdMarketing = rdEstadoProduto('marketing');
+  $rdCrm = rdEstadoProduto('crm');
+  $rdProdutosTela = ['marketing' => $rdMarketing, 'crm' => $rdCrm];
+?>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="flex items-center justify-between px-4 pt-4 flex-wrap gap-2">
+    <div><span class="dnb-eyebrow">Fase 3</span><h2 class="dnb-section-title">Aplicativos e OAuth do RD Station</h2></div>
+    <?= ($rdMarketing['connected'] && $rdCrm['connected']) ? tag('2 produtos conectados','green') : tag('Configuração em andamento','amber') ?>
+  </div>
+  <div class="p-4">
+    <p class="text-sm text-slate-600">RD Station Marketing e RD Station CRM usam <b>credenciais separadas</b>. Esta fase autentica os dois produtos e mantém os tokens no arquivo local protegido do servidor. Nenhuma sincronização completa de contatos, empresas ou negociações é executada aqui.</p>
+    <form method="post" class="grid md:grid-cols-[1fr_auto] gap-3 items-end mt-4">
+      <?= csrfInput() ?><input type="hidden" name="acao" value="salvar_rd_base">
+      <label><span class="block text-xs font-semibold text-slate-600 mb-1">URL pública HTTPS do CRM</span><input type="url" name="public_base_url" required value="<?= e($rdBaseUrl) ?>" placeholder="https://crm.suaempresa.com.br" class="<?= INPUT_CLS ?>"></label>
+      <button class="<?= BTN_P ?>">Salvar URL pública</button>
+    </form>
+    <p class="text-xs text-slate-500 mt-2">A URL pública é usada para montar os callbacks. Se o domínio do CRM mudar, atualize aqui e também no App Publisher antes de reconectar.</p>
+  </div>
+</div>
+
+<div class="grid xl:grid-cols-2 gap-4 mb-4">
+<?php foreach($rdProdutosTela as $produto => $rd): $rdCfg = rdProdutoConfig($produto); ?>
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-4 pt-4 flex items-start justify-between gap-3">
+      <div><span class="dnb-eyebrow"><?= $produto === 'marketing' ? 'Aquisição e relacionamento' : 'Pipeline comercial' ?></span><h2 class="dnb-section-title"><?= e($rd['label']) ?></h2></div>
+      <?php
+        if($rd['connected']) echo tag('Conectado','green');
+        elseif($rd['configured']) echo tag('Pronto para autorizar','blue');
+        else echo tag('Aplicativo não configurado','amber');
+      ?>
+    </div>
+    <div class="p-4">
+      <form method="post" class="grid gap-3">
+        <?= csrfInput() ?><input type="hidden" name="acao" value="salvar_rd_app"><input type="hidden" name="produto" value="<?= e($produto) ?>">
+        <label><span class="block text-xs font-semibold text-slate-600 mb-1">Client ID</span><input name="client_id" required autocomplete="off" maxlength="255" value="<?= e(rdClientId($produto)) ?>" class="<?= INPUT_CLS ?>"></label>
+        <label><span class="block text-xs font-semibold text-slate-600 mb-1">Client Secret</span><input type="password" name="client_secret" autocomplete="new-password" maxlength="1024" class="<?= INPUT_CLS ?>" placeholder="<?= rdClientSecret($produto) !== '' ? 'Definido — deixe em branco para manter' : 'Informe o Client Secret' ?>"></label>
+        <button class="<?= BTN_S ?>">Salvar credenciais do aplicativo</button>
+      </form>
+
+      <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <span class="text-xs font-bold uppercase tracking-wide text-slate-500">Callback para cadastrar no App Publisher</span>
+        <code class="block text-xs mt-2 break-all select-all"><?= e($rd['callback_url']) ?></code>
+      </div>
+
+      <dl class="dnb-detail-list mt-3">
+        <div><dt>Client Secret</dt><dd><?= cfgTagSegredo(rdClientSecret($produto)) ?></dd></div>
+        <div><dt>Refresh token</dt><dd><?= $rd['refresh_available'] ? tag('armazenado','green') : tag('ausente','amber') ?></dd></div>
+        <div><dt>Access token</dt><dd><?= $rd['access_available'] ? ($rd['access_expired'] ? tag('expirado · renovável','amber') : tag('ativo','green')) : tag('ausente','amber') ?></dd></div>
+        <div><dt>Expiração access token</dt><dd><?= $rd['access_expires_at'] ? e(date('d/m/Y H:i', (int)$rd['access_expires_at'])) : '—' ?></dd></div>
+        <div><dt>Última renovação</dt><dd><?= e($rd['last_refresh_at'] ?: '—') ?></dd></div>
+        <div><dt>Último teste</dt><dd><?= e($rd['last_test_at'] ?: '—') ?><?= $rd['last_test_message'] ? '<small class="block mt-1">'.e($rd['last_test_message']).'</small>' : '' ?></dd></div>
+      </dl>
+
+      <div class="flex gap-2 flex-wrap mt-4">
+        <?php if($rd['configured']): ?><a class="<?= BTN_P ?>" href="<?= e($rd['connect_path']) ?>"><?= $rd['connected'] ? 'Reconectar / reautorizar' : 'Conectar / autorizar' ?></a><?php endif; ?>
+        <?php if($rd['connected']): ?>
+          <form method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="testar_rdstation"><input type="hidden" name="produto" value="<?= e($produto) ?>"><button class="<?= BTN_S ?>">Testar conexão</button></form>
+          <form method="post"><?= csrfInput() ?><input type="hidden" name="acao" value="renovar_rdstation"><input type="hidden" name="produto" value="<?= e($produto) ?>"><button class="<?= BTN_S ?>">Renovar token agora</button></form>
+          <form method="post" onsubmit="return confirm('Desconectar <?= e($rd['label']) ?>? Os tokens serão apagados, mas as credenciais do aplicativo serão mantidas.');"><?= csrfInput() ?><input type="hidden" name="acao" value="desconectar_rdstation"><input type="hidden" name="produto" value="<?= e($produto) ?>"><button class="<?= BTN_S ?>">Desconectar</button></form>
+        <?php endif; ?>
+      </div>
+
+      <p class="text-xs text-slate-500 mt-3"><?php if($produto==='marketing'): ?>O teste usa leitura dos campos de contatos. Na próxima fase esses campos poderão ser descobertos e mapeados no CRM DNB.<?php else: ?>O teste usa a listagem de usuários da API CRM v2. Funis, etapas e campos serão descobertos somente na próxima fase.<?php endif; ?></p>
+    </div>
+  </section>
+<?php endforeach; ?>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="p-4">
+    <h2 class="dnb-section-title">Sequência de configuração no App Publisher</h2>
+    <ol class="mt-3 text-sm text-slate-600 space-y-2 list-decimal pl-5">
+      <li>Crie um aplicativo para <b>RD Station Marketing</b> e outro para <b>RD Station CRM</b>.</li>
+      <li>Cadastre em cada aplicativo exatamente o callback mostrado acima.</li>
+      <li>Copie Client ID e Client Secret para esta tela e salve.</li>
+      <li>Clique em <b>Conectar / autorizar</b>, escolha a conta RD correta e aprove as permissões.</li>
+      <li>Volte a esta tela e use <b>Testar conexão</b>. A Fase 3 termina com os dois produtos autenticados.</li>
+    </ol>
+    <div class="dnb-alert dnb-alert--info mt-4">Não use token legado do CRM nem API Key do Marketing para esta integração principal. O fluxo desta arquitetura é OAuth 2.0 porque precisaremos consultar dados e metadados nos dois produtos.</div>
   </div>
 </div>
 
