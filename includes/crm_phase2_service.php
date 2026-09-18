@@ -154,7 +154,13 @@ function listarNegociacoesCrmUi(PDO $pdo,array $filtros=[]): array
         if($value!==''){$where[]='n.'.$key.'=?';$params[]=$value;}
     }
     $company=(int)($filtros['company_id']??0);if($company>0){$where[]='n.company_id=?';$params[]=$company;}
+    $contact=(int)($filtros['contact_id']??0);if($contact>0){$where[]='EXISTS(SELECT 1 FROM crm_negotiation_contacts ncf WHERE ncf.negotiation_id=n.id AND ncf.contact_id=?)';$params[]=$contact;}
     $owner=(int)($filtros['owner_id']??0);if($owner>0){$where[]='n.assigned_to_user_id=?';$params[]=$owner;}
+    $origin=trim((string)($filtros['origin']??''));if($origin!==''){$where[]='n.origin=?';$params[]=$origin;}
+    $dateFrom=trim((string)($filtros['date_from']??''));if(preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$dateFrom)){$where[]='DATE(COALESCE(n.business_updated_at,n.business_created_at,n.created_at))>=?';$params[]=$dateFrom;}
+    $dateTo=trim((string)($filtros['date_to']??''));if(preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$dateTo)){$where[]='DATE(COALESCE(n.business_updated_at,n.business_created_at,n.created_at))<=?';$params[]=$dateTo;}
+    $valueMin=isset($filtros['value_min'])&&$filtros['value_min']!==''?(float)$filtros['value_min']:null;if($valueMin!==null&&$valueMin>=0){$where[]='n.estimated_value>=?';$params[]=$valueMin;}
+    $valueMax=isset($filtros['value_max'])&&$filtros['value_max']!==''?(float)$filtros['value_max']:null;if($valueMax!==null&&$valueMax>=0){$where[]='n.estimated_value<=?';$params[]=$valueMax;}
     $q=trim((string)($filtros['q']??''));
     if($q!==''){
         $where[]='(n.title LIKE ? OR n.dnb_id LIKE ? OR c.name LIKE ?)';
