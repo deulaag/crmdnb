@@ -223,6 +223,14 @@ function rdPhase8AuditCsv(PDO $pdo,int $userId): string
     $conflicts=$pdo->query("SELECT id,job_id,product,external_entity,external_id,conflict_type,status,resolution_action,resolved_dnb_id,created_at,resolved_at,resolution_note FROM rd_sync_conflicts ORDER BY id DESC LIMIT 500")->fetchAll();
     foreach($conflicts as $x)$append([(int)$x['id'],(int)$x['job_id'],$x['product'],$x['external_entity'],$x['external_id'],$x['conflict_type'],$x['status'],$x['resolution_action'],$x['resolved_dnb_id'],$x['created_at'],$x['resolved_at'],$x['resolution_note']]);
 
+    $hasOutbound=(int)$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rd_outbound_queue'")->fetchColumn()===1;
+    if($hasOutbound){
+        $append([]);$append(['SAÍDA DNB → RD CRM']);
+        $append(['ID','Entidade','DNB ID','Motivo','Status','Tentativas','HTTP','Criado','Processado','Último erro']);
+        $outbound=$pdo->query("SELECT id,entity,dnb_id,reason,status,attempts,last_http_status,created_at,processed_at,last_error FROM rd_outbound_queue ORDER BY id DESC LIMIT 500")->fetchAll();
+        foreach($outbound as $o)$append([(int)$o['id'],$o['entity'],$o['dnb_id'],$o['reason'],$o['status'],(int)$o['attempts'],$o['last_http_status'],$o['created_at'],$o['processed_at'],$o['last_error']]);
+    }
+
     $append([]);$append(['REPROCESSAMENTOS']);
     $append(['ID','Ação','Alvo','ID alvo','Quantidade','Solicitado por','Data','Observação']);
     $actions=$pdo->query("SELECT a.*,u.nome requested_by_name FROM rd_reprocess_actions a LEFT JOIN usuarios u ON u.id=a.requested_by_user_id ORDER BY a.id DESC LIMIT 500")->fetchAll();
