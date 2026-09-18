@@ -345,10 +345,27 @@ function rdSyncUpsertCompany(PDO $pdo,int $jobId,string $provider,string $extern
 }
 
 /** @return array<string,mixed>|null */
+function rdSyncMarketingCompanyFromContact(PDO $pdo,int $jobId,array $attrs,array $payload,array &$counters): ?array
+{
+    $mapped=rdSyncMappedValues($pdo,'marketing','contact',$attrs,'company');
+    $cnpj=trim((string)($mapped['cnpj']['value']??''));
+    if($cnpj===''||crmCoreCnpjDigits($cnpj)==='')return null;
+    $companyAttrs=[];
+    foreach($mapped as $field=>$meta)$companyAttrs[$field]=$meta['value'];
+    if(trim((string)($companyAttrs['name']??''))==='')$companyAttrs['name']='Empresa '.$cnpj;
+    return rdSyncUpsertCompany($pdo,$jobId,'rd_marketing','cnpj:'.crmCoreCnpjDigits($cnpj),$companyAttrs,$payload,$counters);
+}
+
+/** @return array<string,mixed>|null */
 function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $externalId,array $attrs,array $payload,?int $companyId,array &$counters): ?array
 {
     if($externalId===''){++$counters['skipped'];return null;}
-    $product=$provider==='rd_crm'?'crm':'marketing';$linked=rdSyncExternalLocal($pdo,$provider,'contact',$externalId);
+    $product=$provider==='rd_crm'?'crm':'marketing';
+    if(!$companyId&&$provider==='rd_marketing'){
+        $mktCompany=rdSyncMarketingCompanyFromContact($pdo,$jobId,$attrs,$payload,$counters);
+        if($mktCompany)$companyId=(int)$mktCompany['id'];
+    }
+    $linked=rdSyncExternalLocal($pdo,$provider,'contact',$externalId);
     $phone=rdSyncScalar($attrs['phone']??$attrs['mobile_phone']??$attrs['personal_phone']??'');
     $fields=array_merge([
         'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>'rd'],
