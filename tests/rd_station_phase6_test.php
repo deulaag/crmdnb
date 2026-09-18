@@ -80,7 +80,7 @@ rd6ok(str_contains($webhook,"202"),'novo evento deve ser aceito rapidamente');
 rd6ok(str_contains($cron,'rdPhase6CronAutorizado()'),'cron deve exigir token próprio');
 rd6ok(str_contains($cron,'rdPhase6Tick'),'cron deve processar fila e incremental');
 
-foreach(["$acao === 'salvar_rd_automation'","$acao === 'registrar_rd_webhooks'","$acao === 'iniciar_rd_incremental'","$acao === 'resolver_rd_conflict'"] as $needle)
+foreach(["\$acao === 'salvar_rd_automation'","\$acao === 'registrar_rd_webhooks'","\$acao === 'iniciar_rd_incremental'","\$acao === 'resolver_rd_conflict'"] as $needle)
     rd6ok(str_contains($config,$needle),'ADM precisa da ação '.$needle);
 foreach(['Fase 6 · automação contínua','Sincronizar alterações agora','Registrar/atualizar','Comando sugerido para o Cron Job do cPanel','Desativar DNB','Usar RD','Manter DNB'] as $label)
     rd6ok(str_contains($panel,$label),'painel deve mostrar '.$label);
