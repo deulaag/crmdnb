@@ -10,6 +10,7 @@ require_once __DIR__ . '/includes/rd_station_service.php';
 require_once __DIR__ . '/includes/rd_discovery_service.php';
 require_once __DIR__ . '/includes/rd_sync_service.php';
 require_once __DIR__ . '/includes/rd_phase6_service.php';
+require_once __DIR__ . '/includes/rd_phase8_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -332,6 +333,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } catch (Throwable $e) {
             cfgRedirectTipo('Conflito RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'reprocessar_rd_errors') {
+        try {
+            if (!rdPhase8Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 8.');
+            $eventId = (int)($_POST['event_id'] ?? 0);
+            $qtd = rdPhase8RequeueErrors($pdo, (int)(usuarioLogado()['id'] ?? 0), $eventId > 0 ? $eventId : null);
+            cfgRedirectTipo($qtd > 0 ? ($qtd . ' evento(s) em erro reaberto(s) para reprocessamento.') : 'Não há eventos em erro para reprocessar.', 'rdstation', $qtd > 0 ? 'success' : 'warning');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Reprocessamento RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'processar_rd_queue_now') {
+        try {
+            if (!rdPhase8Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 8.');
+            $r = rdPhase8ProcessQueueNow($pdo, (int)(usuarioLogado()['id'] ?? 0));
+            $msg = 'Fila RD processada: ' . (int)$r['processed'] . ' processado(s), ' . (int)$r['ignored'] . ' ignorado(s), ' . (int)$r['error'] . ' erro(s).';
+            cfgRedirectTipo($msg, 'rdstation', ((int)$r['error'] > 0 ? 'warning' : 'success'));
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Fila RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'retomar_rd_failed_job') {
+        try {
+            if (!rdPhase8Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 8.');
+            $jobId = (int)($_POST['job_id'] ?? 0);
+            rdPhase8ResumeJob($pdo, $jobId, (int)(usuarioLogado()['id'] ?? 0));
+            $_SESSION['flash'] = 'Execução RD #' . $jobId . ' retomada do checkpoint salvo.';
+            header('Location: /configuracoes.php?rd_job=' . $jobId . '#tab-rdstation');
+            exit;
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Retomar sincronização RD: ' . $e->getMessage(), 'rdstation', 'error');
         }
     }
 

@@ -13,6 +13,11 @@ $rdPhase6Settings=$rdPhase6Ready?rdPhase6Settings($pdo):null;
 $rdPhase6Stats=$rdPhase6Ready?rdPhase6Stats($pdo):['pending_events'=>0,'error_events'=>0,'pending_conflicts'=>0,'active_webhooks'=>0];
 $rdPhase6Subscriptions=$rdPhase6Ready?$pdo->query("SELECT product,event_type,status,last_http_status,last_error,registered_at FROM rd_webhook_subscriptions ORDER BY product,event_type")->fetchAll():[];
 $rdPhase6Checkpoint=$rdPhase6Ready?rdSyncStateGet($pdo,'crm_incremental_checkpoint',''):'';
+$rdPhase8Ready=$rdPhase6Ready&&rdPhase8Disponivel($pdo);
+$rdPhase8Health=$rdPhase8Ready?rdPhase8Health($pdo):null;
+$rdPhase8Errors=$rdPhase8Ready?rdPhase8ErrorEvents($pdo,30):[];
+$rdPhase8FailedJobs=$rdPhase8Ready?rdPhase8FailedJobs($pdo,20):[];
+$rdPhase8Actions=$rdPhase8Ready?rdPhase8Actions($pdo,20):[];
 ?>
 <section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
   <div class="p-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
@@ -109,6 +114,79 @@ $rdPhase6Checkpoint=$rdPhase6Ready?rdSyncStateGet($pdo,'crm_incremental_checkpoi
           <tr class="border-b border-slate-100"><td class="p-2"><?=e($sub['product'])?></td><td class="p-2 font-mono"><?=e($sub['event_type'])?></td><td class="p-2"><?=$sub['status']==='active'?tag('ativo','green'):tag($sub['status'],'amber')?></td><td class="p-2"><?=e((string)($sub['last_http_status']??'—'))?></td><td class="p-2"><?=e((string)($sub['registered_at']??'—'))?></td><td class="p-2 text-rose-700"><?=e((string)($sub['last_error']??''))?></td></tr>
         <?php endforeach;?>
         <?php if(!$rdPhase6Subscriptions):?><tr><td colspan="6" class="p-4 text-center text-slate-400">Nenhuma assinatura registrada pelo CRM ainda.</td></tr><?php endif;?>
+      </tbody></table></div>
+    </div>
+  <?php endif;?>
+</section>
+
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
+  <div class="p-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <span class="dnb-eyebrow">Fase 8 · operação e auditoria</span>
+      <h2 class="dnb-section-title">Saúde, erros e reprocessamento</h2>
+      <p class="text-sm text-slate-500 mt-1 max-w-3xl">Centraliza falhas da integração RD, eventos com tentativas esgotadas, jobs interrompidos, conflitos e ações de reprocessamento. Nenhuma ação desta área cria Pedido ou Orçamento.</p>
+    </div>
+    <?php if($rdPhase8Ready):?><div class="flex gap-2 flex-wrap">
+      <a class="<?=BTN_S?>" href="/auditoria-rd-csv.php">Exportar auditoria CSV</a>
+      <form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="processar_rd_queue_now"><button class="<?=BTN_S?>">Processar fila agora</button></form>
+      <form method="post" onsubmit="return confirm('Reabrir somente os eventos RD atualmente em erro para nova tentativa?');"><?=csrfInput()?><input type="hidden" name="acao" value="reprocessar_rd_errors"><button class="<?=BTN_P?>" <?=empty($rdPhase8Errors)?'disabled':''?>>Reprocessar somente erros</button></form>
+    </div><?php endif;?>
+  </div>
+
+  <?php if(!$rdPhase8Ready):?>
+    <div class="p-4"><div class="dnb-alert dnb-alert--warning">Instale <code>sql/migrations/20260918_rd_phase8_ops_audit.sql</code> para habilitar auditoria operacional, saúde e reprocessamento explícito dos erros.</div></div>
+  <?php else:$h=$rdPhase8Health;?>
+    <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-px bg-slate-200">
+      <div class="bg-white p-3"><small class="block text-slate-500">Estado geral</small><strong class="block mt-1 <?=$h['status']==='error'?'text-rose-700':($h['status']==='warning'?'text-amber-700':'text-emerald-700')?>"><?=e($h['status_label'])?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Conexões RD</small><strong class="block mt-1"><?=($h['marketing_connected']&&$h['crm_connected'])?'2 / 2':'incompletas'?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Webhooks ativos</small><strong class="block mt-1"><?=(int)$h['webhooks_active']?> / <?=(int)$h['webhooks_expected']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Fila aguardando</small><strong class="block mt-1"><?=(int)$h['events_pending']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Erros esgotados</small><strong class="block mt-1 <?=((int)$h['events_exhausted']>0)?'text-rose-700':''?>"><?=(int)$h['events_exhausted']?></strong></div>
+      <div class="bg-white p-3"><small class="block text-slate-500">Conflitos pendentes</small><strong class="block mt-1 <?=((int)$h['conflicts_pending']>0)?'text-amber-700':''?>"><?=(int)$h['conflicts_pending']?></strong></div>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4 p-4 border-t border-slate-200">
+      <div class="rounded-xl border border-slate-200 p-4">
+        <h3 class="font-semibold" style="color:<?=NAVY?>;">Últimos sinais da integração</h3>
+        <dl class="text-xs mt-3 space-y-2">
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Último webhook recebido</dt><dd><?=e($h['last_webhook_received']?:'—')?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Último webhook processado</dt><dd><?=e($h['last_webhook_processed']?:'—')?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Última incremental concluída</dt><dd><?=e($h['last_incremental_success']?:'—')?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Checkpoint CRM</dt><dd><?=e($h['checkpoint']?:'—')?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Jobs com erro</dt><dd><?=(int)$h['jobs_failed']?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Jobs possivelmente travados</dt><dd><?=(int)$h['jobs_stale']?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Erros ainda com retry automático</dt><dd><?=(int)$h['events_retryable']?></dd></div>
+          <div class="flex justify-between gap-4"><dt class="text-slate-500">Assinaturas webhook com erro</dt><dd><?=(int)$h['webhooks_error']?></dd></div>
+        </dl>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-4">
+        <h3 class="font-semibold" style="color:<?=NAVY?>;">Regra de reprocessamento</h3>
+        <p class="text-sm text-slate-600 mt-2">O botão <b>Reprocessar somente erros</b> reabre apenas eventos em estado <code>error</code>, preserva o payload original e registra quem solicitou a nova tentativa. Eventos processados com sucesso ou ignorados não são recolocados na fila.</p>
+        <p class="text-xs text-slate-500 mt-3">Após reabrir, use <b>Processar fila agora</b> ou aguarde o cron da Fase 6. Cada ação fica registrada no histórico abaixo.</p>
+      </div>
+    </div>
+
+    <div class="border-t border-slate-200">
+      <div class="px-4 py-3 flex items-center justify-between gap-3"><div><span class="dnb-eyebrow">Fila com falha</span><h3 class="font-semibold" style="color:<?=NAVY?>;">Eventos em erro</h3></div><span class="text-xs text-slate-500"><?=count($rdPhase8Errors)?> exibido(s)</span></div>
+      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[1100px]"><thead><tr class="text-left text-slate-500 border-t border-b"><th class="p-2">ID</th><th class="p-2">Produto</th><th class="p-2">Evento</th><th class="p-2">Entidade / ID externo</th><th class="p-2">Tentativas</th><th class="p-2">Reaberturas</th><th class="p-2">Recebido</th><th class="p-2">Último erro</th><th class="p-2"></th></tr></thead><tbody>
+        <?php foreach($rdPhase8Errors as $ev):?><tr class="border-b border-slate-100 align-top"><td class="p-2 font-mono">#<?=(int)$ev['id']?></td><td class="p-2"><?=e($ev['product'])?></td><td class="p-2 font-mono"><?=e($ev['event_name'])?></td><td class="p-2"><?=e($ev['external_entity'])?><small class="block font-mono text-slate-400"><?=e($ev['external_id'])?></small></td><td class="p-2"><?= (int)$ev['attempts']?><?=$ev['attempts']>=3?' · esgotado':''?></td><td class="p-2"><?= (int)($ev['requeue_count']??0)?></td><td class="p-2"><?=e($ev['received_at'])?></td><td class="p-2 text-rose-700 max-w-[330px] break-words"><?=e((string)$ev['last_error'])?></td><td class="p-2 text-right"><form method="post" onsubmit="return confirm('Reabrir somente este evento para nova tentativa?');"><?=csrfInput()?><input type="hidden" name="acao" value="reprocessar_rd_errors"><input type="hidden" name="event_id" value="<?=(int)$ev['id']?>"><button class="<?=BTN_S?> !px-2 !py-1 text-xs">Reprocessar</button></form></td></tr><?php endforeach;?>
+        <?php if(!$rdPhase8Errors):?><tr><td colspan="9" class="p-5 text-center text-slate-400">Nenhum evento RD em erro.</td></tr><?php endif;?>
+      </tbody></table></div>
+    </div>
+
+    <div class="border-t border-slate-200">
+      <div class="px-4 py-3"><span class="dnb-eyebrow">Sincronizações interrompidas</span><h3 class="font-semibold" style="color:<?=NAVY?>;">Jobs com erro</h3></div>
+      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[900px]"><thead><tr class="text-left text-slate-500 border-t border-b"><th class="p-2">Job</th><th class="p-2">Modo</th><th class="p-2">Etapa</th><th class="p-2">Página</th><th class="p-2">Criado por</th><th class="p-2">Erro</th><th class="p-2"></th></tr></thead><tbody>
+        <?php foreach($rdPhase8FailedJobs as $job):?><tr class="border-b border-slate-100"><td class="p-2">#<?=(int)$job['id']?></td><td class="p-2"><?=e($job['mode'])?></td><td class="p-2"><?=e($job['stage'])?></td><td class="p-2"><?=(int)$job['page_number']?></td><td class="p-2"><?=e($job['created_by_name']?:'sistema')?></td><td class="p-2 text-rose-700"><?=e((string)$job['last_error'])?></td><td class="p-2 text-right"><?php if($job['mode']!=='webhook'):?><form method="post" onsubmit="return confirm('Retomar este job do checkpoint salvo?');"><?=csrfInput()?><input type="hidden" name="acao" value="retomar_rd_failed_job"><input type="hidden" name="job_id" value="<?=(int)$job['id']?>"><button class="<?=BTN_S?> !px-2 !py-1 text-xs">Retomar</button></form><?php else:?><span class="text-slate-400">use eventos</span><?php endif;?></td></tr><?php endforeach;?>
+        <?php if(!$rdPhase8FailedJobs):?><tr><td colspan="7" class="p-5 text-center text-slate-400">Nenhum job RD com erro.</td></tr><?php endif;?>
+      </tbody></table></div>
+    </div>
+
+    <div class="border-t border-slate-200">
+      <div class="px-4 py-3"><span class="dnb-eyebrow">Auditoria</span><h3 class="font-semibold" style="color:<?=NAVY?>;">Últimas ações de reprocessamento</h3></div>
+      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[860px]"><thead><tr class="text-left text-slate-500 border-t border-b"><th class="p-2">Data</th><th class="p-2">Ação</th><th class="p-2">Alvo</th><th class="p-2">Quantidade</th><th class="p-2">Solicitado por</th><th class="p-2">Observação</th></tr></thead><tbody>
+        <?php foreach($rdPhase8Actions as $a):?><tr class="border-b border-slate-100"><td class="p-2"><?=e($a['created_at'])?></td><td class="p-2 font-mono"><?=e($a['action_type'])?></td><td class="p-2"><?=e($a['target_type'])?><?=$a['target_id']?' #'.(int)$a['target_id']:''?></td><td class="p-2"><?=(int)$a['affected_count']?></td><td class="p-2"><?=e($a['requested_by_name']?:'sistema')?></td><td class="p-2"><?=e((string)$a['note'])?></td></tr><?php endforeach;?>
+        <?php if(!$rdPhase8Actions):?><tr><td colspan="6" class="p-5 text-center text-slate-400">Nenhuma ação de reprocessamento registrada.</td></tr><?php endif;?>
       </tbody></table></div>
     </div>
   <?php endif;?>

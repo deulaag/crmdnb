@@ -10,7 +10,8 @@ function confirmarAuditoriaPr3(bool $condicao,string $mensagem): void
     if(!$condicao){fwrite(STDERR,"FALHA: {$mensagem}\n");exit(1);}
 }
 confirmarAuditoriaPr3($pagina!==false&&$servico!==false&&$migration!==false,'arquivos de auditoria devem estar acessíveis');
-confirmarAuditoriaPr3(str_contains($pagina,'exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_SUPORTE)'),'Audit Log deve restringir papéis no servidor');
+confirmarAuditoriaPr3(str_contains($pagina,'exigirPapel(PAPEL_ADMINISTRADOR);'),'Audit Log deve ser exclusivo do ADM no servidor');
+confirmarAuditoriaPr3(!str_contains($pagina,'exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_SUPORTE)'),'Supervisor/Suporte não devem acessar Audit Log por URL direta');
 confirmarAuditoriaPr3(str_contains($servico,'function escopoAuditoriaFluxoPr3'),'auditoria deve aplicar escopo por papel');
 confirmarAuditoriaPr3(str_contains($servico,'support_cases sc_scope'),'suporte deve enxergar somente execuções ligadas a casos permitidos');
 confirmarAuditoriaPr3(str_contains($servico,"LIMIT '.\$limite.' OFFSET '.\$offset"),'lista deve paginar no servidor');
