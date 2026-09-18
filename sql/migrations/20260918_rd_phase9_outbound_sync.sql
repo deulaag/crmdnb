@@ -54,6 +54,7 @@ INSERT INTO rd_outbound_field_rules (entity,local_field,rd_field,source_of_truth
 ('negotiation','estimated_value','total_price','dnb',1,20),
 ('negotiation','company_id','organization_id','dnb',1,30),
 ('negotiation','assigned_to_user_id','owner_id','dnb',1,40),
+('negotiation','pipeline_name','pipeline_id','dnb',1,45),
 ('negotiation','stage_name','stage_id','dnb',1,50),
 ('negotiation','primary_contact','contact_id','dnb',1,60),
 ('negotiation','status','status','rd',1,70),
