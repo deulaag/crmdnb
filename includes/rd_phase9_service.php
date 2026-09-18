@@ -352,6 +352,14 @@ function rdPhase9ProcessQueue(PDO $pdo,int $limit=10,bool $force=false): array
     return $summary;
 }
 
+function rdPhase9RequeueItem(PDO $pdo,int $queueId,int $userId): void
+{
+    if(!rdPhase9Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 9.');
+    $stmt=$pdo->prepare("UPDATE rd_outbound_queue SET status='pending',attempts=0,available_at=NOW(),processed_at=NULL,last_http_status=NULL,last_error=NULL,requested_by_user_id=NULLIF(?,0),reason=CONCAT(LEFT(reason,120),' · reaberto ADM') WHERE id=? AND status IN ('blocked','error')");
+    $stmt->execute([$userId,$queueId]);
+    if($stmt->rowCount()!==1)throw new RuntimeException('Somente item bloqueado ou com erro pode ser reaberto.');
+}
+
 /** @return array<string,int> */
 function rdPhase9Stats(PDO $pdo): array
 {
