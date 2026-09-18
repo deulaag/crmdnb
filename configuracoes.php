@@ -406,6 +406,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($acao === 'reabrir_rd_outbound') {
+        try {
+            if (!rdPhase9Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 9.');
+            rdPhase9RequeueItem($pdo, (int)($_POST['queue_id'] ?? 0), (int)(usuarioLogado()['id'] ?? 0));
+            cfgRedirect('Item DNB → RD reaberto. Corrija o mapeamento/dependência e processe a fila novamente.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Saída RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
 }
 
 $msg = $_SESSION['flash'] ?? '';
