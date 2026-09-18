@@ -34,12 +34,12 @@ p2ok(str_contains($contato,'Contatos sem empresa'),'contato sem empresa deve per
 p2ok(str_contains($contato,'Nenhum dado externo é simulado'),'Marketing não deve inventar dados antes da integração');
 
 $negList=p2file('negociacoes.php');
-p2ok(str_contains($negList,"$modo=(string)($_GET['modo']??'lista')"),'Negociações deve abrir em lista por padrão');
+p2ok(str_contains($negList,"\$modo=(string)(\$_GET['modo']??'lista')"),'Negociações deve abrir em lista por padrão');
 p2ok(str_contains($negList,"['lista','kanban']"),'Negociações deve oferecer lista e Kanban');
 p2ok(str_contains($negList,'Leads / Pré-vendas')&&str_contains($negList,'Orçamentos'),'subnavegação deve ter Leads, Negociações e Orçamentos');
 p2ok(str_contains($negList,'listarLeadsPreVendasCrmUi'),'Pré-vendas deve usar contatos ainda sem negociação');
 p2ok(str_contains($negList,'criarNegociacaoCrmUi'),'nova negociação deve usar serviço seguro');
-p2ok(str_contains($negList,"'contacts'=>$contactId>0"),'negociação deve aceitar contato principal');
+p2ok(str_contains($negList,"'contacts'=>\$contactId>0"),'negociação deve aceitar contato principal');
 
 $neg=p2file('negociacao.php');
 foreach(['Contatos da negociação','Orçamentos / propostas','Pedidos','Visitas'] as $rel)
@@ -71,7 +71,7 @@ p2ok(str_contains($quotes,'vincularOrcamentoNegociacaoCrmUi'),'novo orçamento d
 p2ok(str_contains($quotes,'Leads / Pré-vendas')&&str_contains($quotes,'class="is-active" href="/orcamentos.php"'),'Orçamentos deve estar dentro da subnavegação de Negociações');
 
 $api=p2file('api/v1/opportunities.php');
-p2ok(str_contains($api,"$_POST['negotiation_id']"),'API de criação deve receber negotiation_id');
+p2ok(str_contains($api,"\$_POST['negotiation_id']"),'API de criação deve receber negotiation_id');
 p2ok(str_contains($api,'vincularOrcamentoNegociacaoCrmUi'),'API AJAX deve preservar o vínculo com negociação');
 
 $js=p2file('assets/crm-phase2.js');
