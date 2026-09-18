@@ -363,13 +363,22 @@ function rdSalvarFieldMappings(PDO $pdo,array $rows): int
         $product=(string)($row['product']??'');if(!in_array($product,['marketing','crm'],true))continue;
         $sourceEntity=mb_substr(trim((string)($row['source_entity']??'contact')),0,60);
         $sourceKey=mb_substr(trim((string)($row['source_key']??'')),0,191);if($sourceKey==='')continue;
+        if($product==='marketing'){
+            $check=$pdo->prepare("SELECT name FROM rd_discovery_items WHERE product='marketing' AND resource_type='contact_field' AND active=1 AND (api_identifier=? OR external_id=?) LIMIT 1");
+            $check->execute([$sourceKey,$sourceKey]);
+        }else{
+            $check=$pdo->prepare("SELECT name FROM rd_discovery_items WHERE product='crm' AND resource_type='custom_field' AND active=1 AND entity_type=? AND (api_identifier=? OR external_id=?) LIMIT 1");
+            $check->execute([$sourceEntity,$sourceKey,$sourceKey]);
+        }
+        $discoveredLabel=$check->fetchColumn();
+        if($discoveredLabel===false)continue;
         $targetRaw=trim((string)($row['target']??''));
         if($targetRaw===''){$del->execute([$product,$sourceEntity,$sourceKey]);continue;}
         if(!str_contains($targetRaw,'.'))continue;
         [$targetEntity,$targetField]=explode('.',$targetRaw,2);
         if(!isset($targets[$targetEntity][$targetField]))continue;
         $truth=(string)($row['source_of_truth']??'rd');if(!in_array($truth,['rd','dnb','manual_review'],true))$truth='rd';
-        $label=mb_substr(trim((string)($row['source_label']??$sourceKey)),0,255);
+        $label=mb_substr(trim((string)$discoveredLabel),0,255);
         $stmt->execute([$product,$sourceEntity,$sourceKey,$label,$targetEntity,$targetField,$truth]);$count++;
     }
     return $count;
