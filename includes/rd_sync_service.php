@@ -476,8 +476,21 @@ function rdSyncOwnerLocalId(PDO $pdo,string $externalId): int
 /** @return array{pipeline:string,stage:string} */
 function rdSyncPipelineNames(PDO $pdo,string $pipelineId,string $stageId): array
 {
-    $stmt=$pdo->prepare("SELECT pipeline_name,stage_name FROM rd_pipeline_mappings WHERE enabled=1 AND ((rd_pipeline_external_id=? AND rd_stage_external_id=?) OR (rd_stage_external_id=? AND ?='')) ORDER BY id LIMIT 1");
-    $stmt->execute([$pipelineId,$stageId,$stageId,$pipelineId]);$r=$stmt->fetch();return ['pipeline'=>(string)($r['pipeline_name']??''),'stage'=>(string)($r['stage_name']??'')];
+    $r=false;
+    if($pipelineId!==''&&$stageId!==''){
+        $stmt=$pdo->prepare('SELECT pipeline_name,stage_name FROM rd_pipeline_mappings WHERE enabled=1 AND rd_pipeline_external_id=? AND rd_stage_external_id=? LIMIT 1');
+        $stmt->execute([$pipelineId,$stageId]);$r=$stmt->fetch();
+    }
+    if(!$r&&$stageId!==''){
+        $stmt=$pdo->prepare('SELECT pipeline_name,stage_name FROM rd_pipeline_mappings WHERE enabled=1 AND rd_stage_external_id=? ORDER BY id LIMIT 1');
+        $stmt->execute([$stageId]);$r=$stmt->fetch();
+    }
+    if(!$r&&$pipelineId!==''){
+        $stmt=$pdo->prepare('SELECT pipeline_name FROM rd_pipeline_mappings WHERE enabled=1 AND rd_pipeline_external_id=? ORDER BY sort_order,id LIMIT 1');
+        $stmt->execute([$pipelineId]);$name=$stmt->fetchColumn();
+        if($name!==false)return ['pipeline'=>(string)$name,'stage'=>''];
+    }
+    return ['pipeline'=>(string)($r['pipeline_name']??''),'stage'=>(string)($r['stage_name']??'')];
 }
 
 function rdSyncDiscoveryName(PDO $pdo,string $type,string $externalId): string
