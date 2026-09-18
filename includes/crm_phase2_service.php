@@ -7,11 +7,13 @@ require_once __DIR__ . '/helpers.php';
 
 function crmPhase2Disponivel(PDO $pdo): bool
 {
-    if(!crmCoreFase1Disponivel($pdo)) return false;
+    static $cache=null;
+    if($cache!==null)return $cache;
+    if(!crmCoreFase1Disponivel($pdo)) return $cache=false;
     try{
         $stmt=$pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND ((TABLE_NAME='crm_companies' AND COLUMN_NAME='created_by_user_id') OR (TABLE_NAME='crm_contacts' AND COLUMN_NAME='created_by_user_id'))");
-        return (int)$stmt->fetchColumn()===2;
-    }catch(Throwable){return false;}
+        return $cache=((int)$stmt->fetchColumn()===2);
+    }catch(Throwable){return $cache=false;}
 }
 
 /** @return array{0:string,1:array<int,int>} */
@@ -319,11 +321,19 @@ function criarNegociacaoCrmUi(PDO $pdo,array $dados): array
         $contacts[]=$ct;
     }
     $dados['contacts']=[];
-    $neg=criarNegociacaoCrmCore($pdo,$dados);
-    foreach($contacts as $ct){
-        vincularContatoNegociacaoCrmUi($pdo,(int)$neg['id'],(int)($ct['contact_id']??$ct['id']), (string)($ct['role']??'outro'),!empty($ct['is_primary']));
+    $started=!$pdo->inTransaction();
+    if($started)$pdo->beginTransaction();
+    try{
+        $neg=criarNegociacaoCrmCore($pdo,$dados);
+        foreach($contacts as $ct){
+            vincularContatoNegociacaoCrmUi($pdo,(int)$neg['id'],(int)($ct['contact_id']??$ct['id']), (string)($ct['role']??'outro'),!empty($ct['is_primary']));
+        }
+        if($started)$pdo->commit();
+        return $neg;
+    }catch(Throwable $e){
+        if($started&&$pdo->inTransaction())$pdo->rollBack();
+        throw $e;
     }
-    return $neg;
 }
 
 function vincularContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contactId,string $role='outro',bool $principal=false): void
@@ -342,6 +352,18 @@ function atualizarNegociacaoCrmUi(PDO $pdo,int $id,array $dados): void
     $titulo=trim((string)($dados['title']??''));if($titulo==='')throw new InvalidArgumentException('Informe o título da negociação.');
     $companyId=(int)($dados['company_id']??0);$companyId=$companyId>0?$companyId:null;
     if($companyId&&!podeAcessarEmpresaCrm($pdo,$companyId))throw new RuntimeException('Empresa fora do seu escopo.');
+    if($companyId){
+        $stmt=$pdo->prepare("SELECT COUNT(*) FROM crm_negotiation_contacts nc JOIN crm_contacts ct ON ct.id=nc.contact_id WHERE nc.negotiation_id=? AND ct.company_id IS NOT NULL AND ct.company_id<>?");
+        $stmt->execute([$id,$companyId]);
+        if((int)$stmt->fetchColumn()>0)throw new DomainException('Há contato vinculado a outra empresa. Revise os contatos antes de alterar a empresa da negociação.');
+        $stmt=$pdo->prepare("SELECT
+          (SELECT COUNT(*) FROM orcamentos WHERE negotiation_id=? AND company_id IS NOT NULL AND company_id<>?)+
+          (SELECT COUNT(*) FROM pedidos WHERE negotiation_id=? AND company_id IS NOT NULL AND company_id<>?)+
+          (SELECT COUNT(*) FROM visitas WHERE negotiation_id=? AND company_id IS NOT NULL AND company_id<>?)");
+        $stmt->execute([$id,$companyId,$id,$companyId,$id,$companyId]);
+        if((int)$stmt->fetchColumn()>0)throw new DomainException('Há proposta, pedido ou visita vinculada a outra empresa. Revise os vínculos antes de alterar a empresa.');
+        $pdo->prepare('UPDATE crm_contacts ct JOIN crm_negotiation_contacts nc ON nc.contact_id=ct.id SET ct.company_id=? WHERE nc.negotiation_id=? AND ct.company_id IS NULL')->execute([$companyId,$id]);
+    }
     $owner=(int)($dados['assigned_to_user_id']??0);if($owner<=0)$owner=(int)usuarioLogado()['id'];
     $permitidos=array_column(responsaveisNegociacaoCrmUi($pdo),'id');if(!in_array($owner,array_map('intval',$permitidos),true))throw new RuntimeException('Responsável fora do seu escopo.');
     $status=crmCoreStatusNegociacao((string)($dados['status']??'open'));
@@ -361,23 +383,31 @@ function removerContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contactI
 function vincularOrcamentoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $orcamentoId): void
 {
     if(!podeAcessarNegociacaoCrm($pdo,$negotiationId)||!podeAcessarLead($pdo,$orcamentoId))throw new RuntimeException('Registro fora do seu escopo.');
-    $stmt=$pdo->prepare('SELECT id,company_id,contact_id,negotiation_id FROM orcamentos WHERE id=?');$stmt->execute([$orcamentoId]);$o=$stmt->fetch();if(!$o)throw new RuntimeException('Orçamento não encontrado.');
-    $stmt=$pdo->prepare('SELECT company_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$targetCompany=(int)($stmt->fetchColumn()?:0);
-    $oldNeg=(int)($o['negotiation_id']??0);
-    if($oldNeg>0&&$oldNeg!==$negotiationId){
-        $stmt=$pdo->prepare("SELECT COUNT(*) FROM crm_negotiations WHERE id=? AND source_orcamento_id=? AND origin='legacy_orcamento'");
-        $stmt->execute([$oldNeg,$orcamentoId]);
-        if((int)$stmt->fetchColumn()!==1)throw new DomainException('Este orçamento já pertence a outra negociação ativa.');
-        $pdo->prepare('UPDATE pedidos SET negotiation_id=? WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
-        $pdo->prepare('UPDATE visitas SET negotiation_id=? WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
-        $pdo->prepare('INSERT IGNORE INTO crm_negotiation_contacts (negotiation_id,contact_id,role,is_primary) SELECT ?,contact_id,role,is_primary FROM crm_negotiation_contacts WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
+    $started=!$pdo->inTransaction();if($started)$pdo->beginTransaction();
+    try{
+        $stmt=$pdo->prepare('SELECT id,company_id,contact_id,negotiation_id FROM orcamentos WHERE id=? FOR UPDATE');$stmt->execute([$orcamentoId]);$o=$stmt->fetch();if(!$o)throw new RuntimeException('Orçamento não encontrado.');
+        $stmt=$pdo->prepare('SELECT company_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$targetCompany=(int)($stmt->fetchColumn()?:0);
+        $oldNeg=(int)($o['negotiation_id']??0);
+        if($oldNeg>0&&$oldNeg!==$negotiationId){
+            $stmt=$pdo->prepare("SELECT COUNT(*) FROM crm_negotiations WHERE id=? AND source_orcamento_id=? AND origin='legacy_orcamento'");
+            $stmt->execute([$oldNeg,$orcamentoId]);
+            if((int)$stmt->fetchColumn()!==1)throw new DomainException('Este orçamento já pertence a outra negociação ativa.');
+            $pdo->prepare('UPDATE pedidos SET negotiation_id=? WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
+            $pdo->prepare('UPDATE visitas SET negotiation_id=? WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
+            $pdo->prepare('INSERT IGNORE INTO crm_negotiation_contacts (negotiation_id,contact_id,role,is_primary) SELECT ?,contact_id,role,is_primary FROM crm_negotiation_contacts WHERE negotiation_id=?')->execute([$negotiationId,$oldNeg]);
+        }
+        $pdo->prepare('UPDATE orcamentos SET negotiation_id=?,company_id=COALESCE(company_id,?) WHERE id=?')->execute([$negotiationId,$targetCompany?:null,$orcamentoId]);
+        if(!empty($o['contact_id']))vincularContatoNegociacaoCrmUi($pdo,$negotiationId,(int)$o['contact_id'],'principal',false);
+        if($oldNeg>0&&$oldNeg!==$negotiationId)$pdo->prepare('DELETE FROM crm_negotiations WHERE id=?')->execute([$oldNeg]);
+        $stmt=$pdo->prepare('SELECT COUNT(*) FROM pedidos WHERE negotiation_id=?');$stmt->execute([$negotiationId]);
+        if((int)$stmt->fetchColumn()>0)$pdo->prepare("UPDATE crm_negotiations SET order_status='generated' WHERE id=?")->execute([$negotiationId]);
+        if($started)$pdo->commit();
+    }catch(Throwable $e){
+        if($started&&$pdo->inTransaction())$pdo->rollBack();
+        throw $e;
     }
-    $pdo->prepare('UPDATE orcamentos SET negotiation_id=?,company_id=COALESCE(company_id,?) WHERE id=?')->execute([$negotiationId,$targetCompany?:null,$orcamentoId]);
-    if(!empty($o['contact_id']))vincularContatoNegociacaoCrmUi($pdo,$negotiationId,(int)$o['contact_id'],'principal',false);
-    if($oldNeg>0&&$oldNeg!==$negotiationId)$pdo->prepare('DELETE FROM crm_negotiations WHERE id=?')->execute([$oldNeg]);
 }
 
-/** @return array<int,array<string,mixed>> */
 /** @return array<int,array<string,mixed>> */
 function orcamentosVinculaveisCrmUi(PDO $pdo,int $negotiationId): array
 {
