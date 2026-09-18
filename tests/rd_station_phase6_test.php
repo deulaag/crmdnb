@@ -39,8 +39,8 @@ rd6ok(str_contains($sync,'crm_incremental_checkpoint'),'deve manter checkpoint i
 rd6ok(str_contains($sync,"updated_at:>=")&&str_contains($sync,"updated_at:<="),'incremental deve usar janela RDQL por updated_at');
 rd6ok(str_contains($sync,'cutoff_at'),'janela incremental precisa de corte fixo');
 rd6ok(str_contains($sync,'DNB_RD_INCREMENTAL_OVERLAP_MINUTES'),'incremental deve aplicar sobreposição de segurança');
-rd6ok(str_contains($sync,"rdSyncIncrementalExtraQuery($job,'updated_at')"),'Empresa/Negociação devem ordenar por updated_at');
-rd6ok(str_contains($sync,"rdSyncIncrementalExtraQuery($job,'created_at')"),'Contato deve filtrar updated_at com ordenação suportada');
+rd6ok(str_contains($sync,'rdSyncIncrementalExtraQuery($job,\'updated_at\')'),'Empresa/Negociação devem ordenar por updated_at');
+rd6ok(str_contains($sync,'rdSyncIncrementalExtraQuery($job,\'created_at\')'),'Contato deve filtrar updated_at com ordenação suportada');
 rd6ok(str_contains($sync,"'order_status'=>'none'"),'sincronização não pode fabricar Pedido histórico');
 rd6ok(!str_contains($service,'INSERT INTO pedidos')&&!str_contains($service,'DELETE FROM pedidos'),'Fase 6 não pode criar/apagar Pedido');
 
