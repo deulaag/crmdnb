@@ -198,6 +198,7 @@ function rdDiscoveryRunMarketing(PDO $pdo): array
             $total++;
         }
         $summary=['contact_field'=>$total];
+        rdDiscoveryDisableMissingFieldMappings($pdo,'marketing');
         rdDiscoveryFinishRun($pdo,$runId,'success',$total,$summary);
         return ['ok'=>true,'run_id'=>$runId,'total'=>$total,'summary'=>$summary];
     }catch(Throwable $e){
@@ -259,6 +260,7 @@ function rdDiscoveryRunCrm(PDO $pdo): array
         $summary['stage']=$stageCount;
 
         rdDiscoveryRefreshDerivedMappings($pdo);
+        if(array_key_exists('custom_field',$summary) && !in_array('custom_field',array_map(fn($e)=>strtok($e,':'),$errors),true)) rdDiscoveryDisableMissingFieldMappings($pdo,'crm');
         $status=$errors?($total>0?'partial':'error'):'success';
         rdDiscoveryFinishRun($pdo,$runId,$status,$total,$summary,implode(' | ',$errors));
         return ['ok'=>$status!=='error','run_id'=>$runId,'status'=>$status,'total'=>$total,'summary'=>$summary,'errors'=>$errors];
@@ -268,9 +270,21 @@ function rdDiscoveryRunCrm(PDO $pdo): array
     }
 }
 
+function rdDiscoveryDisableMissingFieldMappings(PDO $pdo,string $product): void
+{
+    if($product==='marketing'){
+        $pdo->exec("UPDATE rd_field_mappings m LEFT JOIN rd_discovery_items d ON d.product='marketing' AND d.resource_type='contact_field' AND d.active=1 AND (d.api_identifier=m.source_key OR d.external_id=m.source_key) SET m.enabled=0 WHERE m.product='marketing' AND d.id IS NULL");
+        return;
+    }
+    if($product==='crm'){
+        $pdo->exec("UPDATE rd_field_mappings m LEFT JOIN rd_discovery_items d ON d.product='crm' AND d.resource_type='custom_field' AND d.active=1 AND d.entity_type=m.source_entity AND (d.api_identifier=m.source_key OR d.external_id=m.source_key) SET m.enabled=0 WHERE m.product='crm' AND d.id IS NULL");
+    }
+}
+
 function rdDiscoveryRefreshDerivedMappings(PDO $pdo): void
 {
     // Usuários: preserva o vínculo local escolhido e atualiza apenas os metadados remotos.
+    $pdo->exec("UPDATE rd_user_mappings m LEFT JOIN rd_discovery_items d ON d.product='crm' AND d.resource_type='user' AND d.external_id=m.rd_user_external_id AND d.active=1 SET m.rd_user_active=0 WHERE d.id IS NULL");
     $users=$pdo->query("SELECT external_id,name,payload_json FROM rd_discovery_items WHERE product='crm' AND resource_type='user' AND active=1")->fetchAll();
     $stmtUser=$pdo->prepare("INSERT INTO rd_user_mappings (rd_user_external_id,rd_user_name,rd_user_email,rd_user_active,enabled)
       VALUES (?,?,?,?,1)
