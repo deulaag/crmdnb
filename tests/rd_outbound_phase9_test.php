@@ -50,7 +50,7 @@ foreach([
 rd9ok(str_contains($service,"\$creating?'POST':'PUT'"),'criação deve usar POST e atualização PUT');
 rd9ok(str_contains($service,"if(\$creating)\$data['status']='ongoing'"),'negociação nova deve sempre nascer ongoing no RD');
 rd9ok(str_contains($service,"rdPhase9Truth(\$pdo,'negotiation','status')==='dnb'"),'status final DNB deve ser aplicado por PUT após criação');
-rd9ok(str_contains($service,"'/deals/'.rawurlencode(\$external)"),'status pós-criação deve atualizar pelo ID remoto seguro');
+rd9ok(str_contains($service,"'https://api.rd.services/crm/v2/deals/'.rawurlencode(\$external)"),'status pós-criação deve atualizar pelo ID remoto seguro');
 rd9ok(str_contains($service,'total_price')&&str_contains($service,'stage_id')&&str_contains($service,'owner_id'),'negociação deve enviar valor etapa e responsável mapeados');
 rd9ok(str_contains($service,"['email'=>(string)\$local['email']]"),'Contato deve enviar e-mail estruturado');
 rd9ok(str_contains($service,"['phone'=>(string)\$local['phone'],'type'=>'work']"),'Contato deve enviar telefone estruturado');
