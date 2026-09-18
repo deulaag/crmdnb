@@ -8,6 +8,7 @@ require_once __DIR__ . '/includes/whatsapp_provider.php';
 require_once __DIR__ . '/includes/ai_client.php';
 require_once __DIR__ . '/includes/rd_station_service.php';
 require_once __DIR__ . '/includes/rd_discovery_service.php';
+require_once __DIR__ . '/includes/rd_sync_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -257,6 +258,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4.');
             $n = rdSalvarPipelineMappings($pdo, (array)($_POST['pipeline_mapping'] ?? []));
             cfgRedirect('Funis e etapas do RD CRM salvos. ' . $n . ' etapa(s) revisada(s).', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'iniciar_rd_first_sync') {
+        try {
+            $job = rdSyncCriarJob($pdo, (int)(usuarioLogado()['id'] ?? 0));
+            $_SESSION['flash'] = 'Sincronização criada. O Painel CMD vai processar os dados em lotes.';
+            header('Location: /configuracoes.php?rd_job=' . (int)$job['id'] . '#tab-rdstation');
+            exit;
         } catch (Throwable $e) {
             cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
         }
