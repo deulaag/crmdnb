@@ -291,6 +291,12 @@ function sincronizarNegociacaoDoOrcamento(PDO $pdo, int $orcamentoId): int
             !empty($o['assigned_to_user_id'])?(int)$o['assigned_to_user_id']:null,
             $closed,$closed,$negId
         ]);
+    if($status==='won'){
+        $stmt=$pdo->prepare('SELECT COUNT(*) FROM pedidos WHERE negotiation_id=?');
+        $stmt->execute([$negId]);
+        $pedidoGerado=(int)$stmt->fetchColumn()>0;
+        $pdo->prepare('UPDATE crm_negotiations SET order_status=? WHERE id=?')->execute([$pedidoGerado?'generated':'pending',$negId]);
+    }
     return $negId;
 }
 
@@ -302,6 +308,7 @@ function garantirPedidoCore(PDO $pdo, int $pedidoId, ?int $orcamentoId=null): st
         if($negId>0){
             $pdo->prepare('UPDATE pedidos p JOIN orcamentos o ON o.id=? SET p.negotiation_id=?,p.company_id=COALESCE(p.company_id,o.company_id) WHERE p.id=?')
                 ->execute([$orcamentoId,$negId,$pedidoId]);
+            $pdo->prepare("UPDATE crm_negotiations SET order_status='generated' WHERE id=?")->execute([$negId]);
         }
     }
     return $dnbId;
