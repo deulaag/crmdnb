@@ -35,7 +35,21 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
   }catch(Throwable $e){$erro=$e->getMessage();}
 }
 
-$filtros=['q'=>trim((string)($_GET['q']??'')),'status'=>(string)($_GET['status']??''),'category'=>(string)($_GET['category']??''),'pipeline_name'=>(string)($_GET['pipeline_name']??''),'stage_name'=>(string)($_GET['stage_name']??''),'company_id'=>(int)($_GET['company_id']??0),'owner_id'=>(int)($_GET['owner_id']??0)];
+$filtros=[
+  'q'=>trim((string)($_GET['q']??'')),
+  'status'=>(string)($_GET['status']??''),
+  'category'=>(string)($_GET['category']??''),
+  'pipeline_name'=>(string)($_GET['pipeline_name']??''),
+  'stage_name'=>(string)($_GET['stage_name']??''),
+  'company_id'=>(int)($_GET['company_id']??0),
+  'contact_id'=>(int)($_GET['filter_contact_id']??0),
+  'owner_id'=>(int)($_GET['owner_id']??0),
+  'origin'=>(string)($_GET['origin']??''),
+  'date_from'=>(string)($_GET['date_from']??''),
+  'date_to'=>(string)($_GET['date_to']??''),
+  'value_min'=>(string)($_GET['value_min']??''),
+  'value_max'=>(string)($_GET['value_max']??''),
+];
 $negociacoes=$disponivel?listarNegociacoesCrmUi($pdo,$filtros):[];
 $leads=$disponivel&&$view==='leads'?listarLeadsPreVendasCrmUi($pdo,['q'=>$filtros['q']]):[];
 
@@ -43,7 +57,8 @@ $todas=$disponivel?listarNegociacoesCrmUi($pdo,[]):[];
 $categorias=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['category'],$todas))));
 $funis=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['pipeline_name'],$todas))));
 $etapas=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['stage_name'],$todas))));
-sort($categorias);sort($funis);sort($etapas);
+$origens=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['origin'],$todas))));
+sort($categorias);sort($funis);sort($etapas);sort($origens);
 
 $tabAtual='neg';include __DIR__.'/includes/layout_header.php';
 ?>
@@ -66,14 +81,21 @@ $tabAtual='neg';include __DIR__.'/includes/layout_header.php';
 <?php else:?>
 <section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="px-4 pt-4 flex justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Pipeline comercial</span><h2 class="dnb-section-title">Negociações</h2><p class="text-sm text-slate-500 mt-1">O negócio é a entidade principal; propostas/orçamentos, pedidos, visitas e contatos ficam vinculados a ele.</p></div><div class="flex gap-2"><a href="<?=e('/negociacoes.php?'.http_build_query(array_merge($_GET,['modo'=>$modo==='lista'?'kanban':'lista'])))?>" class="<?=BTN_S?>"><?=$modo==='lista'?'Ver Kanban':'Ver lista'?></a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-nova-negociacao">Nova negociação</button></div></div>
-  <form method="get" class="p-4 grid md:grid-cols-3 xl:grid-cols-7 gap-2"><input type="hidden" name="view" value="negociacoes"><input type="hidden" name="modo" value="<?=e($modo)?>">
-    <input type="search" name="q" value="<?=e($filtros['q'])?>" placeholder="Título, empresa ou DNB ID" class="<?=INPUT_CLS?>">
-    <select name="status" class="<?=INPUT_CLS?>"><option value="">Todos os status</option><option value="open" <?=$filtros['status']==='open'?'selected':''?>>Abertas</option><option value="won" <?=$filtros['status']==='won'?'selected':''?>>Ganhas</option><option value="lost" <?=$filtros['status']==='lost'?'selected':''?>>Perdidas</option></select>
-    <select name="category" class="<?=INPUT_CLS?>"><option value="">Todas as categorias</option><?php foreach($categorias as $x):?><option <?=$filtros['category']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select>
-    <select name="pipeline_name" class="<?=INPUT_CLS?>"><option value="">Todos os funis</option><?php foreach($funis as $x):?><option <?=$filtros['pipeline_name']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select>
-    <select name="stage_name" class="<?=INPUT_CLS?>"><option value="">Todas as etapas</option><?php foreach($etapas as $x):?><option <?=$filtros['stage_name']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select>
-    <select name="owner_id" class="<?=INPUT_CLS?>"><option value="0">Todos responsáveis</option><?php foreach($responsaveis as $u):?><option value="<?=(int)$u['id']?>" <?=$filtros['owner_id']===(int)$u['id']?'selected':''?>><?=e($u['nome'])?></option><?php endforeach;?></select>
-    <button class="<?=BTN_S?>">Filtrar</button>
+  <form method="get" class="p-4 dnb-neg-filters"><input type="hidden" name="view" value="negociacoes"><input type="hidden" name="modo" value="<?=e($modo)?>">
+    <label><span>Busca</span><input type="search" name="q" value="<?=e($filtros['q'])?>" placeholder="Título, empresa ou DNB ID" class="<?=INPUT_CLS?>"></label>
+    <label><span>Status</span><select name="status" class="<?=INPUT_CLS?>"><option value="">Todos</option><option value="open" <?=$filtros['status']==='open'?'selected':''?>>Abertas</option><option value="won" <?=$filtros['status']==='won'?'selected':''?>>Ganhas</option><option value="lost" <?=$filtros['status']==='lost'?'selected':''?>>Perdidas</option></select></label>
+    <label><span>Categoria</span><select name="category" class="<?=INPUT_CLS?>"><option value="">Todas</option><?php foreach($categorias as $x):?><option <?=$filtros['category']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select></label>
+    <label><span>Funil</span><select name="pipeline_name" class="<?=INPUT_CLS?>"><option value="">Todos</option><?php foreach($funis as $x):?><option <?=$filtros['pipeline_name']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select></label>
+    <label><span>Etapa</span><select name="stage_name" class="<?=INPUT_CLS?>"><option value="">Todas</option><?php foreach($etapas as $x):?><option <?=$filtros['stage_name']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select></label>
+    <label><span>Empresa</span><select name="company_id" class="<?=INPUT_CLS?>"><option value="0">Todas</option><?php foreach($empresas as $c):?><option value="<?=(int)$c['id']?>" <?=$filtros['company_id']===(int)$c['id']?'selected':''?>><?=e($c['name'])?></option><?php endforeach;?></select></label>
+    <label><span>Contato</span><select name="filter_contact_id" class="<?=INPUT_CLS?>"><option value="0">Todos</option><?php foreach($contatos as $ct):?><option value="<?=(int)$ct['id']?>" <?=$filtros['contact_id']===(int)$ct['id']?'selected':''?>><?=e($ct['name'])?></option><?php endforeach;?></select></label>
+    <label><span>Responsável</span><select name="owner_id" class="<?=INPUT_CLS?>"><option value="0">Todos</option><?php foreach($responsaveis as $u):?><option value="<?=(int)$u['id']?>" <?=$filtros['owner_id']===(int)$u['id']?'selected':''?>><?=e($u['nome'])?></option><?php endforeach;?></select></label>
+    <label><span>Origem</span><select name="origin" class="<?=INPUT_CLS?>"><option value="">Todas</option><?php foreach($origens as $x):?><option <?=$filtros['origin']===$x?'selected':''?>><?=e($x)?></option><?php endforeach;?></select></label>
+    <label><span>Movimentada desde</span><input type="date" name="date_from" value="<?=e($filtros['date_from'])?>" class="<?=INPUT_CLS?>"></label>
+    <label><span>Até</span><input type="date" name="date_to" value="<?=e($filtros['date_to'])?>" class="<?=INPUT_CLS?>"></label>
+    <label><span>Valor mínimo</span><input type="number" min="0" step="0.01" name="value_min" value="<?=e($filtros['value_min'])?>" class="<?=INPUT_CLS?>"></label>
+    <label><span>Valor máximo</span><input type="number" min="0" step="0.01" name="value_max" value="<?=e($filtros['value_max'])?>" class="<?=INPUT_CLS?>"></label>
+    <div class="dnb-neg-filters__actions"><button class="<?=BTN_P?>">Aplicar filtros</button><a class="<?=BTN_S?>" href="/negociacoes.php?view=negociacoes&modo=<?=urlencode($modo)?>">Limpar</a></div>
   </form>
 </section>
 
