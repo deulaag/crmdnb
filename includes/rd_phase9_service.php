@@ -311,9 +311,9 @@ function rdPhase9Send(PDO $pdo,string $entity,string $dnbId,int $userId=0): arra
 }
 
 /** @return array{processed:int,success:int,error:int,blocked:int,retry:int} */
-function rdPhase9ProcessQueue(PDO $pdo,int $limit=10): array
+function rdPhase9ProcessQueue(PDO $pdo,int $limit=10,bool $force=false): array
 {
-    if(!rdPhase9Disponivel($pdo)||!rdPhase9AutoEnabled())return ['processed'=>0,'success'=>0,'error'=>0,'blocked'=>0,'retry'=>0];
+    if(!rdPhase9Disponivel($pdo)||(!$force&&!rdPhase9AutoEnabled()))return ['processed'=>0,'success'=>0,'error'=>0,'blocked'=>0,'retry'=>0];
     $limit=max(1,min(50,$limit));$summary=['processed'=>0,'success'=>0,'error'=>0,'blocked'=>0,'retry'=>0];
     for($i=0;$i<$limit;$i++){
         $pdo->beginTransaction();
