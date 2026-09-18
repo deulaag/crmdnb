@@ -354,6 +354,18 @@ function vincularOrcamentoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $orcam
 }
 
 /** @return array<int,array<string,mixed>> */
+/** @return array<int,array<string,mixed>> */
+function orcamentosVinculaveisCrmUi(PDO $pdo,int $negotiationId): array
+{
+    if(!podeAcessarNegociacaoCrm($pdo,$negotiationId))return [];
+    $stmt=$pdo->prepare('SELECT company_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$companyId=(int)($stmt->fetchColumn()?:0);
+    [$scope,$params]=filtroEscopoAtribuicao($pdo,'o.assigned_to_user_id');
+    $where=["({$scope})",'(o.negotiation_id IS NULL OR o.negotiation_id=?)'];$params[]=$negotiationId;
+    if($companyId>0){$where[]='(o.company_id=? OR o.company_id IS NULL)';$params[]=$companyId;}
+    $stmt=$pdo->prepare('SELECT o.* FROM orcamentos o WHERE '.implode(' AND ',$where).' ORDER BY o.data DESC,o.id DESC LIMIT 250');
+    $stmt->execute($params);return $stmt->fetchAll();
+}
+
 function timelineEmpresaCrmUi(array $company): array
 {
     $events=[];
