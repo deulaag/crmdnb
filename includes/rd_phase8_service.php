@@ -48,7 +48,7 @@ function rdPhase8Health(PDO $pdo): array
 
     if(!$h['marketing_connected']||!$h['crm_connected']||$h['webhooks_error']>0||$h['events_exhausted']>0||$h['jobs_failed']>0||$h['jobs_stale']>0){
         $h['status']='error';$h['status_label']='Atenção necessária';
-    }elseif($h['events_retryable']>0||$h['conflicts_pending']>0){
+    }elseif($h['webhooks_active']<$h['webhooks_expected']||$h['events_retryable']>0||$h['conflicts_pending']>0){
         $h['status']='warning';$h['status_label']='Revisão pendente';
     }else{
         $h['status']='ok';$h['status_label']='Operacional';
