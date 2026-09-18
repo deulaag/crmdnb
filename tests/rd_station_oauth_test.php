@@ -21,6 +21,7 @@ $marketingCallback=rd3file('api/oauth/rdstation/marketing/callback.php');
 $crmConnect=rd3file('api/oauth/rdstation/crm/connect.php');
 $crmCallback=rd3file('api/oauth/rdstation/crm/callback.php');
 $cron=rd3file('api/internal/rdstation/refresh.php');
+$htaccess=rd3file('.htaccess');
 
 foreach([
     'DNB_PUBLIC_BASE_URL',
@@ -69,5 +70,7 @@ rd3ok(!str_contains($page,'rdAccessTokenSalvo(')&&!str_contains($page,'rdRefresh
 
 rd3ok(str_contains($cron,"PHP_SAPI !== 'cli'"),'manutenção de tokens deve ser somente CLI');
 rd3ok(str_contains($cron,'rdObterAccessToken($produto)'),'cron deve renovar apenas via serviço central');
+rd3ok(str_contains($htaccess,'integrations\\.local'),'integrations.local.php deve estar bloqueado no Apache');
+rd3ok(str_contains($config,'flock($lock, LOCK_EX)'),'gravação de tokens e segredos deve ser serializada por lock');
 
 echo "CRM Fase 3 RD Station OAuth: OK\n";
