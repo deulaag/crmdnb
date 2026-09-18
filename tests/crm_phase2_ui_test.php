@@ -40,6 +40,8 @@ p2ok(str_contains($negList,'Leads / Pré-vendas')&&str_contains($negList,'Orçam
 p2ok(str_contains($negList,'listarLeadsPreVendasCrmUi'),'Pré-vendas deve usar contatos ainda sem negociação');
 p2ok(str_contains($negList,'criarNegociacaoCrmUi'),'nova negociação deve usar serviço seguro');
 p2ok(str_contains($negList,"'contacts'=>\$contactId>0"),'negociação deve aceitar contato principal');
+foreach(['company_id','filter_contact_id','owner_id','origin','date_from','date_to','value_min','value_max'] as $filter)
+    p2ok(str_contains($negList,'name="'.$filter.'"'),"filtro {$filter} deve estar visível em Negociações");
 
 $neg=p2file('negociacao.php');
 foreach(['Contatos da negociação','Orçamentos / propostas','Pedidos','Visitas'] as $rel)
@@ -73,6 +75,8 @@ p2ok(str_contains($quotes,'Leads / Pré-vendas')&&str_contains($quotes,'class="i
 $api=p2file('api/v1/opportunities.php');
 p2ok(str_contains($api,"\$_POST['negotiation_id']"),'API de criação deve receber negotiation_id');
 p2ok(str_contains($api,'vincularOrcamentoNegociacaoCrmUi'),'API AJAX deve preservar o vínculo com negociação');
+p2ok(str_contains($api,"'order_generated'=>false")&&str_contains($api,"'order_pending'=>\$orderPending"),'Fechamento deve deixar pedido pendente, sem criação automática');
+p2ok(!str_contains($api,"INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id"),'API de mudança de etapa não deve criar pedido automaticamente');
 
 $js=p2file('assets/crm-phase2.js');
 p2ok(str_contains($js,'data-modal-open'),'nova UI deve abrir modais por atributo');
