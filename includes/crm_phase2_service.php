@@ -6,7 +6,11 @@ require_once __DIR__ . '/rbac.php';
 
 function crmPhase2Disponivel(PDO $pdo): bool
 {
-    return crmCoreFase1Disponivel($pdo);
+    if(!crmCoreFase1Disponivel($pdo)) return false;
+    try{
+        $stmt=$pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND ((TABLE_NAME='crm_companies' AND COLUMN_NAME='created_by_user_id') OR (TABLE_NAME='crm_contacts' AND COLUMN_NAME='created_by_user_id'))");
+        return (int)$stmt->fetchColumn()===2;
+    }catch(Throwable){return false;}
 }
 
 /** @return array{0:string,1:array<int,int>} */
@@ -26,12 +30,13 @@ function crmEscopoEmpresa(PDO $pdo, string $alias='c'): array
     if(!$ids)return ['1=0',[]];
     $marks=implode(',',array_fill(0,count($ids),'?'));
     $sql="(
-      EXISTS(SELECT 1 FROM crm_negotiations n WHERE n.company_id={$alias}.id AND n.assigned_to_user_id IN ({$marks}))
+      {$alias}.created_by_user_id IN ({$marks})
+      OR EXISTS(SELECT 1 FROM crm_negotiations n WHERE n.company_id={$alias}.id AND n.assigned_to_user_id IN ({$marks}))
       OR EXISTS(SELECT 1 FROM orcamentos o WHERE o.company_id={$alias}.id AND o.assigned_to_user_id IN ({$marks}))
       OR EXISTS(SELECT 1 FROM pedidos p WHERE p.company_id={$alias}.id AND p.assigned_to_user_id IN ({$marks}))
       OR EXISTS(SELECT 1 FROM visitas v WHERE v.company_id={$alias}.id AND v.assigned_to_user_id IN ({$marks}))
     )";
-    return [$sql,array_merge($ids,$ids,$ids,$ids)];
+    return [$sql,array_merge($ids,$ids,$ids,$ids,$ids)];
 }
 
 /** @return array{0:string,1:array<int,int>} */
@@ -42,11 +47,12 @@ function crmEscopoContato(PDO $pdo, string $alias='ct'): array
     if(!$ids)return ['1=0',[]];
     $marks=implode(',',array_fill(0,count($ids),'?'));
     $sql="(
-      EXISTS(SELECT 1 FROM crm_negotiation_contacts nc JOIN crm_negotiations n ON n.id=nc.negotiation_id WHERE nc.contact_id={$alias}.id AND n.assigned_to_user_id IN ({$marks}))
+      {$alias}.created_by_user_id IN ({$marks})
+      OR EXISTS(SELECT 1 FROM crm_negotiation_contacts nc JOIN crm_negotiations n ON n.id=nc.negotiation_id WHERE nc.contact_id={$alias}.id AND n.assigned_to_user_id IN ({$marks}))
       OR EXISTS(SELECT 1 FROM orcamentos o WHERE o.contact_id={$alias}.id AND o.assigned_to_user_id IN ({$marks}))
       OR EXISTS(SELECT 1 FROM visitas v WHERE v.contact_id={$alias}.id AND v.assigned_to_user_id IN ({$marks}))
     )";
-    return [$sql,array_merge($ids,$ids,$ids)];
+    return [$sql,array_merge($ids,$ids,$ids,$ids)];
 }
 
 function podeAcessarEmpresaCrm(PDO $pdo,int $id): bool
@@ -66,6 +72,34 @@ function podeAcessarNegociacaoCrm(PDO $pdo,int $id): bool
     [$where,$params]=crmEscopoNegociacao($pdo,'n');$params[]=$id;
     $stmt=$pdo->prepare("SELECT COUNT(*) FROM crm_negotiations n WHERE {$where} AND n.id=?");$stmt->execute($params);
     return (int)$stmt->fetchColumn()>0;
+}
+
+/** @return array<string,mixed> */
+function criarEmpresaCrmUi(PDO $pdo,array $dados,bool $permitirDuplicidade=false): array
+{
+    if(!crmPhase2Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 2.');
+    $row=criarEmpresaCrmCore($pdo,$dados,$permitirDuplicidade);
+    $id=(int)($row['id']??0);
+    if($id>0){
+        $pdo->prepare('UPDATE crm_companies SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([(int)usuarioLogado()['id'],$id]);
+        $row['created_by_user_id']=(int)usuarioLogado()['id'];
+    }
+    return $row;
+}
+
+/** @return array<string,mixed> */
+function criarContatoCrmUi(PDO $pdo,array $dados,bool $permitirDuplicidade=false): array
+{
+    if(!crmPhase2Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 2.');
+    $companyId=(int)($dados['company_id']??0);
+    if($companyId>0&&!podeAcessarEmpresaCrm($pdo,$companyId))throw new RuntimeException('Empresa fora do seu escopo.');
+    $row=criarContatoCrmCore($pdo,$dados,$permitirDuplicidade);
+    $id=(int)($row['id']??0);
+    if($id>0){
+        $pdo->prepare('UPDATE crm_contacts SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([(int)usuarioLogado()['id'],$id]);
+        $row['created_by_user_id']=(int)usuarioLogado()['id'];
+    }
+    return $row;
 }
 
 /** @return array<int,array<string,mixed>> */
