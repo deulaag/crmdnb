@@ -269,7 +269,7 @@ function garantirNegociacaoParaOrcamento(PDO $pdo, int $orcamentoId): int
 function sincronizarNegociacaoDoOrcamento(PDO $pdo, int $orcamentoId): int
 {
     if ($orcamentoId<=0 || !crmCoreFase1Disponivel($pdo)) return 0;
-    $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+    $negId=sincronizarNegociacaoDoOrcamento($pdo,$orcamentoId);
     if($negId<=0) return 0;
 
     $stmt=$pdo->prepare('SELECT * FROM orcamentos WHERE id=? LIMIT 1');
