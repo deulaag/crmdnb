@@ -307,6 +307,17 @@ function rdPhase9Send(PDO $pdo,string $entity,string $dnbId,int $userId=0): arra
         $external=rdPhase9ResponseId($res['json']);
         if($external==='')throw new RuntimeException('RD CRM criou o registro, mas não retornou o ID necessário para vinculação segura.');
         rdPhase9RegisterLink($pdo,$entity,$dnbId,$external);
+
+        // O RD CRM exige ongoing na criação. Se o ADM definiu status como propriedade
+        // do DNB e o negócio local já nasceu ganho/perdido, aplicamos o status em um PUT
+        // somente depois que o ID remoto seguro foi obtido.
+        if($entity==='negotiation'&&rdPhase9Truth($pdo,'negotiation','status')==='dnb'&&(string)$local['status']!=='open'){
+            $afterCreate=rdPhase9Payload($pdo,$entity,$local,false);
+            $afterBody=json_encode($afterCreate,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+            $after=rdApiRequest('crm','PUT','https://api.rd.services/crm/v2/deals/'.rawurlencode($external),$afterBody===false?'{}':$afterBody);
+            if((int)$after['status']===429)throw new RdPhase9RateLimitException(60,'Negociação criada; aguardando limite para aplicar o status final.');
+            if((int)$after['status']<200||(int)$after['status']>=300)throw new RuntimeException(rdErroResposta($after,'Negociação criada, mas o RD recusou a atualização do status final'));
+        }
     }else{
         $remote=match($entity){'company'=>'organization','contact'=>'contact','negotiation'=>'deal'};
         rdSyncTouchLink($pdo,'rd_crm',$remote,$external);
