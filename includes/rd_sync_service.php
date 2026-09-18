@@ -22,7 +22,7 @@ function rdSyncDisponivel(PDO $pdo): bool
 function rdSyncCounterDefault(): array
 {
     return [
-        'pages'=>0,'marketing_contacts_seen'=>0,'crm_companies_seen'=>0,'crm_contacts_seen'=>0,'crm_deals_seen'=>0,
+        'pages'=>0,'marketing_contacts_seen'=>0,'marketing_contacts_detailed'=>0,'crm_companies_seen'=>0,'crm_contacts_seen'=>0,'crm_deals_seen'=>0,
         'companies_created'=>0,'companies_updated'=>0,'contacts_created'=>0,'contacts_updated'=>0,
         'negotiations_created'=>0,'negotiations_updated'=>0,'links_created'=>0,'conflicts'=>0,'skipped'=>0,
     ];
@@ -93,7 +93,7 @@ function rdSyncCriarJob(PDO $pdo,int $userId): array
 
     $since=(new DateTimeImmutable('now'))->modify('-6 months')->setTime(0,0,0)->format('Y-m-d H:i:s');
     $counters=rdSyncCounterDefault();
-    $state=['marketing_segmentation_id'=>null,'retry_after'=>0];
+    $state=['marketing_segmentation_id'=>null,'marketing_detail_cursor'=>0,'retry_after'=>0];
     $stmt=$pdo->prepare("INSERT INTO rd_sync_jobs (mode,status,stage,since_at,page_number,page_size,state_json,counters_json,created_by_user_id) VALUES ('first_sync','queued','init',?,1,100,?,?,NULLIF(?,0))");
     $stmt->execute([$since,json_encode($state),json_encode($counters),$userId]);
     $id=(int)$pdo->lastInsertId();
@@ -490,9 +490,56 @@ function rdSyncMarketingContactsPage(PDO $pdo,array $job,array &$state,array &$c
     $page=max(1,(int)$job['page_number']);$pageSize=50;
     $url='https://api.rd.services/platform/segmentations/'.rawurlencode($seg).'/contacts?page='.$page.'&page_size='.$pageSize.'&order=last_conversion_date:asc';
     $res=rdSyncFetch('marketing',$url);$items=rdSyncList($res['json'],['contacts','data','items']);
-    foreach($items as $item){$attrs=rdDiscoveryAttrs($item);++$counters['marketing_contacts_seen'];rdSyncUpsertContact($pdo,$jobId,'rd_marketing',rdSyncExternalId($item),$attrs,$item,null,$counters);}
+    foreach($items as $item){
+        $attrs=rdDiscoveryAttrs($item);
+        $externalId=rdSyncExternalId($item);
+        if($externalId===''){
+            $email=crmCoreEmail(rdSyncScalar($attrs['email']??''));
+            if($email!=='')$externalId='email:'.$email;
+        }
+        ++$counters['marketing_contacts_seen'];
+        rdSyncUpsertContact($pdo,$jobId,'rd_marketing',$externalId,$attrs,$item,null,$counters);
+    }
     ++$counters['pages'];rdSyncLog($pdo,$jobId,'info','marketing','Página '.$page.' processada: '.count($items).' contato(s).');
     return ['done'=>count($items)<$pageSize,'count'=>count($items),'next'=>$page+1];
+}
+
+/** @return array{done:bool,count:int,cursor:int} */
+function rdSyncMarketingDetailsBatch(PDO $pdo,array $job,array &$state,array &$counters): array
+{
+    $jobId=(int)$job['id'];$cursor=max(0,(int)($state['marketing_detail_cursor']??0));$limit=10;
+    $stmt=$pdo->prepare("SELECT l.id link_id,l.external_id,c.id contact_id,c.email,c.dnb_id
+      FROM crm_external_links l JOIN crm_contacts c ON c.dnb_id=l.dnb_id
+      WHERE l.provider='rd_marketing' AND l.external_entity='contact' AND l.id>?
+      ORDER BY l.id ASC LIMIT {$limit}");
+    $stmt->execute([$cursor]);$rows=$stmt->fetchAll();
+    foreach($rows as $row){
+        $identifier='';$value='';
+        $email=crmCoreEmail((string)$row['email']);
+        if($email!==''){$identifier='email';$value=$email;}
+        else{
+            $external=(string)$row['external_id'];
+            if(str_starts_with($external,'email:')){$identifier='email';$value=substr($external,6);}
+            elseif(preg_match('/^[0-9a-fA-F-]{32,36}$/',$external)){$identifier='uuid';$value=$external;}
+        }
+        if($identifier===''){
+            ++$counters['skipped'];$cursor=(int)$row['link_id'];continue;
+        }
+        try{
+            $res=rdSyncFetch('marketing','https://api.rd.services/platform/contacts/'.$identifier.':'.rawurlencode($value));
+            $payload=$res['json']??[];$attrs=rdDiscoveryAttrs($payload);
+            rdSyncUpsertContact($pdo,$jobId,'rd_marketing',(string)$row['external_id'],$attrs,$payload,null,$counters);
+            ++$counters['marketing_contacts_detailed'];
+        }catch(RdSyncRateLimitException $e){throw $e;}
+        catch(Throwable $e){
+            rdSyncLog($pdo,$jobId,'warning','marketing_detail','Contato '.$row['dnb_id'].' não pôde ser detalhado: '.$e->getMessage());
+        }
+        $cursor=(int)$row['link_id'];
+    }
+    $state['marketing_detail_cursor']=$cursor;
+    ++$counters['pages'];
+    rdSyncLog($pdo,$jobId,'info','marketing_detail','Detalhamento individual: '.count($rows).' contato(s) processado(s).');
+    return ['done'=>count($rows)<$limit,'count'=>count($rows),'cursor'=>$cursor];
 }
 
 /** @return array{done:bool,count:int,next:int} */
@@ -523,7 +570,10 @@ function rdSyncProcessStep(PDO $pdo,int $jobId): array
                     rdSyncLog($pdo,$jobId,'info','job','Iniciando sincronização real. Nenhum Pedido será criado automaticamente.');rdSyncAdvance($pdo,$job,'marketing_contacts',$state,$counters);break;
                 case 'marketing_contacts':
                     $r=rdSyncMarketingContactsPage($pdo,$job,$state,$counters);
-                    if($r['done']){rdSyncLog($pdo,$jobId,'info','marketing','O RD Marketing não retorna Empresa na leitura em lote; Empresas serão consolidadas pelo RD CRM.');rdSyncAdvance($pdo,$job,'crm_organizations',$state,$counters);}else rdSyncSetJob($pdo,$jobId,'marketing_contacts',(int)$r['next'],$state,$counters);break;
+                    if($r['done']){rdSyncLog($pdo,$jobId,'success','marketing','Listagem base concluída. Iniciando consulta detalhada para campos personalizados.');rdSyncAdvance($pdo,$job,'marketing_contact_details',$state,$counters);}else rdSyncSetJob($pdo,$jobId,'marketing_contacts',(int)$r['next'],$state,$counters);break;
+                case 'marketing_contact_details':
+                    $r=rdSyncMarketingDetailsBatch($pdo,$job,$state,$counters);
+                    if($r['done']){rdSyncLog($pdo,$jobId,'info','marketing','Detalhamento concluído. O campo Empresa do Marketing não é disponibilizado por esta API; Empresas serão consolidadas pelo RD CRM ou por CNPJ explicitamente mapeado.');rdSyncAdvance($pdo,$job,'crm_organizations',$state,$counters);}else rdSyncSetJob($pdo,$jobId,'marketing_contact_details',1,$state,$counters);break;
                 case 'crm_organizations':
                     $r=rdSyncCrmPage($pdo,$job,'organizations','organization',function(array $item)use($pdo,$jobId,&$counters){rdSyncUpsertCompany($pdo,$jobId,'rd_crm',rdSyncExternalId($item),rdDiscoveryAttrs($item),$item,$counters);},$counters,'crm_companies_seen','sort[updated_at]=asc');
                     if($r['done'])rdSyncAdvance($pdo,$job,'crm_contacts',$state,$counters);else rdSyncSetJob($pdo,$jobId,'crm_organizations',(int)$r['next'],$state,$counters);break;
@@ -539,7 +589,7 @@ function rdSyncProcessStep(PDO $pdo,int $jobId): array
                 default:throw new RuntimeException('Etapa de sincronização desconhecida: '.(string)$job['stage']);
             }
         }catch(RdSyncRateLimitException $e){
-            $state['retry_after']=time()+8;rdSyncSetJob($pdo,$jobId,(string)$job['stage'],(int)$job['page_number'],$state,$counters,'running');rdSyncLog($pdo,$jobId,'warning','rate_limit','Limite temporário do RD. Nova tentativa em alguns segundos.');
+            $state['retry_after']=time()+60;rdSyncSetJob($pdo,$jobId,(string)$job['stage'],(int)$job['page_number'],$state,$counters,'running');rdSyncLog($pdo,$jobId,'warning','rate_limit','Limite temporário do RD. Nova tentativa automática após o intervalo de segurança.');
         }catch(Throwable $e){
             rdSyncSetJob($pdo,$jobId,(string)$job['stage'],(int)$job['page_number'],$state,$counters,'error',$e->getMessage());rdSyncLog($pdo,$jobId,'error',(string)$job['stage'],$e->getMessage());
         }
