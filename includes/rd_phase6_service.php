@@ -96,8 +96,8 @@ function rdPhase6WebhookUrl(string $product='crm',bool $includeSecret=false): st
 function rdPhase6CronCommand(): string
 {
     $base=rdPublicBaseUrl(false);
-    if($base==='')return '';
-    $token=rdPhase6EnsureSecrets()['cron'];
+    $token=integracaoConfigValor('DNB_RD_CRON_TOKEN');
+    if($base===''||$token==='')return '';
     return "curl -fsS --max-time 50 -H 'X-DNB-RD-Cron: ".$token."' '".$base."/api/internal/rdstation/sync.php'";
 }
 
@@ -302,6 +302,29 @@ function rdPhase6MarkRemoteDeleted(PDO $pdo,int $jobId,string $entity,string $ex
     rdSyncConflict($pdo,$jobId,'crm',$entity,$externalId,'remote_deleted_'.$link['local_entity'],[(string)$link['dnb_id']],$payload,$counters);
 }
 
+function rdPhase6NormalizeCrmDocument(string $entity,array $doc): array
+{
+    $attrs=rdDiscoveryAttrs($doc);
+    if($entity==='organization'){
+        if(empty($attrs['website'])&&!empty($attrs['url']))$attrs['website']=$attrs['url'];
+        if(isset($attrs['address'])&&is_array($attrs['address']))$attrs['address']=$attrs['address']['line']??'';
+    }elseif($entity==='contact'){
+        if(empty($attrs['email'])&&isset($attrs['emails'])&&is_array($attrs['emails'])){
+            foreach($attrs['emails'] as $mail){
+                if(is_array($mail)&&!empty($mail['email'])){$attrs['email']=(string)$mail['email'];break;}
+                if(is_string($mail)&&trim($mail)!==''){$attrs['email']=$mail;break;}
+            }
+        }
+        if(empty($attrs['phone'])&&isset($attrs['phones'])&&is_array($attrs['phones'])){
+            foreach($attrs['phones'] as $phone){
+                if(is_array($phone)&&!empty($phone['phone'])){$attrs['phone']=(string)$phone['phone'];break;}
+                if(is_string($phone)&&trim($phone)!==''){$attrs['phone']=$phone;break;}
+            }
+        }
+    }
+    return $attrs;
+}
+
 /** @param array<string,int> $counters */
 function rdPhase6ProcessWebhookEvent(PDO $pdo,int $jobId,array $event,array &$counters): string
 {
@@ -334,9 +357,9 @@ function rdPhase6ProcessWebhookEvent(PDO $pdo,int $jobId,array $event,array &$co
     }
 
     if($entity==='organization'){
-        rdSyncUpsertCompany($pdo,$jobId,'rd_crm',$externalId,rdDiscoveryAttrs($doc),$doc,$counters);
+        rdSyncUpsertCompany($pdo,$jobId,'rd_crm',$externalId,rdPhase6NormalizeCrmDocument('organization',$doc),$doc,$counters);
     }elseif($entity==='contact'){
-        $attrs=rdDiscoveryAttrs($doc);
+        $attrs=rdPhase6NormalizeCrmDocument('contact',$doc);
         $orgId=rdSyncRelationshipIds($doc,'organization')[0]??rdSyncScalar($attrs['organization_id']??'');
         $company=$orgId!==''?rdSyncLocalByExternal($pdo,'rd_crm','organization',$orgId):null;
         rdSyncUpsertContact($pdo,$jobId,'rd_crm',$externalId,$attrs,$doc,(int)($company['id']??0),$counters);
