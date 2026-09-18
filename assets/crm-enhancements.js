@@ -233,8 +233,9 @@
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.erro || 'Não foi possível mover a oportunidade.');
       if (result.stage === 'Fechamento') {
-        const pedido = result.order || {};
-        showMessage('Pedido de Venda gerado', 'Fechamento concluído automaticamente', '<div class="dnb-action-dialog__success">A oportunidade entrou em <b>Fechamento</b> e foi marcada como <b>Ganha</b>.</div><p>Pedido: <span class="dnb-order-number">' + String(pedido.numero || 'gerado') + '</span></p><div class="dnb-action-dialog__actions"><a class="rounded-lg px-4 py-2 text-sm font-bold text-white" style="background:#003060" href="/pedidos.php">Abrir Pedidos</a></div>');
+        const negLink = result.negotiation_id ? '/negociacao.php?id=' + encodeURIComponent(result.negotiation_id) : '';
+        const orderLink = '/orcamentos.php?converter=' + encodeURIComponent(result.lead_id || '');
+        showMessage('Proposta marcada como ganha', 'Pedido pendente de confirmação', '<div class="dnb-action-dialog__success">A proposta entrou em <b>Fechamento</b> e foi marcada como <b>Ganha</b>. Nenhum Pedido de Venda foi criado automaticamente.</div><div class="dnb-action-dialog__actions">' + (negLink ? '<a class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold" href="' + negLink + '">Abrir negociação</a>' : '') + '<a class="rounded-lg px-4 py-2 text-sm font-bold text-white" style="background:#003060" href="' + orderLink + '">Gerar Pedido</a></div>');
       }
       if (refreshKanban) await refreshKanban(false); else location.reload();
     } catch (error) {
