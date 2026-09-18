@@ -9,6 +9,7 @@ require_once __DIR__ . '/includes/ai_client.php';
 require_once __DIR__ . '/includes/rd_station_service.php';
 require_once __DIR__ . '/includes/rd_discovery_service.php';
 require_once __DIR__ . '/includes/rd_sync_service.php';
+require_once __DIR__ . '/includes/rd_phase6_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -271,6 +272,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } catch (Throwable $e) {
             cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_automation') {
+        try {
+            if (!rdPhase6Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 6.');
+            rdPhase6SalvarAutomacao(
+                !empty($_POST['incremental_enabled']),
+                (int)($_POST['incremental_minutes'] ?? 15),
+                (int)($_POST['incremental_overlap_minutes'] ?? 10)
+            );
+            cfgRedirect('Automação contínua do RD salva. Os tokens de webhook e cron foram garantidos com segurança.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'registrar_rd_webhooks') {
+        try {
+            if (!rdPhase6Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 6.');
+            $resultado = rdPhase6RegisterWebhooks($pdo);
+            $tipo = $resultado['error'] > 0 ? 'warning' : 'success';
+            $msg = 'Webhooks RD: ' . (int)$resultado['ok'] . ' ativo(s), ' . (int)$resultado['error'] . ' erro(s).';
+            if ($resultado['messages']) $msg .= ' ' . implode(' ', array_slice($resultado['messages'], 0, 4));
+            cfgRedirectTipo($msg, 'rdstation', $tipo);
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Webhooks RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'iniciar_rd_incremental') {
+        try {
+            if (!rdPhase6Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 6.');
+            $job = rdSyncCriarIncrementalJob($pdo, (int)(usuarioLogado()['id'] ?? 0), true);
+            if (!$job) throw new RuntimeException('Não foi necessário criar uma sincronização incremental.');
+            $_SESSION['flash'] = 'Sincronização incremental criada.';
+            header('Location: /configuracoes.php?rd_job=' . (int)$job['id'] . '#tab-rdstation');
+            exit;
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'resolver_rd_conflict') {
+        try {
+            if (!rdPhase6Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 6.');
+            rdPhase6ResolverConflito(
+                $pdo,
+                (int)($_POST['conflict_id'] ?? 0),
+                (string)($_POST['resolution_action'] ?? ''),
+                (string)($_POST['resolved_dnb_id'] ?? ''),
+                (int)(usuarioLogado()['id'] ?? 0),
+                (string)($_POST['resolution_note'] ?? '')
+            );
+            $jobId = (int)($_POST['rd_job'] ?? 0);
+            $_SESSION['flash'] = 'Conflito RD tratado e auditado.';
+            header('Location: /configuracoes.php' . ($jobId > 0 ? '?rd_job=' . $jobId : '') . '#tab-rdstation');
+            exit;
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Conflito RD: ' . $e->getMessage(), 'rdstation', 'error');
         }
     }
 
