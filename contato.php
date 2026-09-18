@@ -11,7 +11,13 @@ $erro='';$msg=!empty($_GET['criado'])?'Contato criado com sucesso.':'';
 if($_SERVER['REQUEST_METHOD']==='POST'){
   exigirCsrf();
   try{
-    if(($_POST['acao']??'')==='update'){atualizarContatoCrmUi($pdo,$id,$_POST);$msg='Contato atualizado.';}
+    $acao=(string)($_POST['acao']??'');
+    if($acao==='update'){atualizarContatoCrmUi($pdo,$id,$_POST);$msg='Contato atualizado.';}
+    elseif($acao==='send_rd'){
+      if(!temPapel(PAPEL_ADMINISTRADOR)||!rdPhase9Disponivel($pdo))throw new RuntimeException('Envio manual ao RD disponível somente para o ADM após instalar a Fase 9.');
+      rdPhase9EnqueueLocalId($pdo,'contact',$id,'envio_manual_contato',(int)usuarioLogado()['id'],true);
+      $msg='Contato colocado na fila DNB → RD.';
+    }
   }catch(Throwable $e){$erro=$e->getMessage();}
 }
 $contato=detalharContatoCrmUi($pdo,$id);if(!$contato){http_response_code(404);exit('Contato não encontrado.');}
@@ -29,7 +35,7 @@ $tabAtual='contatos';include __DIR__.'/includes/layout_header.php';
 <section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-4">
   <div class="flex items-start justify-between gap-4 flex-wrap">
     <div><div class="flex gap-2 items-center flex-wrap"><span class="font-mono text-xs bg-slate-100 px-2 py-1 rounded"><?=e($contato['dnb_id'])?></span><?=($contato['review_status']??'ok')==='needs_review'?tag('Precisa conferir','amber'):tag('Cadastro OK','green')?></div><h2 class="text-2xl font-black mt-2" style="color:<?=NAVY?>;"><?=e($contato['name'])?></h2><p class="text-sm text-slate-500"><?=e($contato['role_title']?:'Contato comercial')?></p></div>
-    <div class="flex gap-2"><a href="/contatos.php" class="<?=BTN_S?>">← Contatos</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-contato">Editar contato</button></div>
+    <div class="flex gap-2 flex-wrap"><?php if(temPapel(PAPEL_ADMINISTRADOR)&&rdPhase9Disponivel($pdo)):?><form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="send_rd"><button class="<?=BTN_S?>">Colocar na fila RD</button></form><?php endif;?><a href="/contatos.php" class="<?=BTN_S?>">← Contatos</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-contato">Editar contato</button></div>
   </div>
   <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
     <div class="rounded-lg border p-3"><span class="text-xs text-slate-500">Empresa</span><strong class="block mt-1"><?=e($contato['company_name']?:'Sem empresa')?></strong></div>

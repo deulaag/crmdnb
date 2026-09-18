@@ -21,6 +21,10 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         'phone'=>$_POST['contact_phone']??'','role_title'=>$_POST['contact_role']??'','source'=>'manual'
       ],!empty($_POST['permitir_duplicidade']));
       $msg='Contato '.$contato['dnb_id'].' criado e vinculado.';
+    }elseif($acao==='send_rd'){
+      if(!temPapel(PAPEL_ADMINISTRADOR)||!rdPhase9Disponivel($pdo))throw new RuntimeException('Envio manual ao RD disponível somente para o ADM após instalar a Fase 9.');
+      rdPhase9EnqueueLocalId($pdo,'company',$id,'envio_manual_empresa',(int)usuarioLogado()['id'],true);
+      $msg='Empresa colocada na fila DNB → RD.';
     }
   }catch(Throwable $e){$erro=$e->getMessage();}
 }
@@ -43,7 +47,7 @@ include __DIR__.'/includes/layout_header.php';
       <h2 class="text-2xl font-black mt-2" style="color:<?=NAVY?>;"><?=e($empresa['name'])?></h2>
       <p class="text-sm text-slate-500"><?=e($empresa['trade_name']?:'')?></p>
     </div>
-    <div class="flex gap-2"><a class="<?=BTN_S?>" href="/empresas.php">← Empresas</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-empresa">Editar empresa</button></div>
+    <div class="flex gap-2 flex-wrap"><?php if(temPapel(PAPEL_ADMINISTRADOR)&&rdPhase9Disponivel($pdo)):?><form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="send_rd"><button class="<?=BTN_S?>">Colocar na fila RD</button></form><?php endif;?><a class="<?=BTN_S?>" href="/empresas.php">← Empresas</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-empresa">Editar empresa</button></div>
   </div>
   <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
     <div class="rounded-lg border p-3"><span class="text-xs text-slate-500">CNPJ</span><strong class="block mt-1"><?=e($empresa['cnpj']?:'—')?></strong></div>

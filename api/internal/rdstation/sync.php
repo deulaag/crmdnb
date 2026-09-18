@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../includes/db.php';
 require_once __DIR__ . '/../../../includes/rd_phase6_service.php';
+require_once __DIR__ . '/../../../includes/rd_phase9_service.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -21,8 +22,15 @@ $pdo=db();
 if(!rdPhase6Disponivel($pdo))rdCronOut(['ok'=>false,'error'=>'phase6_not_installed'],503);
 
 try{
-    $result=rdPhase6Tick($pdo,35);
-    rdCronOut(['ok'=>true,'result'=>$result,'stats'=>rdPhase6Stats($pdo)]);
+    $outbound=rdPhase9Disponivel($pdo)?rdPhase9ProcessQueue($pdo,5,false):['processed'=>0,'success'=>0,'error'=>0,'blocked'=>0,'retry'=>0];
+    $result=rdPhase6Tick($pdo,25);
+    rdCronOut([
+        'ok'=>true,
+        'result'=>$result,
+        'outbound'=>$outbound,
+        'stats'=>rdPhase6Stats($pdo),
+        'outbound_stats'=>rdPhase9Disponivel($pdo)?rdPhase9Stats($pdo):null,
+    ]);
 }catch(Throwable $e){
     error_log('rd-cron: '.$e->getMessage());
     rdCronOut(['ok'=>false,'error'=>$e->getMessage()],422);

@@ -23,6 +23,10 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             removerContatoNegociacaoCrmUi($pdo,$id,(int)($_POST['contact_id']??0));$msg='Contato removido da negociação.';
         }elseif($acao==='link_quote'){
             vincularOrcamentoNegociacaoCrmUi($pdo,$id,(int)($_POST['orcamento_id']??0));$msg='Orçamento vinculado à negociação.';
+        }elseif($acao==='send_rd'){
+            if(!temPapel(PAPEL_ADMINISTRADOR)||!rdPhase9Disponivel($pdo))throw new RuntimeException('Envio manual ao RD disponível somente para o ADM após instalar a Fase 9.');
+            rdPhase9EnqueueLocalId($pdo,'negotiation',$id,'envio_manual_negociacao',(int)usuarioLogado()['id'],true);
+            $msg='Negociação colocada na fila DNB → RD.';
         }
     }catch(Throwable $e){$erro=$e->getMessage();}
 }
@@ -38,7 +42,7 @@ $tabAtual='neg';include __DIR__.'/includes/layout_header.php';
 <section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-4">
   <div class="flex justify-between items-start gap-4 flex-wrap">
     <div><div class="flex gap-2 items-center flex-wrap"><span class="font-mono text-xs bg-slate-100 px-2 py-1 rounded"><?=e($neg['dnb_id'])?></span><?=tag(statusNegociacaoLabel($neg['status']),$neg['status']==='won'?'green':($neg['status']==='lost'?'red':'blue'))?><?php if($neg['order_status']==='pending'):?><?=tag('Pedido pendente','amber')?><?php elseif($neg['order_status']==='generated'):?><?=tag('Pedido gerado','green')?><?php endif;?></div><h2 class="text-2xl font-black mt-2" style="color:<?=NAVY?>;"><?=e($neg['title'])?></h2><p class="text-sm text-slate-500"><?=e($neg['company_name']?:'Sem empresa vinculada')?> · <?=e($neg['owner_name']?:'Sem responsável')?></p></div>
-    <div class="flex gap-2"><a href="/negociacoes.php" class="<?=BTN_S?>">← Negociações</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-negociacao">Editar negociação</button></div>
+    <div class="flex gap-2 flex-wrap"><?php if(temPapel(PAPEL_ADMINISTRADOR)&&rdPhase9Disponivel($pdo)):?><form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="send_rd"><button class="<?=BTN_S?>">Colocar na fila RD</button></form><?php endif;?><a href="/negociacoes.php" class="<?=BTN_S?>">← Negociações</a><button type="button" class="<?=BTN_P?>" data-modal-open="modal-editar-negociacao">Editar negociação</button></div>
   </div>
   <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
     <div class="rounded-lg border p-3"><span class="text-xs text-slate-500">Valor estimado</span><strong class="block mt-1"><?=fmtBRL($neg['estimated_value'])?></strong></div>

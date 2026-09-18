@@ -11,6 +11,7 @@ require_once __DIR__ . '/includes/rd_discovery_service.php';
 require_once __DIR__ . '/includes/rd_sync_service.php';
 require_once __DIR__ . '/includes/rd_phase6_service.php';
 require_once __DIR__ . '/includes/rd_phase8_service.php';
+require_once __DIR__ . '/includes/rd_phase9_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -368,6 +369,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } catch (Throwable $e) {
             cfgRedirectTipo('Retomar sincronização RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_outbound') {
+        try {
+            if (!rdPhase9Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 9.');
+            salvarIntegracaoConfig(['DNB_RD_OUTBOUND_AUTO_ENABLED'=>!empty($_POST['outbound_auto_enabled'])?'1':'0']);
+            $n = rdPhase9SaveRules($pdo, (array)($_POST['outbound_rule'] ?? []));
+            cfgRedirect('Saída DNB → RD salva. ' . $n . ' regra(s) de propriedade revisada(s).', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Saída RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'processar_rd_outbound_now') {
+        try {
+            if (!rdPhase9Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 9.');
+            $r = rdPhase9ProcessQueue($pdo, 15, true);
+            $msg = 'Saída DNB → RD: ' . (int)$r['success'] . ' sucesso(s), ' . (int)$r['blocked'] . ' bloqueado(s), ' . (int)$r['error'] . ' erro(s), ' . (int)$r['retry'] . ' aguardando limite.';
+            cfgRedirectTipo($msg, 'rdstation', ((int)$r['error'] > 0 || (int)$r['blocked'] > 0) ? 'warning' : 'success');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Saída RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'enfileirar_rd_outbound') {
+        try {
+            if (!rdPhase9Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 9.');
+            $entity = (string)($_POST['entity'] ?? '');
+            $localId = (int)($_POST['local_id'] ?? 0);
+            $idQueue = rdPhase9EnqueueLocalId($pdo, $entity, $localId, 'envio_manual_adm', (int)(usuarioLogado()['id'] ?? 0), true);
+            cfgRedirect($idQueue > 0 ? 'Registro colocado na fila DNB → RD.' : 'Registro não pôde ser colocado na fila.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Saída RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'reabrir_rd_outbound') {
+        try {
+            if (!rdPhase9Disponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 9.');
+            rdPhase9RequeueItem($pdo, (int)($_POST['queue_id'] ?? 0), (int)(usuarioLogado()['id'] ?? 0));
+            cfgRedirect('Item DNB → RD reaberto. Corrija o mapeamento/dependência e processe a fila novamente.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Saída RD: ' . $e->getMessage(), 'rdstation', 'error');
         }
     }
 

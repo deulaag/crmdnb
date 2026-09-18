@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/crm_core_service.php';
 require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/rd_phase9_service.php';
 
 function crmPhase2Disponivel(PDO $pdo): bool
 {
@@ -84,8 +85,10 @@ function criarEmpresaCrmUi(PDO $pdo,array $dados,bool $permitirDuplicidade=false
     $row=criarEmpresaCrmCore($pdo,$dados,$permitirDuplicidade);
     $id=(int)($row['id']??0);
     if($id>0){
-        $pdo->prepare('UPDATE crm_companies SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([(int)usuarioLogado()['id'],$id]);
-        $row['created_by_user_id']=(int)usuarioLogado()['id'];
+        $userId=(int)usuarioLogado()['id'];
+        $pdo->prepare('UPDATE crm_companies SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([$userId,$id]);
+        $row['created_by_user_id']=$userId;
+        if(!empty($row['dnb_id']))rdPhase9EnqueueEntity($pdo,'company',(string)$row['dnb_id'],'empresa_criada_localmente',['name','cnpj'],$userId,false);
     }
     return $row;
 }
@@ -99,8 +102,10 @@ function criarContatoCrmUi(PDO $pdo,array $dados,bool $permitirDuplicidade=false
     $row=criarContatoCrmCore($pdo,$dados,$permitirDuplicidade);
     $id=(int)($row['id']??0);
     if($id>0){
-        $pdo->prepare('UPDATE crm_contacts SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([(int)usuarioLogado()['id'],$id]);
-        $row['created_by_user_id']=(int)usuarioLogado()['id'];
+        $userId=(int)usuarioLogado()['id'];
+        $pdo->prepare('UPDATE crm_contacts SET created_by_user_id=COALESCE(created_by_user_id,?) WHERE id=?')->execute([$userId,$id]);
+        $row['created_by_user_id']=$userId;
+        if(!empty($row['dnb_id']))rdPhase9EnqueueEntity($pdo,'contact',(string)$row['dnb_id'],'contato_criado_localmente',['name','email','company_id'],$userId,false);
     }
     return $row;
 }
@@ -284,6 +289,8 @@ function atualizarEmpresaCrmUi(PDO $pdo,int $id,array $dados): void
         mb_substr(crmCoreEmail((string)($dados['primary_email']??'')),0,190),mb_substr(trim((string)($dados['phone']??'')),0,40),mb_substr(trim((string)($dados['website']??'')),0,255),
         mb_substr(trim((string)($dados['address']??'')),0,255),mb_substr(trim((string)($dados['locality']??'')),0,180),$review,$reason,$id
     ]);
+    $stmt=$pdo->prepare('SELECT dnb_id FROM crm_companies WHERE id=?');$stmt->execute([$id]);$dnb=(string)($stmt->fetchColumn()?:'');
+    if($dnb!=='')rdPhase9EnqueueEntity($pdo,'company',$dnb,'empresa_atualizada_localmente',['name','cnpj','website','address'],(int)usuarioLogado()['id'],false);
 }
 
 function atualizarContatoCrmUi(PDO $pdo,int $id,array $dados): void
@@ -296,6 +303,8 @@ function atualizarContatoCrmUi(PDO $pdo,int $id,array $dados): void
     if($companyId&&!podeAcessarEmpresaCrm($pdo,$companyId))throw new RuntimeException('Empresa fora do seu escopo.');
     $stmt=$pdo->prepare('UPDATE crm_contacts SET company_id=?,name=?,phone=?,email=?,role_title=?,review_status=?,review_reason=? WHERE id=?');
     $stmt->execute([$companyId,mb_substr($nome,0,180),mb_substr(trim((string)($dados['phone']??'')),0,40),mb_substr($email,0,190),mb_substr(trim((string)($dados['role_title']??'')),0,120),$dups?'needs_review':'ok',$dups?'E-mail duplicado: conferir antes de mesclar':null,$id]);
+    $stmt=$pdo->prepare('SELECT dnb_id FROM crm_contacts WHERE id=?');$stmt->execute([$id]);$dnb=(string)($stmt->fetchColumn()?:'');
+    if($dnb!=='')rdPhase9EnqueueEntity($pdo,'contact',$dnb,'contato_atualizado_localmente',['name','email','phone','role_title','company_id'],(int)usuarioLogado()['id'],false);
 }
 
 /** @return array<string,mixed> */
@@ -334,6 +343,7 @@ function criarNegociacaoCrmUi(PDO $pdo,array $dados): array
         foreach($contacts as $ct){
             vincularContatoNegociacaoCrmUi($pdo,(int)$neg['id'],(int)($ct['contact_id']??$ct['id']), (string)($ct['role']??'outro'),!empty($ct['is_primary']));
         }
+        if(!empty($neg['dnb_id']))rdPhase9EnqueueEntity($pdo,'negotiation',(string)$neg['dnb_id'],'negociacao_criada_localmente',['title','company_id','assigned_to_user_id','stage_name','estimated_value','primary_contact'],(int)usuarioLogado()['id'],false);
         if($started)$pdo->commit();
         return $neg;
     }catch(Throwable $e){
@@ -348,8 +358,14 @@ function vincularContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contact
     $stmt=$pdo->prepare('SELECT company_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$companyId=(int)($stmt->fetchColumn()?:0);
     $stmt=$pdo->prepare('SELECT company_id FROM crm_contacts WHERE id=?');$stmt->execute([$contactId]);$contactCompany=(int)($stmt->fetchColumn()?:0);
     if($companyId>0&&$contactCompany>0&&$companyId!==$contactCompany)throw new DomainException('O contato pertence a outra empresa.');
-    if($companyId>0&&$contactCompany===0)$pdo->prepare('UPDATE crm_contacts SET company_id=? WHERE id=?')->execute([$companyId,$contactId]);
+    if($companyId>0&&$contactCompany===0){
+        $pdo->prepare('UPDATE crm_contacts SET company_id=? WHERE id=?')->execute([$companyId,$contactId]);
+        $stmt=$pdo->prepare('SELECT dnb_id FROM crm_contacts WHERE id=?');$stmt->execute([$contactId]);$contactDnb=(string)($stmt->fetchColumn()?:'');
+        if($contactDnb!=='')rdPhase9EnqueueEntity($pdo,'contact',$contactDnb,'empresa_atribuida_ao_contato',['company_id'],(int)usuarioLogado()['id'],false);
+    }
     vincularContatoNegociacaoCrm($pdo,$negotiationId,$contactId,$role,$principal);
+    $stmt=$pdo->prepare('SELECT dnb_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$negDnb=(string)($stmt->fetchColumn()?:'');
+    if($negDnb!=='')rdPhase9EnqueueEntity($pdo,'negotiation',$negDnb,'contato_vinculado_a_negociacao',['primary_contact'],(int)usuarioLogado()['id'],false);
 }
 
 function atualizarNegociacaoCrmUi(PDO $pdo,int $id,array $dados): void
@@ -378,12 +394,16 @@ function atualizarNegociacaoCrmUi(PDO $pdo,int $id,array $dados): void
     $stmt=$pdo->prepare('SELECT COUNT(*) FROM pedidos WHERE negotiation_id=?');$stmt->execute([$id]);$hasOrder=(int)$stmt->fetchColumn()>0;
     $orderStatus=$hasOrder?'generated':($status==='won'?'pending':'none');
     $pdo->prepare('UPDATE crm_negotiations SET order_status=? WHERE id=?')->execute([$orderStatus,$id]);
+    $stmt=$pdo->prepare('SELECT dnb_id FROM crm_negotiations WHERE id=?');$stmt->execute([$id]);$dnb=(string)($stmt->fetchColumn()?:'');
+    if($dnb!=='')rdPhase9EnqueueEntity($pdo,'negotiation',$dnb,'negociacao_atualizada_localmente',['title','company_id','stage_name','estimated_value','assigned_to_user_id','status','lost_reason'],(int)usuarioLogado()['id'],false);
 }
 
 function removerContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contactId): void
 {
     if(!podeAcessarNegociacaoCrm($pdo,$negotiationId))throw new RuntimeException('Negociação fora do seu escopo.');
     $pdo->prepare('DELETE FROM crm_negotiation_contacts WHERE negotiation_id=? AND contact_id=?')->execute([$negotiationId,$contactId]);
+    $stmt=$pdo->prepare('SELECT dnb_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$dnb=(string)($stmt->fetchColumn()?:'');
+    if($dnb!=='')rdPhase9EnqueueEntity($pdo,'negotiation',$dnb,'contato_removido_da_negociacao',['primary_contact'],(int)usuarioLogado()['id'],false);
 }
 
 function vincularOrcamentoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $orcamentoId): void

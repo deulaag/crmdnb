@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/rbac.php';
 require_once __DIR__ . '/../../includes/rd_sync_service.php';
+require_once __DIR__ . '/../../includes/rd_phase9_service.php';
 
 header('Content-Type: application/json; charset=utf-8');
 exigirPapel(PAPEL_ADMINISTRADOR);
