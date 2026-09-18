@@ -303,6 +303,14 @@ function rdSyncEntityTable(string $entity): string
     return match($entity){'company'=>'crm_companies','contact'=>'crm_contacts','negotiation'=>'crm_negotiations',default=>throw new InvalidArgumentException('Entidade local inválida.')};
 }
 
+function rdSyncTruth(PDO $pdo,string $entity,string $field,string $default='rd'): string
+{
+    if(function_exists('rdPhase9Truth')){
+        try{return rdPhase9Truth($pdo,$entity,$field,$default);}catch(Throwable){}
+    }
+    return $default;
+}
+
 function rdSyncDateTime(mixed $value): ?string
 {
     $raw=trim((string)$value);if($raw==='')return null;
@@ -377,12 +385,12 @@ function rdSyncUpsertCompany(PDO $pdo,int $jobId,string $provider,string $extern
     $linked=rdSyncExternalLocal($pdo,$provider,'organization',$externalId);
     $mapped=rdSyncMappedValues($pdo,$product,'organization',$attrs,'company');
     $fields=array_merge([
-        'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>'rd'],
+        'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>rdSyncTruth($pdo,'company','name')],
         'trade_name'=>['source_key'=>'trade_name','value'=>rdSyncScalar($attrs['trade_name']??''),'truth'=>'rd'],
         'primary_email'=>['source_key'=>'email','value'=>rdSyncScalar($attrs['email']??''),'truth'=>'rd'],
         'phone'=>['source_key'=>'phone','value'=>rdSyncScalar($attrs['phone']??''),'truth'=>'rd'],
-        'website'=>['source_key'=>'website','value'=>rdSyncScalar($attrs['website']??$attrs['site']??''),'truth'=>'rd'],
-        'address'=>['source_key'=>'address','value'=>rdSyncScalar($attrs['address']??''),'truth'=>'rd'],
+        'website'=>['source_key'=>'website','value'=>rdSyncScalar($attrs['website']??$attrs['site']??''),'truth'=>rdSyncTruth($pdo,'company','website')],
+        'address'=>['source_key'=>'address','value'=>rdSyncScalar($attrs['address']??''),'truth'=>rdSyncTruth($pdo,'company','address')],
         'locality'=>['source_key'=>'locality','value'=>rdSyncScalar($attrs['city']??$attrs['locality']??''),'truth'=>'rd'],
     ],$mapped);
     $cnpj=$fields['cnpj']['value']??rdSyncScalar($attrs['cnpj']??'');
@@ -440,13 +448,13 @@ function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $extern
     }else{
         $phone=rdSyncScalar($attrs['phone']??$attrs['mobile_phone']??$attrs['personal_phone']??'');
         $fields=array_merge([
-            'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>'rd'],
-            'email'=>['source_key'=>'email','value'=>crmCoreEmail(rdSyncScalar($attrs['email']??'')),'truth'=>'rd'],
-            'phone'=>['source_key'=>'phone','value'=>$phone,'truth'=>'rd'],
-            'role_title'=>['source_key'=>'job_title','value'=>rdSyncScalar($attrs['job_title']??$attrs['title']??''),'truth'=>'rd'],
+            'name'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??''),'truth'=>rdSyncTruth($pdo,'contact','name')],
+            'email'=>['source_key'=>'email','value'=>crmCoreEmail(rdSyncScalar($attrs['email']??'')),'truth'=>rdSyncTruth($pdo,'contact','email')],
+            'phone'=>['source_key'=>'phone','value'=>$phone,'truth'=>rdSyncTruth($pdo,'contact','phone')],
+            'role_title'=>['source_key'=>'job_title','value'=>rdSyncScalar($attrs['job_title']??$attrs['title']??''),'truth'=>rdSyncTruth($pdo,'contact','role_title')],
         ],$mappedContact);
     }
-    if($companyId)$fields['company_id']=['source_key'=>'organization_id','value'=>$companyId,'truth'=>'rd'];
+    if($companyId)$fields['company_id']=['source_key'=>'organization_id','value'=>$companyId,'truth'=>rdSyncTruth($pdo,'contact','company_id')];
 
     if($linked){
         $local=$linked['local'];rdSyncTouchLink($pdo,$provider,'contact',$externalId);rdSyncUpdateLocal($pdo,$jobId,$product,'contact',$externalId,'contact',(int)$local['id'],$fields,$payload,$counters);
@@ -525,17 +533,17 @@ function rdSyncUpsertDeal(PDO $pdo,int $jobId,string $externalId,array $item,arr
     $lostId=rdSyncRelationshipIds($item,'lost_reason')[0]??rdSyncScalar($attrs['lost_reason_id']??'');
     $names=rdSyncPipelineNames($pdo,$pipelineId,$stageId);$status=rdSyncDealStatus(rdSyncScalar($attrs['status']??''));
     $fields=array_merge([
-        'title'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??$attrs['title']??''),'truth'=>'rd'],
-        'estimated_value'=>['source_key'=>'total_price','value'=>(float)($attrs['total_price']??$attrs['value']??0),'truth'=>'rd'],
-        'status'=>['source_key'=>'status','value'=>$status,'truth'=>'rd'],
+        'title'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??$attrs['title']??''),'truth'=>rdSyncTruth($pdo,'negotiation','title')],
+        'estimated_value'=>['source_key'=>'total_price','value'=>(float)($attrs['total_price']??$attrs['value']??0),'truth'=>rdSyncTruth($pdo,'negotiation','estimated_value')],
+        'status'=>['source_key'=>'status','value'=>$status,'truth'=>rdSyncTruth($pdo,'negotiation','status')],
         'pipeline_name'=>['source_key'=>'pipeline_id','value'=>$names['pipeline'],'truth'=>'rd'],
-        'stage_name'=>['source_key'=>'stage_id','value'=>$names['stage'],'truth'=>'rd'],
-        'lost_reason'=>['source_key'=>'lost_reason_id','value'=>rdSyncDiscoveryName($pdo,'lost_reason',$lostId),'truth'=>'rd'],
-        'assigned_to_user_id'=>['source_key'=>'owner_id','value'=>rdSyncOwnerLocalId($pdo,$ownerId),'truth'=>'rd'],
+        'stage_name'=>['source_key'=>'stage_id','value'=>$names['stage'],'truth'=>rdSyncTruth($pdo,'negotiation','stage_name')],
+        'lost_reason'=>['source_key'=>'lost_reason_id','value'=>rdSyncDiscoveryName($pdo,'lost_reason',$lostId),'truth'=>rdSyncTruth($pdo,'negotiation','lost_reason')],
+        'assigned_to_user_id'=>['source_key'=>'owner_id','value'=>rdSyncOwnerLocalId($pdo,$ownerId),'truth'=>rdSyncTruth($pdo,'negotiation','assigned_to_user_id')],
         'business_created_at'=>['source_key'=>'created_at','value'=>rdSyncScalar($attrs['created_at']??''),'truth'=>'rd'],
         'business_updated_at'=>['source_key'=>'updated_at','value'=>rdSyncScalar($attrs['updated_at']??''),'truth'=>'rd'],
         'closed_at'=>['source_key'=>'closed_at','value'=>rdSyncScalar($attrs['closed_at']??''),'truth'=>'rd'],
-        'company_id'=>['source_key'=>'organization_id','value'=>(int)($company['id']??0),'truth'=>'rd'],
+        'company_id'=>['source_key'=>'organization_id','value'=>(int)($company['id']??0),'truth'=>rdSyncTruth($pdo,'negotiation','company_id')],
     ],rdSyncMappedValues($pdo,'crm','deal',$attrs,'negotiation'));
 
     if($linked){
