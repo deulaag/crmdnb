@@ -6,6 +6,7 @@
 .dnb-detail-list>div{border-bottom:1px solid #e2e8f0;padding:.55rem 0}
 .dnb-detail-list dt{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
 .dnb-detail-list dd{margin-top:.25rem;font-size:.92rem;color:#0f172a;overflow-wrap:anywhere}
+.dnb-modal-backdrop.hidden{display:none}
 .dnb-modal-backdrop{position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.56);padding:1.25rem;align-items:center;justify-content:center;overflow:auto}
 .dnb-modal-backdrop:not(.hidden){display:flex}
 .dnb-modal{width:min(560px,100%);max-height:calc(100vh - 2.5rem);overflow:auto;background:#fff;border-radius:1rem;box-shadow:0 24px 70px rgba(15,23,42,.28);border:1px solid rgba(255,255,255,.5)}
