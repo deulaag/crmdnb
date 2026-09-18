@@ -536,7 +536,7 @@ function rdSyncUpsertDeal(PDO $pdo,int $jobId,string $externalId,array $item,arr
         'title'=>['source_key'=>'name','value'=>rdSyncScalar($attrs['name']??$attrs['title']??''),'truth'=>rdSyncTruth($pdo,'negotiation','title')],
         'estimated_value'=>['source_key'=>'total_price','value'=>(float)($attrs['total_price']??$attrs['value']??0),'truth'=>rdSyncTruth($pdo,'negotiation','estimated_value')],
         'status'=>['source_key'=>'status','value'=>$status,'truth'=>rdSyncTruth($pdo,'negotiation','status')],
-        'pipeline_name'=>['source_key'=>'pipeline_id','value'=>$names['pipeline'],'truth'=>'rd'],
+        'pipeline_name'=>['source_key'=>'pipeline_id','value'=>$names['pipeline'],'truth'=>rdSyncTruth($pdo,'negotiation','pipeline_name')],
         'stage_name'=>['source_key'=>'stage_id','value'=>$names['stage'],'truth'=>rdSyncTruth($pdo,'negotiation','stage_name')],
         'lost_reason'=>['source_key'=>'lost_reason_id','value'=>rdSyncDiscoveryName($pdo,'lost_reason',$lostId),'truth'=>rdSyncTruth($pdo,'negotiation','lost_reason')],
         'assigned_to_user_id'=>['source_key'=>'owner_id','value'=>rdSyncOwnerLocalId($pdo,$ownerId),'truth'=>rdSyncTruth($pdo,'negotiation','assigned_to_user_id')],
