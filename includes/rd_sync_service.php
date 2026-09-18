@@ -261,13 +261,19 @@ function rdSyncEntityTable(string $entity): string
     return match($entity){'company'=>'crm_companies','contact'=>'crm_contacts','negotiation'=>'crm_negotiations',default=>throw new InvalidArgumentException('Entidade local inválida.')};
 }
 
+function rdSyncDateTime(mixed $value): ?string
+{
+    $raw=trim((string)$value);if($raw==='')return null;
+    try{return (new DateTimeImmutable($raw))->format('Y-m-d H:i:s');}catch(Throwable){return null;}
+}
+
 /** @param array<string,array{source_key:string,value:mixed,truth:string}> $fields */
 function rdSyncUpdateLocal(PDO $pdo,int $jobId,string $product,string $externalEntity,string $externalId,string $entity,int $id,array $fields,array $payload,array &$counters): void
 {
     if(!$fields)return;
     $table=rdSyncEntityTable($entity);$allowed=rdSyncTableAllowed($entity);
     $stmt=$pdo->prepare("SELECT * FROM {$table} WHERE id=?");$stmt->execute([$id]);$current=$stmt->fetch();if(!$current)return;
-    $sets=[];$params=[];
+    $sets=[];$params=[];$updatedFields=[];
     foreach($fields as $field=>$meta){
         if(!isset($allowed[$field]))continue;
         $new=$meta['value'];$truth=$meta['truth']??'rd';$old=$current[$field]??null;
@@ -278,13 +284,32 @@ function rdSyncUpdateLocal(PDO $pdo,int $jobId,string $product,string $externalE
             rdSyncConflict($pdo,$jobId,$product,$externalEntity,$externalId,'field_conflict_'.$entity.'_'.$field,[['dnb_id'=>$current['dnb_id']??'','field'=>$field,'local_value'=>$oldNorm,'rd_value'=>$newNorm]],$payload,$counters);
             continue;
         }
+        if($entity==='company'&&$field==='cnpj'){
+            $digits=crmCoreCnpjDigits($newNorm);
+            if($digits==='')continue;
+            $check=$pdo->prepare('SELECT dnb_id FROM crm_companies WHERE cnpj_digits=? AND id<>? ORDER BY id');
+            $check->execute([$digits,$id]);$other=$check->fetchAll(PDO::FETCH_COLUMN);
+            if($other){rdSyncConflict($pdo,$jobId,$product,$externalEntity,$externalId,'cnpj_change_collision',$other,$payload,$counters);continue;}
+        }
+        if($entity==='contact'&&$field==='email'){
+            $normalized=crmCoreEmail($newNorm);if($normalized==='')continue;$new=$normalized;$newNorm=$normalized;
+            $check=$pdo->prepare('SELECT dnb_id FROM crm_contacts WHERE LOWER(TRIM(email))=? AND id<>? ORDER BY id');
+            $check->execute([$normalized,$id]);$other=$check->fetchAll(PDO::FETCH_COLUMN);
+            if($other){rdSyncConflict($pdo,$jobId,$product,$externalEntity,$externalId,'email_change_collision',$other,$payload,$counters);continue;}
+        }
+        if($entity==='negotiation'&&$field==='status')$new=rdSyncDealStatus($newNorm);
         if($field==='estimated_value')$new=max(0,(float)$new);
-        if(in_array($field,['assigned_to_user_id','company_id'],true))$new=(int)$new?:null;
-        $sets[]=$allowed[$field].'=?';$params[]=$new;
+        if(in_array($field,['business_created_at','business_updated_at','closed_at'],true)){
+            $new=rdSyncDateTime($new);if($new===null)continue;
+        }
+        if(in_array($field,['assigned_to_user_id','company_id'],true)){
+            $new=(int)$new;if($new<=0)continue;
+        }
+        $sets[]=$allowed[$field].'=?';$params[]=$new;$updatedFields[$field]=$new;
     }
     if(!$sets)return;
-    if($entity==='company'&&isset($fields['cnpj'])){
-        $sets[]='cnpj_digits=?';$params[]=crmCoreCnpjDigits((string)$fields['cnpj']['value']);
+    if($entity==='company'&&array_key_exists('cnpj',$updatedFields)){
+        $sets[]='cnpj_digits=?';$params[]=crmCoreCnpjDigits((string)$updatedFields['cnpj']);
     }
     $params[]=$id;
     $pdo->prepare("UPDATE {$table} SET ".implode(',',$sets)." WHERE id=?")->execute($params);
@@ -391,6 +416,7 @@ function rdSyncUpsertContact(PDO $pdo,int $jobId,string $provider,string $extern
 
     $name=trim((string)($fields['name']['value']??''));if($name==='')$name=$email!==''?$email:'Contato RD '.$externalId;
     $row=criarContatoCrmCore($pdo,['company_id'=>$companyId,'name'=>$name,'email'=>$email,'phone'=>$fields['phone']['value']??'','role_title'=>$fields['role_title']['value']??'','source'=>$provider],true);
+    if($email==='')$pdo->prepare("UPDATE crm_contacts SET review_status='needs_review',review_reason='Contato importado sem e-mail: conferir cadastro' WHERE id=?")->execute([(int)$row['id']]);
     $pdo->prepare('UPDATE crm_contacts SET created_by_user_id=COALESCE(created_by_user_id,(SELECT created_by_user_id FROM rd_sync_jobs WHERE id=?)) WHERE id=?')->execute([$jobId,(int)$row['id']]);
     rdSyncRegisterLink($pdo,$provider,'contact',$externalId,'contact',(string)$row['dnb_id'],$counters);
     rdSyncUpdateLocal($pdo,$jobId,$product,'contact',$externalId,'contact',(int)$row['id'],$fields,$payload,$counters);
@@ -448,7 +474,6 @@ function rdSyncUpsertDeal(PDO $pdo,int $jobId,string $externalId,array $item,arr
         'business_updated_at'=>['source_key'=>'updated_at','value'=>rdSyncScalar($attrs['updated_at']??''),'truth'=>'rd'],
         'closed_at'=>['source_key'=>'closed_at','value'=>rdSyncScalar($attrs['closed_at']??''),'truth'=>'rd'],
         'company_id'=>['source_key'=>'organization_id','value'=>(int)($company['id']??0),'truth'=>'rd'],
-        'order_status'=>['source_key'=>'historical_order','value'=>'none','truth'=>'rd'],
     ],rdSyncMappedValues($pdo,'crm','deal',$attrs,'negotiation'));
 
     if($linked){
@@ -456,7 +481,7 @@ function rdSyncUpsertDeal(PDO $pdo,int $jobId,string $externalId,array $item,arr
         $neg=buscarEntidadePorDnbId($pdo,(string)$local['dnb_id']);++$counters['negotiations_updated'];
     }else{
         $title=trim((string)($fields['title']['value']??''));if($title==='')$title='Negociação RD '.$externalId;
-        $neg=criarNegociacaoCrmCore($pdo,['title'=>$title,'company_id'=>(int)($company['id']??0),'category'=>$fields['category']['value']??'','pipeline_name'=>$fields['pipeline_name']['value']??'','stage_name'=>$fields['stage_name']['value']??'','estimated_value'=>$fields['estimated_value']['value']??0,'status'=>$status,'lost_reason'=>$fields['lost_reason']['value']??'','order_status'=>'none','assigned_to_user_id'=>(int)($fields['assigned_to_user_id']['value']??0),'origin'=>'rd_crm','business_created_at'=>$fields['business_created_at']['value']??null,'business_updated_at'=>$fields['business_updated_at']['value']??null,'closed_at'=>$fields['closed_at']['value']??null]);
+        $neg=criarNegociacaoCrmCore($pdo,['title'=>$title,'company_id'=>(int)($company['id']??0),'category'=>$fields['category']['value']??'','pipeline_name'=>$fields['pipeline_name']['value']??'','stage_name'=>$fields['stage_name']['value']??'','estimated_value'=>$fields['estimated_value']['value']??0,'status'=>$status,'lost_reason'=>$fields['lost_reason']['value']??'','order_status'=>'none','assigned_to_user_id'=>(int)($fields['assigned_to_user_id']['value']??0),'origin'=>'rd_crm','business_created_at'=>rdSyncDateTime($fields['business_created_at']['value']??null),'business_updated_at'=>rdSyncDateTime($fields['business_updated_at']['value']??null),'closed_at'=>rdSyncDateTime($fields['closed_at']['value']??null)]);
         rdSyncRegisterLink($pdo,'rd_crm','deal',$externalId,'negotiation',(string)$neg['dnb_id'],$counters);
         rdSyncUpdateLocal($pdo,$jobId,'crm','deal',$externalId,'negotiation',(int)$neg['id'],$fields,$item,$counters);++$counters['negotiations_created'];
     }
