@@ -221,7 +221,7 @@ function rdDiscoveryRunCrm(PDO $pdo): array
     ];
     $summary=[];$total=0;$errors=[];
     try{
-        $pipelineItems=[];
+        $pipelineItems=[];$pipelinesFetched=false;
         foreach($resources as $type=>$path){
             try{
                 $items=rdDiscoveryCrmFetchAll($path);
@@ -232,18 +232,22 @@ function rdDiscoveryRunCrm(PDO $pdo): array
                     if($type==='pipeline')$pipelineItems[]=$item;
                 }
                 $summary[$type]=count($items);
+                if($type==='pipeline')$pipelinesFetched=true;
             }catch(Throwable $e){
                 $summary[$type]=0;
                 $errors[]=$type.': '.$e->getMessage();
             }
         }
 
-        rdDiscoveryDeactivateType($pdo,'crm','stage');
+        if($pipelinesFetched){
+            $pdo->exec("UPDATE rd_discovery_items s LEFT JOIN rd_discovery_items p ON p.product='crm' AND p.resource_type='pipeline' AND p.external_id=s.parent_external_id AND p.active=1 SET s.active=0 WHERE s.product='crm' AND s.resource_type='stage' AND p.id IS NULL");
+        }
         $stageCount=0;
         foreach($pipelineItems as $pipeline){
             $pipelineId=rdDiscoveryId($pipeline,'crm|pipeline');
             try{
                 $stages=rdDiscoveryCrmFetchAll('pipelines/'.rawurlencode($pipelineId).'/stages?page[size]=100&sort[order]=asc');
+                $pdo->prepare("UPDATE rd_discovery_items SET active=0 WHERE product='crm' AND resource_type='stage' AND parent_external_id=?")->execute([$pipelineId]);
                 foreach($stages as $stage){
                     rdDiscoveryUpsert($pdo,$runId,'crm','stage',$stage,$pipelineId,true);
                     $stageCount++;$total++;
