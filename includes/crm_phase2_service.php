@@ -289,6 +289,43 @@ function atualizarContatoCrmUi(PDO $pdo,int $id,array $dados): void
     $stmt->execute([$companyId,mb_substr($nome,0,180),mb_substr(trim((string)($dados['phone']??'')),0,40),mb_substr($email,0,190),mb_substr(trim((string)($dados['role_title']??'')),0,120),$dups?'needs_review':'ok',$dups?'E-mail duplicado: conferir antes de mesclar':null,$id]);
 }
 
+/** @return array<string,mixed> */
+function criarNegociacaoCrmUi(PDO $pdo,array $dados): array
+{
+    if(!crmPhase2Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 2.');
+    $companyId=(int)($dados['company_id']??0);
+    if($companyId>0&&!podeAcessarEmpresaCrm($pdo,$companyId))throw new RuntimeException('Empresa fora do seu escopo.');
+    $owner=(int)($dados['assigned_to_user_id']??0);
+    if($owner<=0)$owner=(int)usuarioLogado()['id'];
+    $permitidos=array_map('intval',array_column(responsaveisNegociacaoCrmUi($pdo),'id'));
+    if(!in_array($owner,$permitidos,true))throw new RuntimeException('Responsável fora do seu escopo.');
+    $dados['assigned_to_user_id']=$owner;
+    $dados['origin']=$dados['origin']??'manual';
+    $contacts=[];
+    foreach((array)($dados['contacts']??[]) as $ct){
+        if(!is_array($ct))continue;
+        $contactId=(int)($ct['contact_id']??$ct['id']??0);
+        if($contactId<=0||!podeAcessarContatoCrm($pdo,$contactId))throw new RuntimeException('Contato fora do seu escopo.');
+        $contacts[]=$ct;
+    }
+    $dados['contacts']=[];
+    $neg=criarNegociacaoCrmCore($pdo,$dados);
+    foreach($contacts as $ct){
+        vincularContatoNegociacaoCrmUi($pdo,(int)$neg['id'],(int)($ct['contact_id']??$ct['id']), (string)($ct['role']??'outro'),!empty($ct['is_primary']));
+    }
+    return $neg;
+}
+
+function vincularContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contactId,string $role='outro',bool $principal=false): void
+{
+    if(!podeAcessarNegociacaoCrm($pdo,$negotiationId)||!podeAcessarContatoCrm($pdo,$contactId))throw new RuntimeException('Registro fora do seu escopo.');
+    $stmt=$pdo->prepare('SELECT company_id FROM crm_negotiations WHERE id=?');$stmt->execute([$negotiationId]);$companyId=(int)($stmt->fetchColumn()?:0);
+    $stmt=$pdo->prepare('SELECT company_id FROM crm_contacts WHERE id=?');$stmt->execute([$contactId]);$contactCompany=(int)($stmt->fetchColumn()?:0);
+    if($companyId>0&&$contactCompany>0&&$companyId!==$contactCompany)throw new DomainException('O contato pertence a outra empresa.');
+    if($companyId>0&&$contactCompany===0)$pdo->prepare('UPDATE crm_contacts SET company_id=? WHERE id=?')->execute([$companyId,$contactId]);
+    vincularContatoNegociacaoCrm($pdo,$negotiationId,$contactId,$role,$principal);
+}
+
 function atualizarNegociacaoCrmUi(PDO $pdo,int $id,array $dados): void
 {
     if(!podeAcessarNegociacaoCrm($pdo,$id))throw new RuntimeException('Negociação fora do seu escopo.');
