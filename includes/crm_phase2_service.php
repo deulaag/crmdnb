@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/crm_core_service.php';
 require_once __DIR__ . '/rbac.php';
+require_once __DIR__ . '/helpers.php';
 
 function crmPhase2Disponivel(PDO $pdo): bool
 {
@@ -294,6 +295,15 @@ function criarNegociacaoCrmUi(PDO $pdo,array $dados): array
 {
     if(!crmPhase2Disponivel($pdo))throw new RuntimeException('Instale a migração da Fase 2.');
     $companyId=(int)($dados['company_id']??0);
+    $rawContacts=(array)($dados['contacts']??[]);
+    if($companyId<=0&&$rawContacts){
+        $first=is_array($rawContacts[0]??null)?$rawContacts[0]:[];
+        $firstId=(int)($first['contact_id']??$first['id']??0);
+        if($firstId>0&&podeAcessarContatoCrm($pdo,$firstId)){
+            $stmt=$pdo->prepare('SELECT company_id FROM crm_contacts WHERE id=?');$stmt->execute([$firstId]);$companyId=(int)($stmt->fetchColumn()?:0);
+            if($companyId>0)$dados['company_id']=$companyId;
+        }
+    }
     if($companyId>0&&!podeAcessarEmpresaCrm($pdo,$companyId))throw new RuntimeException('Empresa fora do seu escopo.');
     $owner=(int)($dados['assigned_to_user_id']??0);
     if($owner<=0)$owner=(int)usuarioLogado()['id'];
