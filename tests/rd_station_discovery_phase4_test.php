@@ -33,8 +33,8 @@ rd4ok(str_contains($service,"'https://api.rd.services/platform/contacts/fields'"
 foreach(['users?page[size]=100','pipelines?page[size]=100','custom_fields?page[size]=100','sources?page[size]=100','lost_reasons?page[size]=100','segments?page[size]=100','campaigns?page[size]=100'] as $endpoint)
     rd4ok(str_contains($service,$endpoint),'descoberta CRM deve consultar '.$endpoint);
 rd4ok(str_contains($service,"'/stages?page[size]=100&sort[order]=asc'"),'descoberta deve ler etapas de cada funil');
-rd4ok(str_contains($service,"$res['json']['links']['next']"),'paginação CRM deve seguir links.next');
-rd4ok(str_contains($service,"strtolower((string)($parts['host']??''))!=='api.rd.services'"),'paginação deve bloquear host externo');
+rd4ok(str_contains($service,'$res[\'json\'][\'links\'][\'next\']'),'paginação CRM deve seguir links.next');
+rd4ok(str_contains($service,"strtolower((string)(\$parts['host']??''))!=='api.rd.services'"),'paginação deve bloquear host externo');
 rd4ok(str_contains($service,'rdDiscoveryRefreshDerivedMappings'),'descoberta deve preparar mapas derivados');
 rd4ok(str_contains($service,"LOWER(TRIM(u.email))=LOWER(TRIM(m.rd_user_email))"),'usuários devem sugerir vínculo por e-mail exato');
 rd4ok(str_contains($service,'function rdPipelineCatalogo'),'funis habilitados devem virar catálogo local');
@@ -44,7 +44,7 @@ rd4ok(str_contains($service,"['rd','dnb','manual_review']"),'mapeamento deve pre
 rd4ok(!str_contains($service,'INSERT INTO crm_contacts')&&!str_contains($service,'INSERT INTO crm_companies')&&!str_contains($service,'INSERT INTO crm_negotiations'),'descoberta não deve importar registros comerciais');
 
 foreach(['descobrir_rdstation','salvar_rd_marketing_mapping','salvar_rd_crm_fields','salvar_rd_users','salvar_rd_pipelines'] as $action)
-    rd4ok(str_contains($config,"$acao === '".$action."'"),'Configurações deve tratar '.$action);
+    rd4ok(str_contains($config,"\$acao === '".$action."'"),'Configurações deve tratar '.$action);
 rd4ok(str_contains($config,"include __DIR__ . '/includes/rd_station_admin_panel.php'"),'aba RD deve incluir o painel da Fase 4');
 
 foreach(['Ler estrutura do Marketing','Ler estrutura do CRM','Campos de Contatos e Pré-vendas','Usuários / responsáveis','Funis e etapas reais da conta','Campos personalizados','Painel CMD · descoberta'] as $text)
