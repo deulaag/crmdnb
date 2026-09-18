@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
+require_once __DIR__ . '/includes/crm_core_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
@@ -49,6 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $modalidade === 'agenciada' ? (float) ($_POST['comissao_dnb'] ?? 0) : 0,
             $dataFat ? 1 : 0, $dataFat, $assignedTo, $cargoId,
         ]);
+        $pedidoId=(int)$pdo->lastInsertId();
+        if(crmCoreFase1Disponivel($pdo)) garantirPedidoCore($pdo,$pedidoId,null);
         pedRedirect('Pedido registrado.');
     }
 
