@@ -227,6 +227,8 @@ CALL dnb_core_add_column('orcamentos','dnb_id','VARCHAR(24) DEFAULT NULL AFTER i
 CALL dnb_core_add_column('orcamentos','company_id','INT DEFAULT NULL AFTER cliente');
 CALL dnb_core_add_column('orcamentos','contact_id','INT DEFAULT NULL AFTER company_id');
 CALL dnb_core_add_column('orcamentos','negotiation_id','INT DEFAULT NULL AFTER contact_id');
+CALL dnb_core_add_column('orcamentos','source_visit_id','INT DEFAULT NULL AFTER negotiation_id');
+CALL dnb_core_add_column('orcamentos','assigned_to_user_id','INT DEFAULT NULL AFTER source_visit_id');
 CALL dnb_core_add_index('orcamentos','uq_orc_dnb_id','`dnb_id`',1);
 CALL dnb_core_add_index('orcamentos','idx_orc_negotiation','`negotiation_id`',0);
 
