@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/lead_service.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
+require_once __DIR__ . '/includes/crm_core_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $pdo = db();
@@ -56,7 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $numero = trim($_POST['numero'] ?? '') ?: gerarNumeroProposta($pdo, $vendedores, $vendedorId, $suporteId, $data);
             $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
             $stmt->execute([$numero, $data, $cliente, $vendedorId, $suporteId, $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], $valor, (float) ($_POST['comissao_dnb_estimada'] ?? 0), 'Aberta', 'manual', $assignedTo, $cargoId]);
-            registrarTimeline($pdo, (int) $pdo->lastInsertId(), 'created', 'Oportunidade criada manualmente.');
+            $orcamentoId=(int)$pdo->lastInsertId();
+            if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+            registrarTimeline($pdo, $orcamentoId, 'created', 'Oportunidade criada manualmente.');
         } catch (Throwable $e) {
             error_log('orcamentos.add: ' . $e->getMessage());
             orcRedirect('Não foi possível registrar a oportunidade agora. Tente novamente ou avise o suporte técnico.');
@@ -129,6 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,suporte_id,linha,tipo,funil,etapa,valor,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 $funil = funilDe($linha);
                 $stmt->execute([$o['numero'] ?? '', $o['data'] ?? hoje(), $o['cliente'] ?? '', $vendId, null, $linha, $o['tipo'] ?? 'Peças', $funil, $funisArr[$funil]['etapas'][0], (float) ($o['valor'] ?? 0), 'Aberta', 'cotador', $assignedTo, $cargoId]);
+                $orcamentoId=(int)$pdo->lastInsertId();
+                if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
                 $n++;
             }
             orcRedirect("$n proposta(s) importada(s) do Cotador.");
@@ -190,6 +195,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
                             ->execute([$sfId, $nomeOp ?: $sfId, hoje(), $cliente, $vendId, 'Compressores IR (agenciamento)', 'Equipamento', 'equipamentos', $etapa, $valor, $comEst, $status, 'rdstation-' . $tipoRelatorio, $assignedTo, $cargoId]);
+                        $orcamentoId=(int)$pdo->lastInsertId();
+                        if(crmCoreFase1Disponivel($pdo)) garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
                         $novos++;
                     }
                 }
@@ -212,6 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cargoId = cargoParaRegistroComercial($pdo, $v['assigned_to_user_id'] ? (int) $v['assigned_to_user_id'] : null);
             $pdo->prepare('INSERT INTO orcamentos (numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,status,origem,obs,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?)')
                 ->execute([$numero, hoje(), $v['cliente'], $v['vendedor_id'], $linha, tipoDe($linha), $funil, $funisArr[$funil]['etapas'][0], 'Aberta', 'lead-visita', 'Lead da OS ' . $v['os'] . ' (' . $v['data'] . '): ' . $v['oportunidade'], $v['assigned_to_user_id'], $cargoId]);
+            $orcamentoId=(int)$pdo->lastInsertId();
+            if(crmCoreFase1Disponivel($pdo)){
+                $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+                garantirVisitaCore($pdo,$vid);
+                if($negId>0)$pdo->prepare('UPDATE visitas SET negotiation_id=? WHERE id=?')->execute([$negId,$vid]);
+            }
             $pdo->prepare('UPDATE visitas SET lead_status=? WHERE id=?')->execute(['promovida', $vid]);
             orcRedirect("Lead promovido: $numero · {$v['cliente']} · $linha — confirme a linha e preencha o valor na tabela.");
         }
@@ -235,6 +248,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $modalidade = ehAgenciamento($o['linha']) ? 'agenciada' : 'revenda';
             $pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)')
                 ->execute([$_POST['ped_numero'], $_POST['ped_data'], $o['cliente'], $o['vendedor_id'], $o['suporte_id'], $o['linha'], (float) $_POST['ped_valor'], $modalidade, $modalidade === 'agenciada' ? (float) $o['comissao_dnb_estimada'] : 0, $oid, $o['assigned_to_user_id'], $o['cargo_id']]);
+            $pedidoId=(int)$pdo->lastInsertId();
+            if(crmCoreFase1Disponivel($pdo)) garantirPedidoCore($pdo,$pedidoId,$oid);
             orcRedirect("Pedido {$_POST['ped_numero']} gerado — confirme o faturamento na aba Pedidos.");
         }
         orcRedirect();
