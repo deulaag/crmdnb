@@ -679,3 +679,13 @@ function rdSyncCancelar(PDO $pdo,int $jobId): void
     $job=rdSyncJob($pdo,$jobId);if(!$job||in_array($job['status'],['completed','error','cancelled'],true))return;
     rdSyncSetJob($pdo,$jobId,(string)$job['stage'],(int)$job['page_number'],$job['state'],$job['counters'],'cancelled');rdSyncLog($pdo,$jobId,'warning','job','Sincronização cancelada pelo administrador.');
 }
+
+
+function rdSyncRetomar(PDO $pdo,int $jobId): void
+{
+    $job=rdSyncJob($pdo,$jobId);
+    if(!$job)throw new RuntimeException('Job de sincronização não encontrado.');
+    if($job['status']!=='error')return;
+    $pdo->prepare("UPDATE rd_sync_jobs SET status='running',last_error=NULL,finished_at=NULL,heartbeat_at=NOW() WHERE id=?")->execute([$jobId]);
+    rdSyncLog($pdo,$jobId,'info','job','Sincronização retomada do ponto em que parou.');
+}
