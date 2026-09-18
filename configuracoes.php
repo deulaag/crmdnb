@@ -7,6 +7,7 @@ require_once __DIR__ . '/includes/seed.php';
 require_once __DIR__ . '/includes/whatsapp_provider.php';
 require_once __DIR__ . '/includes/ai_client.php';
 require_once __DIR__ . '/includes/rd_station_service.php';
+require_once __DIR__ . '/includes/rd_discovery_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
@@ -200,6 +201,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $label = (string)rdProdutoConfig($produto)['label'];
             rdDesconectar($produto);
             cfgRedirect($label . ' desconectado. Client ID e Client Secret foram mantidos.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'descobrir_rdstation') {
+        $produto = strtolower(trim((string)($_POST['produto'] ?? '')));
+        try {
+            if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4 antes de descobrir a estrutura do RD.');
+            $resultado = $produto === 'marketing' ? rdDiscoveryRunMarketing($pdo) : ($produto === 'crm' ? rdDiscoveryRunCrm($pdo) : throw new InvalidArgumentException('Produto RD inválido.'));
+            $resumo = [];
+            foreach (($resultado['summary'] ?? []) as $tipo => $qtd) $resumo[] = $tipo . ': ' . (int)$qtd;
+            $mensagem = ($produto === 'marketing' ? 'RD Marketing' : 'RD CRM') . ' analisado. ' . (int)($resultado['total'] ?? 0) . ' metadado(s) encontrado(s).';
+            if ($resumo) $mensagem .= ' ' . implode(' · ', $resumo);
+            cfgRedirectTipo($mensagem, 'rdstation', (($resultado['status'] ?? 'success') === 'partial') ? 'warning' : 'success');
+        } catch (Throwable $e) {
+            cfgRedirectTipo('Descoberta RD: ' . $e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_marketing_mapping') {
+        try {
+            if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4.');
+            rdSalvarSelecaoMarketing($pdo, (array)($_POST['selected_fields'] ?? []));
+            $n = rdSalvarFieldMappings($pdo, (array)($_POST['field_mapping'] ?? []));
+            cfgRedirect('Mapeamento do RD Marketing salvo. ' . $n . ' campo(s) com destino definido.', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_crm_fields') {
+        try {
+            if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4.');
+            $n = rdSalvarFieldMappings($pdo, (array)($_POST['field_mapping'] ?? []));
+            cfgRedirect('Mapeamento de campos personalizados do RD CRM salvo. ' . $n . ' campo(s) configurado(s).', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_users') {
+        try {
+            if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4.');
+            $n = rdSalvarUserMappings($pdo, (array)($_POST['user_mapping'] ?? []));
+            cfgRedirect('Mapeamento de usuários RD salvo. ' . $n . ' usuário(s) revisado(s).', 'rdstation');
+        } catch (Throwable $e) {
+            cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
+        }
+    }
+
+    if ($acao === 'salvar_rd_pipelines') {
+        try {
+            if (!rdDiscoveryDisponivel($pdo)) throw new RuntimeException('Instale a migração da Fase 4.');
+            $n = rdSalvarPipelineMappings($pdo, (array)($_POST['pipeline_mapping'] ?? []));
+            cfgRedirect('Funis e etapas do RD CRM salvos. ' . $n . ' etapa(s) revisada(s).', 'rdstation');
         } catch (Throwable $e) {
             cfgRedirectTipo($e->getMessage(), 'rdstation', 'error');
         }
@@ -481,11 +538,13 @@ include __DIR__ . '/includes/layout_header.php';
         <?php endif; ?>
       </div>
 
-      <p class="text-xs text-slate-500 mt-3"><?php if($produto==='marketing'): ?>O teste usa leitura dos campos de contatos. Na próxima fase esses campos poderão ser descobertos e mapeados no CRM DNB.<?php else: ?>O teste usa a listagem de usuários da API CRM v2. Funis, etapas e campos serão descobertos somente na próxima fase.<?php endif; ?></p>
+      <p class="text-xs text-slate-500 mt-3"><?php if($produto==='marketing'): ?>O teste usa a leitura dos campos de contatos. A Fase 4 usa essa mesma conexão para descobrir campos padrão e personalizados e permitir o mapeamento.<?php else: ?>O teste usa a listagem de usuários da API CRM v2. A Fase 4 descobre usuários, funis, etapas, campos personalizados, fontes, motivos de perda, segmentos e campanhas.<?php endif; ?></p>
     </div>
   </section>
 <?php endforeach; ?>
 </div>
+
+<?php include __DIR__ . '/includes/rd_station_admin_panel.php'; ?>
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
   <div class="p-4">
