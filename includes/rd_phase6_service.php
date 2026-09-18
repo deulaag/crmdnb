@@ -540,19 +540,28 @@ function rdPhase6Stats(PDO $pdo): array
 function rdPhase6Tick(PDO $pdo,int $maxSeconds=35): array
 {
     if(!rdPhase6Disponivel($pdo))throw new RuntimeException('Fase 6 não instalada.');
-    $started=microtime(true);$queue=rdPhase6ProcessWebhookQueue($pdo,20);
-    $jobId=0;$steps=0;
-    if(integracaoConfigValor('DNB_RD_INCREMENTAL_ENABLED','0')==='1'){
-        $job=rdSyncCriarIncrementalJob($pdo,0,false);
-        if($job)$jobId=(int)$job['id'];
-        if($jobId>0){
-            while(microtime(true)-$started<$maxSeconds){
-                $job=rdSyncJob($pdo,$jobId);if(!$job||in_array($job['status'],['completed','error','cancelled'],true))break;
-                if((int)($job['state']['retry_after']??0)>time())break;
-                rdSyncProcessStep($pdo,$jobId);$steps++;
-                if($steps>=12)break;
+    $lockName='dnb-rd-phase6-tick';
+    $lock=$pdo->prepare('SELECT GET_LOCK(?,0)');$lock->execute([$lockName]);
+    if((int)$lock->fetchColumn()!==1){
+        return ['webhooks'=>['processed'=>0,'error'=>0,'ignored'=>0],'incremental_job'=>0,'steps'=>0];
+    }
+    try{
+        $started=microtime(true);$queue=rdPhase6ProcessWebhookQueue($pdo,20);
+        $jobId=0;$steps=0;
+        if(integracaoConfigValor('DNB_RD_INCREMENTAL_ENABLED','0')==='1'){
+            $job=rdSyncCriarIncrementalJob($pdo,0,false);
+            if($job)$jobId=(int)$job['id'];
+            if($jobId>0){
+                while(microtime(true)-$started<$maxSeconds){
+                    $job=rdSyncJob($pdo,$jobId);if(!$job||in_array($job['status'],['completed','error','cancelled'],true))break;
+                    if((int)($job['state']['retry_after']??0)>time())break;
+                    rdSyncProcessStep($pdo,$jobId);$steps++;
+                    if($steps>=12)break;
+                }
             }
         }
+        return ['webhooks'=>['processed'=>$queue['processed'],'error'=>$queue['error'],'ignored'=>$queue['ignored']],'incremental_job'=>$jobId,'steps'=>$steps];
+    }finally{
+        $release=$pdo->prepare('SELECT RELEASE_LOCK(?)');$release->execute([$lockName]);
     }
-    return ['webhooks'=>['processed'=>$queue['processed'],'error'=>$queue['error'],'ignored'=>$queue['ignored']],'incremental_job'=>$jobId,'steps'=>$steps];
 }
