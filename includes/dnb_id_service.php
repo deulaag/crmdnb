@@ -40,6 +40,19 @@ function dnbIdEntidade(string $entidade, int $id): string
     return formatarDnbId($prefixos[$entidade], $id);
 }
 
+function tabelaSuportaDnbId(PDO $pdo, string $tabela): bool
+{
+    $permitidas = ['crm_companies','crm_contacts','crm_negotiations','orcamentos','pedidos','visitas'];
+    if (!in_array($tabela, $permitidas, true)) return false;
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME='dnb_id'");
+        $stmt->execute([$tabela]);
+        return (int)$stmt->fetchColumn() === 1;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
 /**
  * Garante dnb_id para um registro recém-criado ou legado.
  * Tabela e prefixo são whitelists para impedir SQL dinâmico arbitrário.
@@ -59,6 +72,9 @@ function garantirDnbIdRegistro(PDO $pdo, string $tabela, int $id): string
     }
     if ($id <= 0) {
         throw new InvalidArgumentException('Registro inválido para dnb_id.');
+    }
+    if (!tabelaSuportaDnbId($pdo, $tabela)) {
+        return formatarDnbId($mapa[$tabela], $id);
     }
 
     $stmt = $pdo->prepare("SELECT dnb_id FROM `{$tabela}` WHERE id=? LIMIT 1");
