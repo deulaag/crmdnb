@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/rd_phase8_service.php';
 
 final class RdPhase9BlockedException extends RuntimeException {}
+final class RdPhase9DependencyException extends RuntimeException {}
 final class RdPhase9RateLimitException extends RuntimeException {
     public function __construct(public readonly int $retryAfter=60,string $message='Limite temporário do RD CRM.') { parent::__construct($message); }
 }
@@ -192,14 +193,14 @@ function rdPhase9Payload(PDO $pdo,string $entity,array $local,bool $creating): a
         if(isset($rules['email'])&&trim((string)$local['email'])!=='')$data['emails']=[['email'=>(string)$local['email']]];
         if(isset($rules['phone'])&&trim((string)$local['phone'])!=='')$data['phones']=[['phone'=>(string)$local['phone'],'type'=>'work']];
         if(isset($rules['company_id'])&&!empty($local['company_id'])){
-            $org=rdPhase9OrganizationExternal($pdo,(int)$local['company_id']);if($org==='')throw new RdPhase9BlockedException('A Empresa do Contato ainda não possui vínculo com o RD CRM.');
+            $org=rdPhase9OrganizationExternal($pdo,(int)$local['company_id']);if($org==='')throw new RdPhase9DependencyException('A Empresa do Contato ainda está aguardando vínculo com o RD CRM.');
             $data['organization_id']=$org;
         }
     }elseif($entity==='negotiation'){
         if(isset($rules['title'])||$creating)$data['name']=(string)$local['title'];
         if(isset($rules['estimated_value']))$data['total_price']=(float)$local['estimated_value'];
         if(isset($rules['company_id'])&&!empty($local['company_id'])){
-            $org=rdPhase9OrganizationExternal($pdo,(int)$local['company_id']);if($org==='')throw new RdPhase9BlockedException('A Empresa da Negociação ainda não possui vínculo com o RD CRM.');
+            $org=rdPhase9OrganizationExternal($pdo,(int)$local['company_id']);if($org==='')throw new RdPhase9DependencyException('A Empresa da Negociação ainda está aguardando vínculo com o RD CRM.');
             $data['organization_id']=$org;
         }
         if(isset($rules['assigned_to_user_id'])&&!empty($local['assigned_to_user_id'])){
@@ -211,7 +212,10 @@ function rdPhase9Payload(PDO $pdo,string $entity,array $local,bool $creating): a
             $data['stage_id']=$stage;
         }
         if(isset($rules['primary_contact'])){
-            $contact=rdPhase9PrimaryContactExternal($pdo,(int)$local['id']);if($contact!=='')$data['contact_id']=$contact;
+            $stmt=$pdo->prepare('SELECT COUNT(*) FROM crm_negotiation_contacts WHERE negotiation_id=?');$stmt->execute([(int)$local['id']]);$hasContacts=(int)$stmt->fetchColumn()>0;
+            $contact=rdPhase9PrimaryContactExternal($pdo,(int)$local['id']);
+            if($contact!=='')$data['contact_id']=$contact;
+            elseif($hasContacts)throw new RdPhase9DependencyException('O contato principal da Negociação ainda está aguardando vínculo com o RD CRM.');
         }
         if(!$creating&&isset($rules['status'])){
             $data['status']=match((string)$local['status']){'won'=>'won','lost'=>'lost',default=>'ongoing'};
@@ -331,6 +335,9 @@ function rdPhase9ProcessQueue(PDO $pdo,int $limit=10,bool $force=false): array
             }catch(RdPhase9RateLimitException $e){
                 $pdo->prepare("UPDATE rd_outbound_queue SET status='pending',available_at=DATE_ADD(NOW(),INTERVAL ? SECOND),last_http_status=429,last_error=? WHERE id=?")->execute([$e->retryAfter,mb_substr($e->getMessage(),0,500),$id]);
                 $summary['retry']++;break;
+            }catch(RdPhase9DependencyException $e){
+                $pdo->prepare("UPDATE rd_outbound_queue SET status='pending',attempts=GREATEST(attempts-1,0),available_at=DATE_ADD(NOW(),INTERVAL 15 SECOND),last_error=? WHERE id=?")->execute([mb_substr($e->getMessage(),0,500),$id]);
+                $summary['retry']++;
             }catch(RdPhase9BlockedException $e){
                 $pdo->prepare("UPDATE rd_outbound_queue SET status='blocked',last_error=?,processed_at=NOW() WHERE id=?")->execute([mb_substr($e->getMessage(),0,500),$id]);
                 $summary['blocked']++;
