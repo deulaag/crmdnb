@@ -357,6 +357,35 @@ function registrarVinculoExternoCrm(PDO $pdo, string $provider, string $external
     ]);
 }
 
+/**
+ * Repara registros legados criados por importações/demos enquanto a UI antiga
+ * ainda estiver ativa. É idempotente e pode ser executado após cargas em lote.
+ */
+function sincronizarNucleoLegadoCrm(PDO $pdo): array
+{
+    if(!crmCoreFase1Disponivel($pdo)) return ['quotes'=>0,'orders'=>0,'visits'=>0];
+
+    $pdo->exec("UPDATE crm_companies SET dnb_id=CONCAT('EMP-',LPAD(id,6,'0')) WHERE dnb_id IS NULL OR dnb_id=''");
+    $pdo->exec("UPDATE crm_contacts SET dnb_id=CONCAT('CON-',LPAD(id,6,'0')) WHERE dnb_id IS NULL OR dnb_id=''");
+    $pdo->exec("UPDATE orcamentos SET dnb_id=CONCAT('ORC-',LPAD(id,6,'0')) WHERE dnb_id IS NULL OR dnb_id=''");
+    $pdo->exec("UPDATE pedidos SET dnb_id=CONCAT('PED-',LPAD(id,6,'0')) WHERE dnb_id IS NULL OR dnb_id=''");
+    $pdo->exec("UPDATE visitas SET dnb_id=CONCAT('VIS-',LPAD(id,6,'0')) WHERE dnb_id IS NULL OR dnb_id=''");
+
+    $ids=$pdo->query('SELECT id FROM orcamentos WHERE negotiation_id IS NULL ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+    $quotes=0;
+    foreach($ids as $id){
+        if(garantirNegociacaoParaOrcamento($pdo,(int)$id)>0)$quotes++;
+    }
+
+    $pdo->exec("UPDATE pedidos p JOIN orcamentos o ON o.id=p.orcamento_id SET p.negotiation_id=COALESCE(p.negotiation_id,o.negotiation_id),p.company_id=COALESCE(p.company_id,o.company_id) WHERE p.orcamento_id IS NOT NULL");
+    $orders=(int)$pdo->query("SELECT COUNT(*) FROM pedidos WHERE dnb_id IS NOT NULL AND dnb_id<>''")->fetchColumn();
+
+    $pdo->exec("UPDATE visitas v JOIN orcamentos o ON o.source_visit_id=v.id SET v.negotiation_id=COALESCE(v.negotiation_id,o.negotiation_id),v.company_id=COALESCE(v.company_id,o.company_id),v.contact_id=COALESCE(v.contact_id,o.contact_id) WHERE o.source_visit_id IS NOT NULL");
+    $visits=(int)$pdo->query("SELECT COUNT(*) FROM visitas WHERE dnb_id IS NOT NULL AND dnb_id<>''")->fetchColumn();
+
+    return ['quotes'=>$quotes,'orders'=>$orders,'visits'=>$visits];
+}
+
 /** @return array<string,mixed> */
 function contratoCrmCoreFase1(): array
 {
