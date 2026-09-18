@@ -3,7 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/followup_flow_service.php';
-exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_SUPORTE);
+exigirPapel(PAPEL_ADMINISTRADOR);
 
 $pdo = db();
 $mes = $_GET['mes'] ?? mesAtual();
