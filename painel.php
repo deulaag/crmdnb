@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/calc.php';
 require_once __DIR__ . '/includes/task_service.php';
 require_once __DIR__ . '/includes/profile_service.php';
+require_once __DIR__ . '/includes/rd_reporting_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR, PAPEL_SUPERVISOR, PAPEL_VENDEDOR);
 
 $mes = $_GET['mes'] ?? mesAtual();
@@ -12,6 +13,9 @@ $pdo = db();
 $vendedores = filtrarVendedoresDaEquipe($pdo, obterVendedores($pdo));
 $calc = calcularMes($pdo, $mes, $vendedores);
 $politicasArr = politicas();
+$rdReport = rdReportingSummary($pdo, $mes, true);
+$rdSummary = $rdReport['summary'];
+$rdPipeline = rdReportingByPipeline($rdReport['items']);
 
 $resumo=['propostas'=>0.0,'metaPropostas'=>0.0,'revenda'=>0.0,'metaRevenda'=>0.0,'agenciadas'=>0.0,'metaAgenciadas'=>0.0,'atividade'=>0,'metaAtividade'=>0.0,'ganhos'=>0.0];
 foreach($vendedores as $v){
@@ -55,6 +59,37 @@ include __DIR__ . '/includes/layout_header.php';
       </article>
     <?php endforeach;?>
   </div>
+</section>
+
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
+  <div class="p-4 border-b border-slate-200 flex items-start justify-between gap-3 flex-wrap">
+    <div>
+      <span class="dnb-eyebrow">Negociações · <?=e(rotuloMes($mes))?></span>
+      <h2 class="dnb-section-title">Movimentação do núcleo CRM</h2>
+      <p class="text-sm text-slate-500 mt-1">Negociações são acompanhadas separadamente de Propostas. Importar ou movimentar uma Negociação do RD <b>não aumenta o KPI “Propostas emitidas”</b> e um ganho do RD não cria Pedido automaticamente.</p>
+    </div>
+    <a class="<?=BTN_S?>" href="/negociacoes.php?view=negociacoes">Abrir negociações</a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-px bg-slate-200">
+    <div class="bg-white p-4"><small class="block text-slate-500">Movimentadas</small><strong class="text-xl" style="color:<?=NAVY?>;"><?= (int)$rdSummary['total_count']?></strong><span class="block text-xs text-slate-500 mt-1"><?=fmtBRL((float)$rdSummary['total_value'])?></span></div>
+    <div class="bg-white p-4"><small class="block text-slate-500">Criadas</small><strong class="text-xl" style="color:<?=NAVY?>;"><?= (int)$rdSummary['created_count']?></strong><span class="block text-xs text-slate-500 mt-1"><?=fmtBRL((float)$rdSummary['created_value'])?></span></div>
+    <div class="bg-white p-4"><small class="block text-slate-500">Ganhas</small><strong class="text-xl text-emerald-700"><?= (int)$rdSummary['won_count']?></strong><span class="block text-xs text-slate-500 mt-1"><?=fmtBRL((float)$rdSummary['won_value'])?></span></div>
+    <div class="bg-white p-4"><small class="block text-slate-500">Perdidas</small><strong class="text-xl text-rose-700"><?= (int)$rdSummary['lost_count']?></strong><span class="block text-xs text-slate-500 mt-1"><?=fmtBRL((float)$rdSummary['lost_value'])?></span></div>
+    <div class="bg-white p-4"><small class="block text-slate-500">Origem RD</small><strong class="text-xl" style="color:<?=NAVY?>;"><?= (int)$rdSummary['rd_count']?></strong><span class="block text-xs text-slate-500 mt-1"><?=fmtBRL((float)$rdSummary['rd_value'])?></span></div>
+  </div>
+  <?php if((int)$rdSummary['won_without_order_count']>0):?>
+    <div class="p-4 border-t border-slate-200">
+      <div class="dnb-alert dnb-alert--warning"><strong><?= (int)$rdSummary['won_without_order_count']?> negociação(ões) ganha(s)</strong> nesta competência ainda não possui(em) Pedido DNB vinculado, somando <?=fmtBRL((float)$rdSummary['won_without_order_value'])?>. Isso é um indicador de acompanhamento, não criação automática de Pedido.</div>
+    </div>
+  <?php endif;?>
+  <?php if($rdPipeline):?>
+    <div class="overflow-x-auto border-t border-slate-200">
+      <table class="w-full text-sm min-w-[760px]">
+        <thead><tr class="text-left text-xs text-slate-500 border-b"><th class="p-3">Funil</th><th class="p-3">Etapa</th><th class="p-3">Negociações</th><th class="p-3">Abertas</th><th class="p-3">Ganhas</th><th class="p-3">Perdidas</th><th class="p-3 text-right">Valor estimado</th></tr></thead>
+        <tbody><?php foreach(array_slice($rdPipeline,0,8) as $g):?><tr class="border-b border-slate-100"><td class="p-3 font-semibold"><?=e($g['pipeline'])?></td><td class="p-3"><?=e($g['stage'])?></td><td class="p-3"><?=(int)$g['count']?></td><td class="p-3"><?=(int)$g['open']?></td><td class="p-3"><?=(int)$g['won']?></td><td class="p-3"><?=(int)$g['lost']?></td><td class="p-3 text-right font-semibold"><?=fmtBRL((float)$g['value'])?></td></tr><?php endforeach;?></tbody>
+      </table>
+    </div>
+  <?php endif;?>
 </section>
 
 <?php if (ehOperadorVendedor()): ?>
