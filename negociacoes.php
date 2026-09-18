@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/rbac.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/crm_phase2_service.php';
+require_once __DIR__ . '/includes/rd_discovery_service.php';
 exigirPapel(PAPEL_ADMINISTRADOR,PAPEL_SUPERVISOR,PAPEL_VENDEDOR);
 
 $pdo=db();$mes=$_GET['mes']??mesAtual();$disponivel=crmPhase2Disponivel($pdo);$erro='';$msg='';
@@ -11,6 +12,7 @@ $modo=(string)($_GET['modo']??'lista');if(!in_array($modo,['lista','kanban'],tru
 $empresas=$disponivel?empresasSelecionaveisCrmUi($pdo):[];
 $contatos=$disponivel?contatosSelecionaveisCrmUi($pdo):[];
 $responsaveis=$disponivel?responsaveisNegociacaoCrmUi($pdo):[];
+$rdPipelineCatalog=$disponivel?rdPipelineCatalogo($pdo):[];
 $preContactId=(int)($_GET['contact_id']??0);$preCompanyId=0;
 if($preContactId&&$disponivel&&podeAcessarContatoCrm($pdo,$preContactId)){
   $pc=detalharContatoCrmUi($pdo,$preContactId);$preCompanyId=(int)($pc['company_id']??0);
@@ -55,8 +57,9 @@ $leads=$disponivel&&$view==='leads'?listarLeadsPreVendasCrmUi($pdo,['q'=>$filtro
 
 $todas=$disponivel?listarNegociacoesCrmUi($pdo,[]):[];
 $categorias=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['category'],$todas))));
-$funis=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['pipeline_name'],$todas))));
-$etapas=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['stage_name'],$todas))));
+$funis=array_values(array_unique(array_filter(array_merge(array_map(fn($n)=>(string)$n['pipeline_name'],$todas),array_keys($rdPipelineCatalog)))));
+$etapasCatalog=[];foreach($rdPipelineCatalog as $stages){foreach($stages as $stage)$etapasCatalog[]=$stage;}
+$etapas=array_values(array_unique(array_filter(array_merge(array_map(fn($n)=>(string)$n['stage_name'],$todas),$etapasCatalog))));
 $origens=array_values(array_unique(array_filter(array_map(fn($n)=>(string)$n['origin'],$todas))));
 sort($categorias);sort($funis);sort($etapas);sort($origens);
 
@@ -117,8 +120,13 @@ $grupos=[];foreach($negociacoes as $n){$k=trim((string)$n['stage_name'])?:'Sem e
 <label><span>Contato principal</span><select name="contact_id" class="<?=INPUT_CLS?>"><option value="0">Sem contato</option><?php foreach($contatos as $ct):?><option value="<?=(int)$ct['id']?>" <?=$preContactId===(int)$ct['id']?'selected':''?>><?=e($ct['name'])?><?=!empty($ct['company_name'])?' · '.e($ct['company_name']):' · sem empresa'?></option><?php endforeach;?></select></label>
 <label><span>Categoria</span><input name="category" maxlength="120" class="<?=INPUT_CLS?>" placeholder="Uma categoria"></label>
 <label><span>Papel do contato</span><select name="contact_role" class="<?=INPUT_CLS?>"><option value="principal">Principal</option><option value="decisor">Decisor</option><option value="comprador">Comprador</option><option value="tecnico">Técnico</option><option value="financeiro">Financeiro</option><option value="outro">Outro</option></select></label>
-<label><span>Funil</span><input name="pipeline_name" maxlength="160" class="<?=INPUT_CLS?>" placeholder="Será importado do RD nas próximas fases"></label>
+<?php if($rdPipelineCatalog):?>
+<label><span>Funil</span><select name="pipeline_name" class="<?=INPUT_CLS?>" data-rd-pipeline><option value="">Selecione o funil</option><?php foreach($rdPipelineCatalog as $pipe=>$stages):?><option value="<?=e($pipe)?>"><?=e($pipe)?></option><?php endforeach;?></select></label>
+<label><span>Etapa</span><select name="stage_name" class="<?=INPUT_CLS?>" data-rd-stage><option value="" data-pipeline="">Selecione o funil primeiro</option><?php foreach($rdPipelineCatalog as $pipe=>$stages):foreach($stages as $stage):?><option value="<?=e($stage)?>" data-pipeline="<?=e($pipe)?>"><?=e($stage)?></option><?php endforeach;endforeach;?></select></label>
+<?php else:?>
+<label><span>Funil</span><input name="pipeline_name" maxlength="160" class="<?=INPUT_CLS?>" placeholder="Configure e descubra os funis do RD Station no ADM"></label>
 <label><span>Etapa</span><input name="stage_name" maxlength="160" class="<?=INPUT_CLS?>"></label>
+<?php endif;?>
 <label><span>Valor estimado (R$)</span><input type="number" min="0" step="0.01" name="estimated_value" class="<?=INPUT_CLS?>"></label>
 <label><span>Responsável</span><select name="assigned_to_user_id" class="<?=INPUT_CLS?>"><?php foreach($responsaveis as $u):?><option value="<?=(int)$u['id']?>" <?=(int)$u['id']===(int)usuarioLogado()['id']?'selected':''?>><?=e($u['nome'])?></option><?php endforeach;?></select></label>
 </div><p class="text-xs text-slate-500 mt-3">Criar negociação não cria orçamento nem pedido automaticamente.</p><div class="dnb-modal__footer"><button type="button" data-modal-close class="<?=BTN_S?>">Cancelar</button><button class="<?=BTN_P?>">Criar negociação</button></div></form></div></div>
