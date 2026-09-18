@@ -276,3 +276,5 @@ if (!function_exists('rdAdminTargetOptions')) {
     <?php endforeach;?>
   </div>
 </section>
+
+<?php include __DIR__ . '/rd_station_sync_panel.php'; ?>

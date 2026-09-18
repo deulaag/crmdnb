@@ -26,6 +26,7 @@ jobs:
           node --check assets/crm-v36.js
           node --check assets/crm-v36-stabilize.js
           node --check assets/crm-phase2.js
+          node --check assets/rd-sync.js
       - name: Testar RBAC
         run: php tests/rbac_test.php
       - name: Testar estrutura da sidebar
@@ -47,6 +48,7 @@ jobs:
           php tests/crm_phase2_ui_test.php
           php tests/rd_station_oauth_test.php
           php tests/rd_station_discovery_phase4_test.php
+          php tests/rd_station_sync_phase5_test.php
       - name: Testar CSRF e importação de PDF em Visitas
         run: php tests/visitas_csrf_test.php
       - name: Testar contrato da IA
