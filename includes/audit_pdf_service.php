@@ -51,10 +51,22 @@ function gerarPdfAuditoriaPainel(array $r): string
     $s=$r['resumo'];$cards=[['Propostas emitidas',(float)$s['propostas'],(float)$s['metaPropostas'],'money'],['Revenda faturada',(float)$s['revenda'],(float)$s['metaRevenda'],'money'],['Agenciadas',(float)$s['agenciadas'],(float)$s['metaAgenciadas'],'money'],['Visitas + prospecções',(float)$s['atividade'],(float)$s['metaAtividade'],'number']];
     $x=28;foreach($cards as [$label,$real,$meta,$tipo]){$pdf->rect($x,118,188,84,$soft,$border);$pdf->text($x+12,130,$label,8,true,$muted);$valor=$tipo==='money'?auditPdfMoney($real):(string)(int)$real;$pdf->text($x+12,150,$valor,15,true,$navy);$metaTxt=$meta>0?('Meta: '.($tipo==='money'?auditPdfMoney($meta):(string)(int)$meta)):'Meta não definida';$pdf->text($x+12,178,$metaTxt,7,false,$muted);if($meta>0)$pdf->text($x+132,178,auditPdfPct($real,$meta),8,true,$real>=$meta?$green:$blue);$x+=198;}
     $pdf->rect(28,216,786,58,'#eef4f9',$border);$pdf->text(42,229,'Ganhos / comissão apurada',8,true,$muted);$pdf->text(42,247,auditPdfMoney((float)$s['ganhos']),18,true,$navy);$pdf->text(280,247,'Propostas: '.(int)$r['contagens']['propostas'].'  ·  Revenda: '.(int)$r['contagens']['revenda'].'  ·  Agenciadas: '.(int)$r['contagens']['agenciadas'].'  ·  Atividades: '.(int)$r['contagens']['atividade'],9,false,$ink);
+    $rdS=$r['rd_negotiations']['summary']??[];
+    $pdf->rect(28,288,786,92,'#f7fafc',$border);
+    $pdf->text(42,301,'NEGOCIAÇÕES · NÚCLEO CRM',8,true,$blue);
+    $pdf->text(42,320,'Movimentadas: '.(int)($rdS['total_count']??0).'  ·  Criadas: '.(int)($rdS['created_count']??0).'  ·  Ganhas: '.(int)($rdS['won_count']??0).'  ·  Perdidas: '.(int)($rdS['lost_count']??0).'  ·  Origem RD: '.(int)($rdS['rd_count']??0),10,true,$navy);
+    $pdf->text(42,342,'Valor ganho: '.auditPdfMoney((float)($rdS['won_value']??0)).'  ·  Ganhas sem Pedido DNB: '.(int)($rdS['won_without_order_count']??0).' ('.auditPdfMoney((float)($rdS['won_without_order_value']??0)).')',9,false,$ink);
+    $pdf->text(42,362,'Negociações não compõem o KPI Propostas emitidas e ganhos importados não criam Pedido automaticamente.',8,false,$muted);
+    $footer();
 
     $table=function(string $titulo,array $headers,array $rows,array $widths,int $maxRowsPerPage=18)use($pdf,$newPage,$footer,$navy,$soft,$border,$muted,$ink):void{
         $idx=0;$count=count($rows);do{$newPage($titulo);$pdf->text(28,66,$titulo,16,true,$navy);$top=96;$x=28;foreach($headers as $i=>$h){$pdf->rect($x,$top,$widths[$i],24,$navy);$pdf->text($x+5,$top+7,$h,7,true,'#ffffff');$x+=$widths[$i];}$top+=24;$end=min($idx+$maxRowsPerPage,$count);if($count===0){$pdf->rect(28,$top,array_sum($widths),34,$soft,$border);$pdf->text(38,$top+11,'Nenhum registro neste mês.',8,false,$muted);}else{for(;$idx<$end;$idx++){$row=$rows[$idx];$x=28;$fill=$idx%2===0?'#ffffff':$soft;foreach($headers as $i=>$h){$pdf->rect($x,$top,$widths[$i],25,$fill,$border);$txt=(string)($row[$i]??'');$chars=max(5,(int)floor($widths[$i]/5.3));$pdf->text($x+5,$top+8,$pdf->fit($txt,$chars),7,false,$ink);$x+=$widths[$i];}$top+=25;}}$footer();}while($idx<$count);
     };
+
+    $rows=[];foreach(($r['rd_negotiations']['items']??[]) as $n)$rows[]=[(string)($n['dnb_id']??''),(string)($n['title']??''),(string)($n['company_name']??'—'),(string)($n['owner_name']??'—'),(string)($n['pipeline_name']??'—'),(string)($n['stage_name']??'—'),strtoupper((string)($n['status']??'')),(string)($n['origin']??''),auditPdfMoney((float)($n['estimated_value']??0))];
+    $table('Negociações',['DNB ID','Título','Empresa','Responsável','Funil','Etapa','Status','Origem','Valor'],$rows,[68,140,130,95,100,90,55,55,53],15);
+    $rows=[];foreach(($r['rd_pipeline']??[]) as $g)$rows[]=[(string)$g['pipeline'],(string)$g['stage'],(string)(int)$g['count'],(string)(int)$g['open'],(string)(int)$g['won'],(string)(int)$g['lost'],auditPdfMoney((float)$g['value'])];
+    $table('Negociações por funil e etapa',['Funil','Etapa','Total','Abertas','Ganhas','Perdidas','Valor'],$rows,[190,180,75,75,75,75,116],17);
 
     $rows=[];foreach($r['orcamentos'] as $o)$rows[]=[date('d/m/Y',strtotime((string)$o['data'])),(string)($o['numero']?:'#'.$o['id']),(string)$o['cliente'],(string)$o['_responsavel'],(string)($o['linha']??''),(string)($o['etapa']??''),(string)($o['status']??''),auditPdfMoney((float)$o['valor'])];
     $table('Oportunidades / propostas',['Data','Número','Cliente','Responsável','Linha','Etapa','Status','Valor'],$rows,[58,70,180,110,105,90,65,108],16);
