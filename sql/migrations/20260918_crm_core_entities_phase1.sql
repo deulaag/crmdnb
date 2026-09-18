@@ -334,6 +334,11 @@ SET p.negotiation_id=COALESCE(p.negotiation_id,o.negotiation_id),
     p.company_id=COALESCE(p.company_id,o.company_id)
 WHERE p.orcamento_id IS NOT NULL;
 
+UPDATE crm_negotiations n
+LEFT JOIN pedidos p ON p.negotiation_id=n.id
+SET n.order_status=CASE WHEN p.id IS NOT NULL THEN 'generated' ELSE 'pending' END
+WHERE n.status='won';
+
 UPDATE visitas v
 JOIN orcamentos o ON o.source_visit_id=v.id
 SET v.negotiation_id=COALESCE(v.negotiation_id,o.negotiation_id),
