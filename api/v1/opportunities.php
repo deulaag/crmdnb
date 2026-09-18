@@ -53,13 +53,19 @@ try{
   $leadId=(int)($_POST['id']??0);if(!$leadId||!podeAcessarLead($pdo,$leadId)){http_response_code(403);echo json_encode(['ok'=>false,'erro'=>'Oportunidade fora do seu escopo.']);exit;}
   $stmt=$pdo->prepare('SELECT * FROM orcamentos WHERE id=? LIMIT 1');$stmt->execute([$leadId]);$o=$stmt->fetch();$novaEtapa=trim((string)($_POST['etapa']??''));$funil=$o?funilDe((string)$o['linha']):'';$etapas=funis()[$funil]['etapas']??[];
   if(!$o||$o['status']!=='Aberta'||!in_array($novaEtapa,$etapas,true)){http_response_code(422);echo json_encode(['ok'=>false,'erro'=>'Etapa inválida para esta oportunidade.']);exit;}
-  $pdo->beginTransaction();$pedido=null;$gerado=false;
+  $pdo->beginTransaction();$negotiationId=(int)($o['negotiation_id']??0);$orderPending=false;
   if ($novaEtapa === 'Fechamento') {
-   $stmtPed=$pdo->prepare('SELECT id,numero FROM pedidos WHERE orcamento_id=? ORDER BY id DESC LIMIT 1');$stmtPed->execute([$leadId]);$pedido=$stmtPed->fetch()?:null;
-   if(!$pedido){$numeroPedido='PV-'.((string)($o['numero']?:$o['id']));$modalidade=ehAgenciamento((string)$o['linha'])?'agenciada':'revenda';$pdo->prepare('INSERT INTO pedidos (numero,data,cliente,vendedor_id,suporte_id,linha,valor,modalidade,comissao_dnb,faturado,orcamento_id,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)')->execute([$numeroPedido,hoje(),$o['cliente'],$o['vendedor_id'],$o['suporte_id'],$o['linha'],(float)$o['valor'],$modalidade,$modalidade==='agenciada'?(float)$o['comissao_dnb_estimada']:0,$leadId,$o['assigned_to_user_id'],$o['cargo_id']]);$pedido=['id'=>(int)$pdo->lastInsertId(),'numero'=>$numeroPedido];if(crmCoreFase1Disponivel($pdo))garantirPedidoCore($pdo,(int)$pedido['id'],$leadId);$gerado=true;}
-   $pdo->prepare("UPDATE orcamentos SET etapa='Fechamento',status='Ganha',cad_pausada=1 WHERE id=?")->execute([$leadId]);if(crmCoreFase1Disponivel($pdo)){sincronizarNegociacaoDoOrcamento($pdo,$leadId);if($pedido)garantirPedidoCore($pdo,(int)$pedido['id'],$leadId);}registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para Fechamento. Pedido de venda '.($gerado?'gerado automaticamente':'já existente').'.');registrarTimeline($pdo,$leadId,'status_update','Status atualizado automaticamente para Ganha ao entrar em Fechamento.');
-  }else{$pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?')->execute([$novaEtapa,$leadId]);if(crmCoreFase1Disponivel($pdo))sincronizarNegociacaoDoOrcamento($pdo,$leadId);registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para '.$novaEtapa.'.');}
-  $pdo->commit();if(is_array($pedido))$pedido['numero']=textoSeguroModal((string)($pedido['numero']??''));echo json_encode(['ok'=>true,'stage'=>$novaEtapa,'order_generated'=>$gerado,'order'=>$pedido]);exit;
+   $pdo->prepare("UPDATE orcamentos SET etapa='Fechamento',status='Ganha',cad_pausada=1 WHERE id=?")->execute([$leadId]);
+   if(crmCoreFase1Disponivel($pdo))$negotiationId=sincronizarNegociacaoDoOrcamento($pdo,$leadId);
+   $orderPending=true;
+   registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para Fechamento. A proposta foi marcada como ganha; o Pedido de Venda aguarda confirmação manual.');
+   registrarTimeline($pdo,$leadId,'status_update','Status atualizado para Ganha. Nenhum pedido foi criado automaticamente.');
+  }else{
+   $pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?')->execute([$novaEtapa,$leadId]);
+   if(crmCoreFase1Disponivel($pdo))$negotiationId=sincronizarNegociacaoDoOrcamento($pdo,$leadId);
+   registrarTimeline($pdo,$leadId,'funnel_update','Etapa atualizada para '.$novaEtapa.'.');
+  }
+  $pdo->commit();echo json_encode(['ok'=>true,'stage'=>$novaEtapa,'order_generated'=>false,'order'=>null,'order_pending'=>$orderPending,'lead_id'=>$leadId,'negotiation_id'=>$negotiationId]);exit;
  }
 
  if($acao==='complete_task'){concluirTarefa($pdo,(int)($_POST['task_id']??0));echo json_encode(['ok'=>true]);exit;}
