@@ -12,7 +12,7 @@ foreach([
     "['neg', 'Negociações', 'negociacoes.php'",
 ] as $needle)p2ok(str_contains($header,$needle),"menu comercial ausente: {$needle}");
 p2ok(!str_contains($header,"['orc', 'Orçamentos', 'orcamentos.php'"),'Orçamentos não pode permanecer isolado na lateral');
-p2ok(str_contains($header,"$k === 'neg' && $tabAtual === 'orc'"),'Orçamentos deve manter Negociações selecionado');
+p2ok(str_contains($header,"\$k === 'neg' && \$tabAtual === 'orc'"),'Orçamentos deve manter Negociações selecionado');
 
 foreach(['empresas.php','empresa.php','contatos.php','contato.php','negociacoes.php','negociacao.php'] as $page){
     $src=p2file($page);
@@ -58,7 +58,7 @@ p2ok(str_contains($service,'function vincularContatoNegociacaoCrmUi'),'vínculo 
 p2ok(str_contains($service,"origin='legacy_orcamento'"),'proposta legada 1:1 deve poder ser consolidada com segurança');
 p2ok(str_contains($service,'UPDATE pedidos SET negotiation_id=? WHERE negotiation_id=?'),'pedidos devem acompanhar consolidação da proposta');
 p2ok(str_contains($service,'UPDATE visitas SET negotiation_id=? WHERE negotiation_id=?'),'visitas devem acompanhar consolidação da proposta');
-p2ok(str_contains($service,"$status==='won'?'pending':'none'"),'negociação ganha sem pedido deve permanecer pendente');
+p2ok(str_contains($service,"\$status==='won'?'pending':'none'"),'negociação ganha sem pedido deve permanecer pendente');
 
 $migration=p2file('sql/migrations/20260918_crm_phase2_ui_ownership.sql');
 p2ok(str_contains($migration,"dnb_p2_add_column('crm_companies','created_by_user_id'"),'empresa precisa registrar criador para RBAC');
