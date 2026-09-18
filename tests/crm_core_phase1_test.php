@@ -55,8 +55,8 @@ coreOk(!str_contains($service,"function sincronizarNegociacaoDoOrcamento(PDO \$p
 
 $legacy=coreFile('includes/crm_directory_service.php');
 coreOk(str_contains($legacy,"require_once __DIR__ . '/dnb_id_service.php'"),'diretório atual deve participar do dnb_id');
-coreOk(str_contains($legacy,"garantirDnbIdRegistro($pdo,'crm_companies'"),'empresa criada pelo fluxo atual deve ganhar dnb_id');
-coreOk(str_contains($legacy,"garantirDnbIdRegistro($pdo,'crm_contacts'"),'contato criado pelo fluxo atual deve ganhar dnb_id');
+coreOk(str_contains($legacy,"garantirDnbIdRegistro(\$pdo,'crm_companies'"),'empresa criada pelo fluxo atual deve ganhar dnb_id');
+coreOk(str_contains($legacy,"garantirDnbIdRegistro(\$pdo,'crm_contacts'"),'contato criado pelo fluxo atual deve ganhar dnb_id');
 
 $orc=coreFile('orcamentos.php');
 coreOk(str_contains($orc,"require_once __DIR__ . '/includes/crm_core_service.php'"),'Orçamentos deve carregar compatibilidade da Fase 1');
