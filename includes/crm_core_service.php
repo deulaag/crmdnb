@@ -228,6 +228,62 @@ function vincularContatoNegociacaoCrm(PDO $pdo, int $negotiationId, int $contact
     $stmt->execute([$negotiationId,$contactId,$role,$principal?1:0]);
 }
 
+/**
+ * Durante a Fase 1 o menu antigo ainda cria Orçamentos diretamente.
+ * Este adaptador garante que cada novo orçamento continue íntegro no novo
+ * modelo: ele recebe ORC dnb_id e uma Negociação 1:1 até a Fase 2.
+ */
+function garantirNegociacaoParaOrcamento(PDO $pdo, int $orcamentoId): int
+{
+    if ($orcamentoId <= 0 || !crmCoreFase1Disponivel($pdo)) return 0;
+
+    garantirDnbIdRegistro($pdo,'orcamentos',$orcamentoId);
+    $stmt=$pdo->prepare('SELECT * FROM orcamentos WHERE id=? LIMIT 1');
+    $stmt->execute([$orcamentoId]);
+    $o=$stmt->fetch();
+    if(!$o) return 0;
+    if(!empty($o['negotiation_id'])) return (int)$o['negotiation_id'];
+
+    $neg=criarNegociacaoCrmCore($pdo,[
+        'title'=>trim((string)($o['numero']??''))!=='' ? ((string)$o['numero'].' · '.(string)$o['cliente']) : (string)$o['cliente'],
+        'company_id'=>(int)($o['company_id']??0),
+        'category'=>(string)(($o['tipo']??'')!==''?$o['tipo']:($o['linha']??'')),
+        'pipeline_name'=>(string)($o['funil']??''),
+        'stage_name'=>(string)($o['etapa']??''),
+        'estimated_value'=>(float)($o['valor']??0),
+        'status'=>(string)($o['status']??'Aberta'),
+        'vendedor_id'=>(string)($o['vendedor_id']??''),
+        'assigned_to_user_id'=>(int)($o['assigned_to_user_id']??0),
+        'origin'=>'legacy_orcamento',
+        'business_created_at'=>!empty($o['data'])?((string)$o['data'].' 00:00:00'):null,
+        'contacts'=>!empty($o['contact_id'])?[['contact_id'=>(int)$o['contact_id'],'role'=>'principal','is_primary'=>true]]:[],
+    ]);
+    $negId=(int)($neg['id']??0);
+    if($negId>0){
+        $pdo->prepare('UPDATE crm_negotiations SET source_orcamento_id=? WHERE id=?')->execute([$orcamentoId,$negId]);
+        $pdo->prepare('UPDATE orcamentos SET negotiation_id=? WHERE id=?')->execute([$negId,$orcamentoId]);
+    }
+    return $negId;
+}
+
+function garantirPedidoCore(PDO $pdo, int $pedidoId, ?int $orcamentoId=null): string
+{
+    $dnbId=garantirDnbIdRegistro($pdo,'pedidos',$pedidoId);
+    if($orcamentoId && crmCoreFase1Disponivel($pdo)){
+        $negId=garantirNegociacaoParaOrcamento($pdo,$orcamentoId);
+        if($negId>0){
+            $pdo->prepare('UPDATE pedidos p JOIN orcamentos o ON o.id=? SET p.negotiation_id=?,p.company_id=COALESCE(p.company_id,o.company_id) WHERE p.id=?')
+                ->execute([$orcamentoId,$negId,$pedidoId]);
+        }
+    }
+    return $dnbId;
+}
+
+function garantirVisitaCore(PDO $pdo, int $visitaId): string
+{
+    return garantirDnbIdRegistro($pdo,'visitas',$visitaId);
+}
+
 /** @return array<string,mixed>|null */
 function buscarEntidadePorDnbId(PDO $pdo, string $dnbId): ?array
 {
