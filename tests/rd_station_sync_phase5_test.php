@@ -38,7 +38,7 @@ rd5ok(str_contains($service,"https://api.rd.services/platform/segmentations/"),'
 rd5ok(str_contains($service,"Todos os contatos da base de Leads"),'Marketing deve localizar segmentação padrão da base');
 rd5ok(str_contains($service,"https://api.rd.services/platform/contacts/"),'Marketing deve detalhar cada contato');
 rd5ok(str_contains($service,"marketing_contact_details"),'fluxo precisa ter segunda passagem para campos detalhados');
-rd5ok(str_contains($service,"$limit=10"),'detalhamento Marketing deve usar lotes pequenos');
+rd5ok(str_contains($service,'$limit=10'),'detalhamento Marketing deve usar lotes pequenos');
 rd5ok(str_contains($service,"time()+60"),'rate limit deve aplicar espera de segurança');
 rd5ok(str_contains($service,"GET_LOCK"),'processamento deve impedir concorrência do mesmo job');
 rd5ok(str_contains($service,"RELEASE_LOCK"),'lock do job deve ser liberado');
@@ -70,10 +70,10 @@ rd5ok(str_contains($neg,'Negociação histórica ganha no RD Station'),'UI deve 
 
 rd5ok(str_contains($api,'exigirPapel(PAPEL_ADMINISTRADOR)'),'endpoint do sync deve ser exclusivo de ADM');
 rd5ok(str_contains($api,'exigirCsrf()'),'ações do sync precisam de CSRF');
-foreach(["$action==='cancel'","$action==='resume'","$action==='step'"] as $action)
+foreach(["\$action==='cancel'","\$action==='resume'","\$action==='step'"] as $action)
     rd5ok(str_contains($api,$action),'endpoint precisa suportar '.$action);
 
-rd5ok(str_contains($config,"$acao === 'iniciar_rd_first_sync'"),'Configurações deve iniciar a primeira sincronização');
+rd5ok(str_contains($config,"\$acao === 'iniciar_rd_first_sync'"),'Configurações deve iniciar a primeira sincronização');
 rd5ok(str_contains($admin,"rd_station_sync_panel.php"),'painel RD deve incluir Fase 5');
 foreach(['Painel CMD · sincronização','Iniciar primeira sincronização','Conflitos pendentes','Execuções'] as $text)
     rd5ok(str_contains($panel,$text),'painel deve exibir '.$text);
