@@ -52,6 +52,7 @@ jobs:
           php tests/rd_station_phase6_test.php
           php tests/rd_reporting_phase7_test.php
           php tests/rd_operations_phase8_test.php
+          php tests/rd_outbound_phase9_test.php
       - name: Testar CSRF e importação de PDF em Visitas
         run: php tests/visitas_csrf_test.php
       - name: Testar contrato da IA
