@@ -74,16 +74,23 @@ function rdReportingSummary(PDO $pdo,string $mes,bool $respectScope=true): array
         if($created>=$from&&$created<$to){$summary['created_count']++;$summary['created_value']+=$value;}
 
         $status=(string)($n['status']??'open');
-        if($status==='won'){$summary['won_count']++;$summary['won_value']+=$value;}
-        elseif($status==='lost'){$summary['lost_count']++;$summary['lost_value']+=$value;}
-        else{$summary['open_count']++;$summary['open_value']+=$value;}
+        $closed=(string)($n['closed_at']??'');
+        $closedThisMonth=$closed!==''&&$closed>=$from&&$closed<$to;
+        $movement=(string)($n['business_updated_at']??$n['business_created_at']??$n['created_at']??'');
+        $fallbackClosedThisMonth=$closed===''&&$movement>=$from&&$movement<$to;
+        if($status==='won'&&($closedThisMonth||$fallbackClosedThisMonth)){
+            $summary['won_count']++;$summary['won_value']+=$value;
+            if((int)($n['orders_count']??0)===0){
+                $summary['won_without_order_count']++;$summary['won_without_order_value']+=$value;
+            }
+        }elseif($status==='lost'&&($closedThisMonth||$fallbackClosedThisMonth)){
+            $summary['lost_count']++;$summary['lost_value']+=$value;
+        }elseif($status==='open'){
+            $summary['open_count']++;$summary['open_value']+=$value;
+        }
 
         if((string)($n['origin']??'')==='rd_crm'){$summary['rd_count']++;$summary['rd_value']+=$value;}
         else{$summary['manual_count']++;$summary['manual_value']+=$value;}
-
-        if($status==='won'&&(int)($n['orders_count']??0)===0){
-            $summary['won_without_order_count']++;$summary['won_without_order_value']+=$value;
-        }
     }
     return ['items'=>$items,'summary'=>$summary];
 }
