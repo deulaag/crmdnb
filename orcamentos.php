@@ -78,13 +78,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare('UPDATE orcamentos SET etapa=? WHERE id=?');
         $stmt->execute([$novaEtapa, $leadId]);
         registrarTimeline($pdo, $leadId, 'funnel_update', 'Etapa atualizada para ' . $novaEtapa . '.');
+        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
         orcRedirect();
     }
 
     if ($acao === 'set_valor') {
         if (!podeAcessarLead($pdo, (int) $_POST['id'])) { http_response_code(403); exit; }
         $stmt = $pdo->prepare('UPDATE orcamentos SET valor=? WHERE id=?');
-        $stmt->execute([max(0,(float)($_POST['valor']??0)), (int) $_POST['id']]);
+        $leadId=(int)$_POST['id'];
+        $stmt->execute([max(0,(float)($_POST['valor']??0)), $leadId]);
+        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
         orcRedirect();
     }
 
@@ -93,7 +96,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($_POST['status'] ?? '', ['Aberta','Ganha','Perdida'], true)) { http_response_code(422); exit; }
         $stmt = $pdo->prepare('UPDATE orcamentos SET status=? WHERE id=?');
         $stmt->execute([$_POST['status'], (int) $_POST['id']]);
-        registrarTimeline($pdo,(int)$_POST['id'],'status_update','Status atualizado para '.(string)$_POST['status'].'.');
+        $leadId=(int)$_POST['id'];
+        registrarTimeline($pdo,$leadId,'status_update','Status atualizado para '.(string)$_POST['status'].'.');
+        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,$leadId);
         orcRedirect();
     }
 
@@ -191,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!podeAcessarLead($pdo, (int) $exId)) continue;
                         $pdo->prepare('UPDATE orcamentos SET valor=IF(?>0,?,valor), status=?, etapa=IF(?="Aberta",?,etapa), comissao_dnb_estimada=IF(?>0,?,comissao_dnb_estimada), vendedor_id=COALESCE(vendedor_id,?), assigned_to_user_id=COALESCE(assigned_to_user_id,?), cargo_id=COALESCE(cargo_id,?) WHERE id=?')
                             ->execute([$valor, $valor, $status, $status, $etapa, $comEst, $comEst, $vendId, $assignedTo, $cargoId, $exId]);
+                        if(crmCoreFase1Disponivel($pdo)) sincronizarNegociacaoDoOrcamento($pdo,(int)$exId);
                         $atualizados++;
                     } else {
                         $pdo->prepare('INSERT INTO orcamentos (sf_id,numero,data,cliente,vendedor_id,linha,tipo,funil,etapa,valor,comissao_dnb_estimada,status,origem,assigned_to_user_id,cargo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
