@@ -337,6 +337,9 @@ function atualizarNegociacaoCrmUi(PDO $pdo,int $id,array $dados): void
     $status=crmCoreStatusNegociacao((string)($dados['status']??'open'));
     $stmt=$pdo->prepare('UPDATE crm_negotiations SET title=?,company_id=?,category=?,pipeline_name=?,stage_name=?,estimated_value=?,status=?,lost_reason=?,assigned_to_user_id=?,business_updated_at=NOW(),closed_at=CASE WHEN ? IN (\'won\',\'lost\') THEN COALESCE(closed_at,NOW()) ELSE NULL END WHERE id=?');
     $stmt->execute([mb_substr($titulo,0,220),$companyId,mb_substr(trim((string)($dados['category']??'')),0,120),mb_substr(trim((string)($dados['pipeline_name']??'')),0,160),mb_substr(trim((string)($dados['stage_name']??'')),0,160),max(0,(float)($dados['estimated_value']??0)),$status,mb_substr(trim((string)($dados['lost_reason']??'')),0,255),$owner,$status,$id]);
+    $stmt=$pdo->prepare('SELECT COUNT(*) FROM pedidos WHERE negotiation_id=?');$stmt->execute([$id]);$hasOrder=(int)$stmt->fetchColumn()>0;
+    $orderStatus=$hasOrder?'generated':($status==='won'?'pending':'none');
+    $pdo->prepare('UPDATE crm_negotiations SET order_status=? WHERE id=?')->execute([$orderStatus,$id]);
 }
 
 function removerContatoNegociacaoCrmUi(PDO $pdo,int $negotiationId,int $contactId): void
