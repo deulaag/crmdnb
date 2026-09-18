@@ -247,13 +247,14 @@ $rdPhase9Auto=$rdPhase9Ready?rdPhase9AutoEnabled():false;
 
     <div class="border-t border-slate-200">
       <div class="px-4 py-3 flex justify-between gap-3 flex-wrap"><div><span class="dnb-eyebrow">Fila de saída</span><h3 class="font-semibold" style="color:<?=NAVY?>;">DNB → RD CRM</h3></div><span class="text-xs text-slate-500"><?=count($rdPhase9Queue)?> registro(s) recente(s)</span></div>
-      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[1050px]"><thead><tr class="text-left text-slate-500 border-y"><th class="p-2">ID</th><th class="p-2">Entidade</th><th class="p-2">DNB ID</th><th class="p-2">Motivo</th><th class="p-2">Status</th><th class="p-2">Tentativas</th><th class="p-2">Solicitado por</th><th class="p-2">HTTP</th><th class="p-2">Último erro / bloqueio</th><th class="p-2">Atualizado</th></tr></thead><tbody>
+      <div class="overflow-x-auto"><table class="w-full text-xs min-w-[1050px]"><thead><tr class="text-left text-slate-500 border-y"><th class="p-2">ID</th><th class="p-2">Entidade</th><th class="p-2">DNB ID</th><th class="p-2">Motivo</th><th class="p-2">Status</th><th class="p-2">Tentativas</th><th class="p-2">Solicitado por</th><th class="p-2">HTTP</th><th class="p-2">Último erro / bloqueio</th><th class="p-2">Atualizado</th><th class="p-2"></th></tr></thead><tbody>
         <?php foreach($rdPhase9Queue as $q):?><tr class="border-b border-slate-100 align-top">
           <td class="p-2">#<?=(int)$q['id']?></td><td class="p-2"><?=e($q['entity'])?></td><td class="p-2 font-mono"><?=e($q['dnb_id'])?></td><td class="p-2"><?=e($q['reason'])?></td>
           <td class="p-2"><?=$q['status']==='success'?tag('sucesso','green'):($q['status']==='blocked'?tag('bloqueado','amber'):($q['status']==='error'?tag('erro','red'):tag($q['status'],'blue')))?></td>
           <td class="p-2"><?=(int)$q['attempts']?></td><td class="p-2"><?=e($q['requested_by_name']?:'sistema')?></td><td class="p-2"><?=e((string)($q['last_http_status']??'—'))?></td><td class="p-2 max-w-[300px] break-words <?=in_array($q['status'],['error','blocked'],true)?'text-rose-700':''?>"><?=e((string)($q['last_error']??''))?></td><td class="p-2"><?=e($q['updated_at'])?></td>
+          <td class="p-2 text-right"><?php if(in_array($q['status'],['error','blocked'],true)):?><form method="post"><?=csrfInput()?><input type="hidden" name="acao" value="reabrir_rd_outbound"><input type="hidden" name="queue_id" value="<?=(int)$q['id']?>"><button class="<?=BTN_S?> !px-2 !py-1 text-xs">Reabrir</button></form><?php endif;?></td>
         </tr><?php endforeach;?>
-        <?php if(!$rdPhase9Queue):?><tr><td colspan="10" class="p-5 text-center text-slate-400">Nenhuma saída DNB → RD registrada.</td></tr><?php endif;?>
+        <?php if(!$rdPhase9Queue):?><tr><td colspan="11" class="p-5 text-center text-slate-400">Nenhuma saída DNB → RD registrada.</td></tr><?php endif;?>
       </tbody></table></div>
     </div>
   <?php endif;?>
