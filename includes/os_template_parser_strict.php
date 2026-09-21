@@ -137,7 +137,20 @@ function extrairEventosCampoOsEstrito(string $secao): array
             $eventos[]=['hora'=>$m[1],'evento'=>trim($m[2]),'tipo'=>trim($m[3])];
         }
     }
-    return $eventos;
+    if($eventos)return $eventos;
+
+    // Compatibilidade com PDFs/fixtures antigos no formato HORA: valor.
+    $tokens=[];
+    foreach(['hora'=>'evento_hora','evento'=>'evento','tipo'=>'evento_tipo'] as $dest=>$key){
+        foreach(localizarTodosCamposOsEstritos($secao,$key) as $loc)$tokens[]=['key'=>$dest,'pos'=>$loc[0],'fim'=>$loc[0]+$loc[1]];
+    }
+    usort($tokens,static fn(array $a,array $b):int=>$a['pos']<=>$b['pos']);
+    $atual=['hora'=>'','evento'=>'','tipo'=>''];
+    for($i=0,$n=count($tokens);$i<$n;$i++){
+        $token=$tokens[$i];$fim=$i+1<$n?$tokens[$i+1]['pos']:strlen($secao);
+        $atual[$token['key']]=limparRuidoPaginacaoOs(substr($secao,$token['fim'],max(0,$fim-$token['fim'])));
+    }
+    return array_filter($atual,static fn(string $v):bool=>$v!=='')?[$atual]:[];
 }
 
 /**
