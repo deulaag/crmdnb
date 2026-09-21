@@ -2,12 +2,15 @@
 declare(strict_types=1);
 require_once __DIR__ . '/os_template_service.php';
 
-/** Regex de rótulo preenchível: exige ':' real e nunca casa dentro de uma resposta. */
+/**
+ * Reconhece o rótulo no início da linha. O Iliot exporta a maior parte das
+ * tabelas sem dois-pontos, enquanto alguns campos usam ':'; ambos são válidos.
+ */
 function regexRotuloCampoOsEstrito(string $rotulo): string
 {
     $partes=preg_split('/\s+/u',trim($rotulo))?:[];
     $miolo=implode('(?:[\h\x{00A0}]|\R)+',array_map(static fn(string $p):string=>preg_quote($p,'~'),$partes));
-    return '~(?<![\pL\pN_])'.$miolo.'(?![\pL\pN_])[\h\x{00A0}]*:[\h\x{00A0}]*~iu';
+    return '~^[\h\x{00A0}]*'.$miolo.'(?![\pL\pN_])[\h\x{00A0}]*:?[\h\x{00A0}]*~imu';
 }
 
 /** @return array{0:int,1:int}|null */
@@ -22,12 +25,28 @@ function localizarCampoOsEstrito(string $texto,string $key,int $offset=0): ?arra
     return $melhor;
 }
 
+/** @return array<int,array{0:int,1:int}> */
+function localizarTodosCamposOsEstritos(string $texto,string $key): array
+{
+    $locais=[];
+    foreach(variantesRotuloOs($key) as $rotulo){
+        preg_match_all(regexRotuloCampoOsEstrito((string)$rotulo),$texto,$matches,PREG_OFFSET_CAPTURE);
+        foreach($matches[0]??[] as $match){
+            $pos=(int)$match[1];$fim=$pos+strlen((string)$match[0]);
+            $locais[$pos.':'.$fim]=[$pos,$fim-$pos];
+        }
+    }
+    $locais=array_values($locais);
+    usort($locais,static fn(array $a,array $b):int=>$a[0]<=>$b[0]);
+    return $locais;
+}
+
 /** Regex de título de seção: ocupa somente a linha do título, sem engolir a próxima. */
 function regexSecaoOsEstrita(string $titulo): string
 {
     $partes=preg_split('/\s+/u',trim($titulo))?:[];
     $miolo=implode('[\h\x{00A0}]*',array_map(static fn(string $p):string=>preg_quote($p,'~'),$partes));
-    return '~^[\h\x{00A0}]*'.$miolo.'[\h\x{00A0}]*$~imu';
+    return '~^[\h\x{00A0}]*'.$miolo.'[\h\x{00A0}]*(?:\([^\r\n]*\))?[\h\x{00A0}]*$~imu';
 }
 
 /** @return array{0:int,1:int}|null */
@@ -52,44 +71,73 @@ function recortarSecaoOsEstrita(string $texto,?string $inicio,?string $fim): str
 }
 
 /**
- * Extrai todos os campos da seção pelo intervalo entre rótulos reais.
- * Como o ':' é obrigatório, palavras existentes dentro dos valores não viram campos.
+ * Remove cabeçalhos e rodapés repetidos entre páginas sem apagar a continuação
+ * de relatórios longos que atravessam a quebra de página.
  */
+function limparRuidoPaginacaoOs(string $valor): string
+{
+    $valor=preg_replace(
+        '~^\d{2}/\d{2}/\d{4}[\h]+\d{2}:\d{2}\R+p[áa]gina[\h]+\d+/\d+\R+.*?^\d+\R+^/\R+^\d+\R*~msiu',
+        '',
+        $valor
+    )??$valor;
+    return limparValorOs($valor);
+}
+
+/** Extrai campos pelo intervalo entre rótulos ancorados, preservando repetições. */
 function extrairCamposSecaoOsEstrito(string $secao,array $campos,array &$dados): void
 {
     $achados=[];
-    foreach($campos as $key){$loc=localizarCampoOsEstrito($secao,(string)$key);if($loc)$achados[]=['key'=>$key,'pos'=>$loc[0],'fim'=>$loc[0]+$loc[1]];}
+    foreach($campos as $key){
+        foreach(localizarTodosCamposOsEstritos($secao,(string)$key) as $loc)$achados[]=['key'=>$key,'pos'=>$loc[0],'fim'=>$loc[0]+$loc[1]];
+    }
     usort($achados,static fn(array $a,array $b):int=>$a['pos']<=>$b['pos']);
     for($i=0,$n=count($achados);$i<$n;$i++){
         $atual=$achados[$i];$fim=$i+1<$n?$achados[$i+1]['pos']:strlen($secao);
-        $dados[$atual['key']]=limparValorOs(substr($secao,$atual['fim'],max(0,$fim-$atual['fim'])));
+        $valor=limparRuidoPaginacaoOs(substr($secao,$atual['fim'],max(0,$fim-$atual['fim'])));
+        acumularValorTemplateOs($dados,(string)$atual['key'],$valor);
     }
+}
+
+function extrairValorImediatoCampoOs(string $texto,string $key): string
+{
+    foreach(localizarTodosCamposOsEstritos($texto,$key) as $loc){
+        $resto=substr($texto,$loc[0]+$loc[1]);
+        $linhas=preg_split('/\R/u',$resto,3)?:[];
+        $mesmaLinha=limparValorOs((string)($linhas[0]??''));
+        if($mesmaLinha!=='')return $mesmaLinha;
+        foreach(array_slice($linhas,1) as $linha){
+            $valor=limparValorOs((string)$linha);
+            if($valor!=='')return $valor;
+        }
+    }
+    return '';
 }
 
 /** @return array<int,array{hora:string,evento:string,tipo:string}> */
 function extrairEventosCampoOsEstrito(string $secao): array
 {
-    $tokens=[];
-    foreach(['hora'=>'evento_hora','evento'=>'evento','tipo'=>'evento_tipo'] as $dest=>$key){
-        foreach(variantesRotuloOs($key) as $rotulo){
-            preg_match_all(regexRotuloCampoOsEstrito((string)$rotulo),$secao,$ms,PREG_OFFSET_CAPTURE);
-            foreach($ms[0]??[] as $m)$tokens[]=['key'=>$dest,'pos'=>(int)$m[1],'fim'=>(int)$m[1]+strlen((string)$m[0])];
+    $linhas=array_values(array_filter(array_map('trim',preg_split('/\R/u',$secao)?:[]),static fn(string $v):bool=>$v!==''));
+    $inicio=0;
+    for($i=0,$n=count($linhas);$i<$n;$i++){
+        $chave=chaveOs($linhas[$i]);
+        if($chave==='hora_evento_tipo'){$inicio=$i+1;break;}
+        if($chave==='hora'&&chaveOs($linhas[$i+1]??'')==='evento'&&chaveOs($linhas[$i+2]??'')==='tipo'){$inicio=$i+3;break;}
+    }
+
+    $eventos=[];
+    for($i=$inicio,$n=count($linhas);$i<$n;$i++){
+        $linha=$linhas[$i];
+        if(preg_match('/^(\d{2}\/\d{2}\/\d{4}[\h]+\d{2}:\d{2})$/u',$linha,$m)){
+            $evento=trim((string)($linhas[$i+1]??''));$tipo=trim((string)($linhas[$i+2]??''));
+            if($evento!==''||$tipo!==''){$eventos[]=['hora'=>$m[1],'evento'=>$evento,'tipo'=>$tipo];$i+=2;}
+            continue;
+        }
+        if(preg_match('/^(\d{2}\/\d{2}\/\d{4}[\h]+\d{2}:\d{2})[\h]+(.+?)[\h]+(Check-in|Check-out|Visita|Diagnóstico|Diagnostico)$/iu',$linha,$m)){
+            $eventos[]=['hora'=>$m[1],'evento'=>trim($m[2]),'tipo'=>trim($m[3])];
         }
     }
-    usort($tokens,static fn(array $a,array $b):int=>$a['pos']<=>$b['pos']);
-    // Remove o mesmo token encontrado por duas variantes equivalentes.
-    $tokens=array_values(array_reduce($tokens,static function(array $acc,array $t):array{
-        $assinatura=$t['key'].'@'.$t['pos'];foreach($acc as $a)if(($a['_sig']??'')===$assinatura)return $acc;$t['_sig']=$assinatura;$acc[]=$t;return $acc;
-    },[]));
-    $eventos=[];$atual=['hora'=>'','evento'=>'','tipo'=>''];
-    for($i=0,$n=count($tokens);$i<$n;$i++){
-        $t=$tokens[$i];$fim=$i+1<$n?$tokens[$i+1]['pos']:strlen($secao);
-        $valor=limparValorOs(substr($secao,$t['fim'],max(0,$fim-$t['fim'])));
-        if($t['key']==='hora'&&array_filter($atual,static fn($v)=>trim((string)$v)!=='')){$eventos[]=$atual;$atual=['hora'=>'','evento'=>'','tipo'=>''];}
-        $atual[$t['key']]=$valor;
-    }
-    if(array_filter($atual,static fn($v)=>trim((string)$v)!==''))$eventos[]=$atual;
-    return array_values($eventos);
+    return $eventos;
 }
 
 /**
@@ -106,6 +154,12 @@ function extrairTemplateOsTextoEstrito(string $texto): array
             $eventos=extrairEventosCampoOsEstrito($secao);
             if($eventos){$dados['eventos_campo']=$eventos;$dados['evento_hora']=$eventos[0]['hora']??'';$dados['evento']=$eventos[0]['evento']??'';$dados['evento_tipo']=$eventos[0]['tipo']??'';}
         }
+    }
+
+    // O extrator de alguns PDFs coloca o cabeçalho no fim da página. Estes
+    // campos são únicos e podem ser recuperados no documento inteiro.
+    foreach(['os','codigo_checklist','data_envio_sistema','endereco'] as $key){
+        if(trim((string)($dados[$key]??''))==='')$dados[$key]=extrairValorImediatoCampoOs($texto,$key);
     }
     $dados['_raw_text']=$texto;
     return $dados;

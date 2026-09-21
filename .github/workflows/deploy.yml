@@ -7,8 +7,28 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  php-quality:
+    name: Validar antes do deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código do repositório
+        uses: actions/checkout@v4
+      - name: Preparar PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, json, curl, pdo_mysql
+          coverage: none
+      - name: Instalar dependências
+        run: composer install --no-dev --optimize-autoloader --prefer-dist
+      - name: Validar sintaxe PHP
+        run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Executar testes automatizados
+        run: for test in tests/*_test.php; do php "$test"; done
+
   web-deploy:
     name: Atualizar site no cPanel
+    needs: php-quality
     runs-on: ubuntu-latest
 
     steps:
@@ -40,5 +60,4 @@ jobs:
             recovered_schema.txt
             config.local.php
             whatsapp.local.php
-            **/*.sql
             **/*.md

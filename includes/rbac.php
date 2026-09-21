@@ -82,6 +82,14 @@ function exigirPapel(string ...$papeis): void
     exigirLogin();
     aplicarRestricoesAdministrativasDaRequisicao();
     if (!temPapel(...$papeis)) negarAcessoModulo();
+    $script=(string)($_SERVER['SCRIPT_NAME']??'');
+    if(temPapel(PAPEL_ADMINISTRADOR)&&!str_starts_with($script,'/install/')){
+        require_once __DIR__.'/migration_service.php';
+        if(dnbTemMigracoesPendentes(db())){
+            header('Location: /install/');
+            exit;
+        }
+    }
 }
 
 function idsUsuariosDaEquipe(PDO $pdo, ?array $usuario = null): array

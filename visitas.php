@@ -148,7 +148,11 @@ if(!$eventosPreview){
     $row=['hora'=>(string)($templatePreview['evento_hora']??''),'evento'=>(string)($templatePreview['evento']??''),'tipo'=>(string)($templatePreview['evento_tipo']??'')];
     $eventosPreview=[array_filter($row,static fn($v)=>trim((string)$v)!=='')?$row:['hora'=>'','evento'=>'','tipo'=>'']];
 }
-$camposLongos=['descricao_atividade','informacoes_cliente','fotos','relatorio_descritivo','equipamento_comentario','informacao_oportunidade','oportunidade_comercial','oportunidade_comentario','relatorio_visita_tecnica','proximos_passos','assinatura_vendedor'];
+$camposLongos=[
+    'descricao_atividade','informacoes_cliente','fotos','relatorio_descritivo','compressores','equipamento_comentario',
+    'fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo',
+    'informacao_oportunidade','oportunidade_comercial','oportunidade_comentario','relatorio_visita_tecnica','proximos_passos','assinatura_vendedor',
+];
 [$filtro,$params]=filtroEscopoAtribuicao($pdo);$stmt=$pdo->prepare("SELECT * FROM visitas WHERE {$filtro} ORDER BY data DESC,id DESC");$stmt->execute($params);$visitas=$stmt->fetchAll();
 $tabAtual='vis';include __DIR__.'/includes/layout_header.php';
 ?>

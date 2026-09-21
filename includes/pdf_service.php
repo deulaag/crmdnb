@@ -48,8 +48,8 @@ function pontuarMarcadoresTemplateOs(string $texto): int
 /**
  * Lê o PDF uma única vez e produz duas visões: texto corrido e texto por posição.
  * As duas são interpretadas pelo parser estrito e mescladas campo a campo.
- * O parser só reconhece rótulos reais terminados por ':', evitando confundir
- * palavras HORA/EVENTO/TIPO ou outros nomes de campos que apareçam nas respostas.
+ * O parser reconhece rótulos ancorados no início da linha, com ou sem ':',
+ * como nas tabelas reais exportadas pelo Iliot, sem confundir palavras no texto.
  *
  * @return array{texto:string,texto_layout:string,template:array}
  */

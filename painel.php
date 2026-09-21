@@ -40,9 +40,12 @@ $kpisTopo=[
     ['Visitas + prospecções',(float)$resumo['atividade'],$resumo['metaAtividade'],'number',rotuloMes($mes)],
 ];
 
+$msg=$_SESSION['flash']??'';unset($_SESSION['flash']);
 $tabAtual = 'painel';
 include __DIR__ . '/includes/layout_header.php';
 ?>
+
+<?php if($msg!==''):?><div class="dnb-alert dnb-alert--success mb-4"><?=e((string)$msg)?></div><?php endif;?>
 
 <section class="dnb-overview-performance mb-4" data-collaborator-overview>
   <div class="dnb-overview-performance__head">

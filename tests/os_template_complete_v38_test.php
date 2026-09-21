@@ -12,9 +12,9 @@ $esperados=[
 'os','codigo_checklist','data_envio_sistema','endereco','nome_cnpj','pessoa_contato','telefone_1','email','identificacao_localidade',
 'projeto_contrato','formulario_servico','profissionais','descricao_atividade','tipo_servico','evento_hora','evento','evento_tipo','por_profissional','total_hh','tempo_trabalho','tempo_deslocamento',
 'informacoes_cliente','responsavel_cliente','numero_contato','email_cliente','setor','local_instalacao','vendedor','equipamento_operando','instalacao_conforme','possui_secador','secador_funcionando','possui_reservatorio_dreno','agua_dreno','possui_filtros','filtros_dreno','fotos','foto_1','foto_2','foto_3','foto_4','relatorio_descritivo',
-'ordem_compressor','ordem_secador','compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo','indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva','informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular','oportunidade_comercial','oportunidade_comentario','relatorio_visita_tecnica','proximos_passos','assinatura_vendedor'];
+'ordem_compressor','ordem_secador','ordem_pre_filtro','ordem_pos_filtro','ordem_reservatorio','compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo','indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva','informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular','oportunidade_comercial','oportunidade_comentario','relatorio_visita_tecnica','proximos_passos','assinatura_vendedor'];
 $campos=camposTemplateOsSimplificada();
-v38ok(count($campos)===72,'contrato deve conter os 72 campos preenchíveis do PDF oficial');
+v38ok(count($campos)===75,'contrato deve conter os 75 campos preenchíveis do PDF oficial');
 v38ok(array_keys($campos)===$esperados,'nenhum campo do template oficial pode faltar ou mudar de posição lógica');
 
 $partes=[];
@@ -30,7 +30,7 @@ $estrutura=[
  ['ITENS VERIFICADOS',[]],
  ['0-INFORMAÇÃO DO CLIENTE',['informacoes_cliente','responsavel_cliente','numero_contato','email_cliente','setor','local_instalacao','vendedor']],
  ['1- CONDIÇÕES GERAIS DA INSTALAÇÃO',['equipamento_operando','instalacao_conforme','possui_secador','secador_funcionando','possui_reservatorio_dreno','agua_dreno','possui_filtros','filtros_dreno','fotos','foto_1','foto_2','foto_3','foto_4','relatorio_descritivo']],
- ['2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS',['ordem_compressor','ordem_secador']],
+ ['2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS',['ordem_compressor','ordem_secador','ordem_pre_filtro','ordem_pos_filtro','ordem_reservatorio']],
  ['3-DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.',['compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo']],
  ['4-ABORDAGEM COMERCIAL - MANUTENÇÃO PREVENTIVA',['indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva']],
  ['5-PERCEPÇÃO DO CLIENTE - PROBLEMAS COMUNS',['informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular']],
@@ -53,6 +53,110 @@ $colisao=extrairTemplateOsTextoEstrito($textoColisao);
 v38ok(($colisao['evento_hora']??'')==='texto com EVENTO e TIPO sem dois pontos','palavras EVENTO/TIPO dentro do valor não podem virar rótulos');
 v38ok(($colisao['evento']??'')==='VAL_evento','EVENTO real deve continuar no campo correto');
 v38ok(($colisao['evento_tipo']??'')==='VAL_evento_tipo','TIPO real deve continuar no campo correto');
+
+// Recorte fiel do PDF Iliot real: tabelas sem dois-pontos, título com sufixo,
+// eventos tabulares, ligaturas e cabeçalho extraído no fim da página.
+$iliot=<<<'TXT'
+IDENTIFICAÇÃO DA LOCALIDADE
+ENDEREÇO
+Tv. Rio Branco, 200 - Alagoinhas - BA
+IDENTIFICAÇÃO DO CLIENTE
+NOME / CPNJ
+Laticinio Marianna LTDA / 40.499.907/0001-61
+PESSOA DE CONTATO
+André Moura
+DETALHAMENTO DO SERVIÇO
+FORMULÁRIO DE SERVIÇO
+DNB Visita Comercial - 01
+PROFISSIONAIS
+Rafael Cerqueira
+EVENTOS EM CAMPO
+HORA
+EVENTO
+TIPO
+04/08/2026 14:28
+Chegada no cliente
+Check-in
+04/08/2026 15:32
+Saida do cliente
+Check-out
+TOTAIS
+POR PROFISSIONAL
+1:04:00
+TOTAL HH
+1:04:00
+ITENS VERIFICADOS
+0 - INFORMAÇÃO DO CLIENTE
+Respónsavel:
+Bruno e Carlos
+Setor:
+Manutenção
+Vendedor:
+Rafael Cerqueira
+1 - CONDIÇÕES GERAIS DA INSTALAÇÃO
+A instalação possui ﬁltros de ar?
+SIM
+Os ﬁltros possuem dreno?
+SIM
+2 - ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS (NUMERAR NA SEQUÊNCIA INSTALADA)
+Relatório descritivo
+Inspeção visual concluída
+COMPRESSOR
+3
+SECADOR DE AR
+3 - sendo 2 integrados e 1 separado
+PRÉ-FILTRO
+Somente nos integrados
+PÓS-FILTRO
+Somente nos integrados
+RESERVATÓRIO
+1
+3 - DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.
+Fabricante:
+Ingersoll
+Modelos:
+R37I TAS
+Fabricante:
+Schulz
+Modelo:
+SRP 3030
+4 - ABORDAGEM COMERCIAL – MANUTENÇÃO PREVENTIVA
+Foi apresentado ao cliente o plano de manutenção preventiva 1x ao ano)?
+SIM
+Cliente demonstrou interesse?
+Não
+5 - PERCEPÇÃO DO CLIENTE – PROBLEMAS COMUNS
+Presença excessiva de água na linha de ar:
+NÃO
+6 - OPORTUNIDADES IDENTIFICADAS
+RELATÓRIO COMERCIAL DE VISITA TÉCNICA
+Avaliação técnica realizada com o cliente.
+Próximos Passos
+Enviar proposta comercial.
+Assinatura do Vendedor:
+09/09/2026 19:57
+página 4/4
+ORDEM DE SERVIÇO DE CAMPO SIMPLIFICADA
+OS:
+4435
+CÓD. CHECKLIST (SERVIÇO)
+Viscom1
+DATA ENVIO OS SISTEMA
+05/08/2026 10:51
+4
+/
+4
+TXT;
+$real=extrairTemplateOsTextoEstrito($iliot);
+v38ok($real['os']==='4435','OS deve ser recuperada mesmo quando o extrator coloca o cabeçalho no fim');
+v38ok($real['endereco']==='Tv. Rio Branco, 200 - Alagoinhas - BA','endereço da localidade deve ser preenchido');
+v38ok($real['nome_cnpj']==='Laticinio Marianna LTDA / 40.499.907/0001-61','cliente sem dois-pontos deve ser preenchido');
+v38ok(count($real['eventos_campo']??[])===2,'todas as linhas de eventos do Iliot devem ser preservadas');
+v38ok($real['possui_filtros']==='SIM'&&$real['filtros_dreno']==='SIM','ligaturas do PDF não podem impedir respostas SIM/NÃO');
+v38ok($real['ordem_pre_filtro']==='Somente nos integrados'&&$real['ordem_reservatorio']==='1','itens completos da ordem de instalação devem ser lidos');
+v38ok($real['fabricante']==="Ingersoll\nSchulz"&&$real['modelos']==="R37I TAS\nSRP 3030",'equipamentos repetidos devem ser preservados na ordem');
+v38ok($real['relatorio_visita_tecnica']==='Avaliação técnica realizada com o cliente.','relatório da visita deve ser preenchido');
+v38ok($real['proximos_passos']==='Enviar proposta comercial.','próximos passos devem ser preenchidos');
 
 $json=[
  'IDENTIFICAÇÃO DO CLIENTE'=>['NOME/CNPJ'=>'Empresa JSON 12.345.678/0001-90','EMAIL'=>'principal@empresa.test','PESSOA DE CONTATO'=>'Maria'],

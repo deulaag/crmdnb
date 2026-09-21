@@ -10,10 +10,10 @@ jobs:
     steps:
       - name: Obter código
         uses: actions/checkout@v4
-      - name: Preparar PHP 8.1
+      - name: Preparar PHP 8.2
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.2'
           extensions: mbstring, json, curl, pdo_mysql
           coverage: none
       - name: Instalar dependências (Composer)
@@ -54,7 +54,9 @@ jobs:
           php tests/rd_operations_phase8_test.php
           php tests/rd_outbound_phase9_test.php
       - name: Testar CSRF e importação de PDF em Visitas
-        run: php tests/visitas_csrf_test.php
+        run: |
+          php tests/visitas_csrf_test.php
+          php tests/install_migrations_test.php
       - name: Testar contrato da IA
         run: php tests/ai_payload_test.php
       - name: Testar WhatsApp, RBAC, buffer e Human Lock

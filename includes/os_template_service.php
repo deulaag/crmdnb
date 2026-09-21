@@ -54,6 +54,9 @@ function camposTemplateOsSimplificada(): array
         'relatorio_descritivo'=>'Relatório descritivo',
         'ordem_compressor'=>'COMPRESSOR',
         'ordem_secador'=>'SECADOR DE AR',
+        'ordem_pre_filtro'=>'PRÉ-FILTRO',
+        'ordem_pos_filtro'=>'PÓS-FILTRO',
+        'ordem_reservatorio'=>'RESERVATÓRIO',
         'compressores'=>'Compressores',
         'equipamento_comentario'=>'Comentário',
         'fabricante'=>'Fabricante',
@@ -96,7 +99,7 @@ function gruposTemplateOsSimplificada(): array
         ['id'=>'totais','titulo'=>'Totais','campos'=>['por_profissional','total_hh','tempo_trabalho','tempo_deslocamento']],
         ['id'=>'informacao_cliente','titulo'=>'0 - Informação do Cliente','campos'=>['informacoes_cliente','responsavel_cliente','numero_contato','email_cliente','setor','local_instalacao','vendedor']],
         ['id'=>'condicoes_instalacao','titulo'=>'1 - Condições Gerais da Instalação','campos'=>['equipamento_operando','instalacao_conforme','possui_secador','secador_funcionando','possui_reservatorio_dreno','agua_dreno','possui_filtros','filtros_dreno','fotos','foto_1','foto_2','foto_3','foto_4','relatorio_descritivo']],
-        ['id'=>'ordem_instalacao','titulo'=>'2 - Ordem de Instalação dos Equipamentos','campos'=>['ordem_compressor','ordem_secador']],
+        ['id'=>'ordem_instalacao','titulo'=>'2 - Ordem de Instalação dos Equipamentos','campos'=>['ordem_compressor','ordem_secador','ordem_pre_filtro','ordem_pos_filtro','ordem_reservatorio']],
         ['id'=>'dados_tecnicos','titulo'=>'3 - Dados Técnicos dos Equipamentos e Fotografias Gerais','campos'=>['compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo']],
         ['id'=>'preventiva','titulo'=>'4 - Abordagem Comercial - Manutenção Preventiva','campos'=>['indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva']],
         ['id'=>'percepcao_cliente','titulo'=>'5 - Percepção do Cliente - Problemas Comuns','campos'=>['informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular']],
@@ -115,7 +118,7 @@ function secoesTemplateOsSimplificada(): array
         ['inicio'=>'TOTAIS','fim'=>'ITENS VERIFICADOS','campos'=>['por_profissional','total_hh','tempo_trabalho','tempo_deslocamento']],
         ['inicio'=>'0-INFORMAÇÃO DO CLIENTE','fim'=>'1- CONDIÇÕES GERAIS DA INSTALAÇÃO','campos'=>['informacoes_cliente','responsavel_cliente','numero_contato','email_cliente','setor','local_instalacao','vendedor']],
         ['inicio'=>'1- CONDIÇÕES GERAIS DA INSTALAÇÃO','fim'=>'2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS','campos'=>['equipamento_operando','instalacao_conforme','possui_secador','secador_funcionando','possui_reservatorio_dreno','agua_dreno','possui_filtros','filtros_dreno','fotos','foto_1','foto_2','foto_3','foto_4','relatorio_descritivo']],
-        ['inicio'=>'2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS','fim'=>'3-DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.','campos'=>['ordem_compressor','ordem_secador']],
+        ['inicio'=>'2-ORDEM DE INSTALAÇÃO DOS EQUIPAMENTOS','fim'=>'3-DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.','campos'=>['relatorio_descritivo','ordem_compressor','ordem_secador','ordem_pre_filtro','ordem_pos_filtro','ordem_reservatorio']],
         ['inicio'=>'3-DADOS TÉCNICOS DOS EQUIPAMENTOS E FOTOGRAFIAS GERAIS.','fim'=>'4-ABORDAGEM COMERCIAL - MANUTENÇÃO PREVENTIVA','campos'=>['compressores','equipamento_comentario','fabricante','modelos','numero_serie','horimetro','registro_manutencao','pecas_originais','tipo_oleo']],
         ['inicio'=>'4-ABORDAGEM COMERCIAL - MANUTENÇÃO PREVENTIVA','fim'=>'5-PERCEPÇÃO DO CLIENTE - PROBLEMAS COMUNS','campos'=>['indicador_preventiva','plano_preventiva_apresentado','interesse_preventiva']],
         ['inicio'=>'5-PERCEPÇÃO DO CLIENTE - PROBLEMAS COMUNS','fim'=>'6-OPORTUNIDADES IDENTIFICADAS','campos'=>['informacao_oportunidade','agua_linha','oleo_ar','paradas_frequentes','queda_pressao','consumo_energia','ruidos_vibracoes','vazamentos','qualidade_ar','perda_producao','preventiva_regular']],
@@ -143,7 +146,11 @@ function totalCamposTemplateOs(): int
 
 function normalizarTextoOs(string $texto): string
 {
-    $texto=str_replace(["\r\n","\r","\f","\xC2\xA0"],["\n","\n","\n"," "],$texto);
+    $texto=str_replace(
+        ["\r\n","\r","\f","\xC2\xA0","\u{FB00}","\u{FB01}","\u{FB02}","\u{FB03}","\u{FB04}",'–','—'],
+        ["\n","\n","\n"," ",'ff','fi','fl','ffi','ffl','-','-'],
+        $texto
+    );
     $texto=preg_replace('/[\t ]+/u',' ',$texto)??$texto;
     $texto=preg_replace('/ *\n */u',"\n",$texto)??$texto;
     $texto=preg_replace('/\n{3,}/u',"\n\n",$texto)??$texto;
@@ -166,7 +173,13 @@ function variantesRotuloOs(string $key): array
         'formulario_servico'=>['FORMULÁRIO DE SERVIÇO','FORMULARIO DE SERVICO'],
         'tipo_servico'=>['TIPO DE SERVIÇO','TIPO DE SERVICO'],
         'relatorio_descritivo'=>['Relatório descritivo','Relatorio descritivo'],
-        'relatorio_visita_tecnica'=>['Relatório de Visita Técnica','Relatorio de Visita Tecnica'],
+        'ordem_pre_filtro'=>['PRÉ-FILTRO','PRE-FILTRO','PRÉ FILTRO','PRE FILTRO'],
+        'ordem_pos_filtro'=>['PÓS-FILTRO','POS-FILTRO','PÓS FILTRO','POS FILTRO'],
+        'modelos'=>['Modelos','Modelo'],
+        'possui_filtros'=>['A instalação possui filtros de ar?','A instalação possui ﬁltros de ar?'],
+        'filtros_dreno'=>['Os filtros possuem dreno?','Os ﬁltros possuem dreno?'],
+        'plano_preventiva_apresentado'=>['Foi apresentado ao cliente o plano de manutenção preventiva (1x ao ano)?','Foi apresentado ao cliente o plano de manutenção preventiva 1x ao ano)?'],
+        'relatorio_visita_tecnica'=>['Relatório de Visita Técnica','Relatorio de Visita Tecnica','Relatório Comercial de Visita Técnica','Relatorio Comercial de Visita Tecnica'],
         'proximos_passos'=>['Próximos Passos','Proximos Passos'],
     ];
     return array_values(array_unique(array_merge([$label],$extra[$key]??[])));
