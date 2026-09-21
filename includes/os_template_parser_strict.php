@@ -10,7 +10,8 @@ function regexRotuloCampoOsEstrito(string $rotulo): string
 {
     $partes=preg_split('/\s+/u',trim($rotulo))?:[];
     $miolo=implode('(?:[\h\x{00A0}]|\R)+',array_map(static fn(string $p):string=>preg_quote($p,'~'),$partes));
-    return '~^[\h\x{00A0}]*'.$miolo.'(?![\pL\pN_])[\h\x{00A0}]*:?[\h\x{00A0}]*~imu';
+    $doisPontos=chaveOs($rotulo)==='os'?':':':?';
+    return '~^[\h\x{00A0}]*'.$miolo.'(?![\pL\pN_])[\h\x{00A0}]*'.$doisPontos.'[\h\x{00A0}]*~imu';
 }
 
 /** @return array{0:int,1:int}|null */
