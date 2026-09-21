@@ -153,7 +153,12 @@ v38ok($real['endereco']==='Tv. Rio Branco, 200 - Alagoinhas - BA','endereço da 
 v38ok($real['nome_cnpj']==='Laticinio Marianna LTDA / 40.499.907/0001-61','cliente sem dois-pontos deve ser preenchido');
 v38ok(count($real['eventos_campo']??[])===2,'todas as linhas de eventos do Iliot devem ser preservadas');
 v38ok($real['possui_filtros']==='SIM'&&$real['filtros_dreno']==='SIM','ligaturas do PDF não podem impedir respostas SIM/NÃO');
-v38ok($real['ordem_pre_filtro']==='Somente nos integrados'&&$real['ordem_reservatorio']==='1','itens completos da ordem de instalação devem ser lidos');
+v38ok(
+    $real['ordem_pre_filtro']==='Somente nos integrados'&&$real['ordem_reservatorio']==='1',
+    'itens completos da ordem de instalação devem ser lidos: '.json_encode([
+        'pre'=>$real['ordem_pre_filtro'],'pos'=>$real['ordem_pos_filtro'],'reservatorio'=>$real['ordem_reservatorio'],
+    ],JSON_UNESCAPED_UNICODE)
+);
 v38ok($real['fabricante']==="Ingersoll\nSchulz"&&$real['modelos']==="R37I TAS\nSRP 3030",'equipamentos repetidos devem ser preservados na ordem');
 v38ok($real['relatorio_visita_tecnica']==='Avaliação técnica realizada com o cliente.','relatório da visita deve ser preenchido');
 v38ok($real['proximos_passos']==='Enviar proposta comercial.','próximos passos devem ser preenchidos');
