@@ -1,0 +1,571 @@
+/* DNB CRM · UI Pilot 2026-10-03
+ * Referência: DNB_CRM_Teste_Local + Manual da Marca DNB.
+ * Objetivo: reproduzir o shell horizontal do HTML piloto sem alterar a lógica PHP.
+ */
+:root {
+  --dnb-petroleum: #003060;
+  --dnb-ocean: #a4c8ff;
+  --dnb-slate: #5f6e7c;
+  --dnb-pilot-canvas: #f0f4f8;
+  --dnb-pilot-border: #e2e8f0;
+  --dnb-pilot-muted: #64748b;
+  --dnb-pilot-primary: #003060;
+  --dnb-pilot-primary-hover: #0b457f;
+  --dnb-pilot-soft: #eef5ff;
+}
+
+body.dnb-body {
+  background: var(--dnb-pilot-canvas);
+  color: #142536;
+  font-family: "Lato", Arial, sans-serif;
+}
+
+.dnb-pilot-app {
+  min-height: 100vh;
+  background: var(--dnb-pilot-canvas);
+}
+
+.dnb-pilot-header {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  border-bottom: 0;
+  background: rgba(240, 244, 248, .98);
+  backdrop-filter: blur(12px);
+}
+
+.dnb-pilot-header__main {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 18px 20px 12px;
+  border-bottom: 3px solid var(--dnb-pilot-primary);
+}
+
+.dnb-pilot-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.dnb-pilot-brand img {
+  display: block;
+  width: 105px;
+  height: auto;
+  flex: 0 0 auto;
+}
+
+.dnb-pilot-brand__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.dnb-pilot-brand__copy strong {
+  color: var(--dnb-pilot-primary);
+  font-family: "Michroma", Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -.015em;
+}
+
+.dnb-pilot-brand__copy span {
+  margin-top: 4px;
+  color: var(--dnb-pilot-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.dnb-pilot-header__actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dnb-pilot-period {
+  width: 175px;
+  min-width: 175px;
+}
+
+.dnb-pilot-period label {
+  margin-bottom: 4px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.dnb-pilot-period .dnb-input {
+  min-height: 38px;
+  border-color: #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.dnb-pilot-period .dnb-input:focus {
+  border-color: var(--dnb-pilot-primary);
+  box-shadow: 0 0 0 3px rgba(164, 200, 255, .45);
+}
+
+.dnb-pilot-header .dnb-icon-button {
+  width: 38px;
+  height: 38px;
+  border-color: #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dnb-pilot-header .dnb-icon-button:hover {
+  border-color: var(--dnb-ocean);
+  background: var(--dnb-pilot-soft);
+  color: var(--dnb-pilot-primary);
+}
+
+.dnb-pilot-user {
+  position: relative;
+}
+
+.dnb-pilot-user > summary {
+  display: flex;
+  min-height: 38px;
+  min-width: 172px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px 8px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.dnb-pilot-user > summary::-webkit-details-marker { display: none; }
+
+.dnb-pilot-user .dnb-user__avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+
+.dnb-pilot-user .dnb-user__identity strong {
+  max-width: 120px;
+  font-size: 11px;
+}
+
+.dnb-pilot-user .dnb-user__identity small {
+  max-width: 120px;
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dnb-pilot-user__chevron {
+  margin-left: auto;
+  color: var(--dnb-pilot-muted);
+  font-size: 14px;
+}
+
+.dnb-pilot-user__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  width: 170px;
+  overflow: hidden;
+  border: 1px solid var(--dnb-pilot-border);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(0, 48, 96, .14);
+}
+
+.dnb-pilot-user__menu a {
+  display: block;
+  color: #334155;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.dnb-pilot-user__menu a + a {
+  border-top: 1px solid var(--dnb-pilot-border);
+}
+
+.dnb-pilot-user__menu a:hover {
+  background: var(--dnb-pilot-soft);
+  color: var(--dnb-pilot-primary);
+}
+
+.dnb-pilot-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 10px 20px 0;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.dnb-pilot-tab {
+  display: inline-flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dnb-pilot-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: #fff;
+  color: var(--dnb-pilot-muted);
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.dnb-pilot-tab:hover {
+  border-color: #c9d6e0;
+  background: #f8fafc;
+  color: var(--dnb-pilot-primary);
+}
+
+.dnb-pilot-tab.is-active,
+.dnb-pilot-more.is-active > .dnb-pilot-tab {
+  border-color: var(--dnb-pilot-primary);
+  background: var(--dnb-pilot-primary);
+  color: #fff;
+}
+
+.dnb-pilot-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.dnb-pilot-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.dnb-pilot-more > summary::-webkit-details-marker { display: none; }
+
+.dnb-pilot-more__menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 80;
+  width: 230px;
+  overflow: hidden;
+  border: 1px solid var(--dnb-pilot-border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 16px 36px rgba(0, 48, 96, .16);
+}
+
+.dnb-pilot-more__menu a {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 9px;
+  border-radius: 7px;
+  color: #475569;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.dnb-pilot-more__menu a:hover,
+.dnb-pilot-more__menu a.is-active {
+  background: var(--dnb-pilot-soft);
+  color: var(--dnb-pilot-primary);
+}
+
+.dnb-pilot-more__menu .dnb-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.dnb-pilot-shell {
+  min-height: calc(100vh - 112px);
+  margin-left: 0 !important;
+}
+
+.dnb-pilot-content {
+  width: 100%;
+  max-width: 1184px;
+  margin: 0;
+  padding: 20px;
+}
+
+/* O HTML piloto usa cards brancos simples, borda slate-200 e shadow-sm. */
+.dnb-pilot-content .bg-white.rounded-xl {
+  border-color: var(--dnb-pilot-border) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05) !important;
+  overflow: hidden;
+}
+
+.dnb-pilot-content .bg-white.rounded-xl:hover {
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 2px 7px rgba(15, 23, 42, .07) !important;
+}
+
+/* Recoloca o título em pílula azul, como o componente-base do HTML enviado. */
+.dnb-pilot-content span.text-white.text-xs.font-bold.uppercase {
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 6px !important;
+  background: var(--dnb-pilot-primary) !important;
+  color: #fff !important;
+  padding: 6px 11px !important;
+  font-family: "Lato", Arial, sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+  letter-spacing: .08em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.dnb-pilot-content .dnb-section-title {
+  color: var(--dnb-pilot-primary);
+  font-family: "Michroma", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.dnb-pilot-content .dnb-eyebrow {
+  color: var(--dnb-slate);
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.dnb-button--primary {
+  border-color: var(--dnb-pilot-primary) !important;
+  background: var(--dnb-pilot-primary) !important;
+  color: #fff !important;
+}
+
+.dnb-button--primary:hover {
+  border-color: var(--dnb-pilot-primary-hover) !important;
+  background: var(--dnb-pilot-primary-hover) !important;
+}
+
+.dnb-button--secondary {
+  border-color: #cbd5e1 !important;
+  background: #fff !important;
+  color: var(--dnb-pilot-muted) !important;
+}
+
+.dnb-button--secondary:hover {
+  border-color: var(--dnb-ocean) !important;
+  background: var(--dnb-pilot-soft) !important;
+  color: var(--dnb-pilot-primary) !important;
+}
+
+.dnb-input,
+.dnb-pilot-content input,
+.dnb-pilot-content select,
+.dnb-pilot-content textarea {
+  border-color: #cbd5e1;
+  border-radius: 8px;
+}
+
+.dnb-input:focus,
+.dnb-pilot-content input:focus,
+.dnb-pilot-content select:focus,
+.dnb-pilot-content textarea:focus {
+  border-color: var(--dnb-pilot-primary) !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(164, 200, 255, .45);
+}
+
+/* KPIs do piloto: compactos, sem excesso de efeito. */
+.dnb-pilot-content .grid.grid-cols-2.md\:grid-cols-4 > .bg-white.rounded-xl,
+.dnb-pilot-content .grid.grid-cols-1.sm\:grid-cols-2.xl\:grid-cols-5 > .bg-white,
+.dnb-pilot-content .grid.grid-cols-2.md\:grid-cols-3.xl\:grid-cols-6 > .bg-white {
+  box-shadow: none !important;
+}
+
+.dnb-pilot-content table {
+  border-color: var(--dnb-pilot-border);
+}
+
+.dnb-pilot-content thead {
+  color: var(--dnb-pilot-muted);
+}
+
+.dnb-pilot-content tbody tr:hover {
+  background: #f8fafc;
+}
+
+.dnb-footer {
+  max-width: 1184px;
+  justify-content: space-between;
+  border-top: 1px solid var(--dnb-pilot-border);
+  color: var(--dnb-pilot-muted);
+  padding: 14px 20px 22px;
+  font-size: 10px;
+}
+
+/* Componentes legados da sidebar ficam fora do fluxo no novo shell. */
+.dnb-sidebar,
+.dnb-sidebar-backdrop,
+.dnb-topbar,
+.dnb-menu-button {
+  display: none !important;
+}
+
+/* Dropdowns do topo continuam sobre cards/kanbans. */
+.dnb-notifications__panel {
+  top: 46px;
+  right: 0;
+}
+
+/* Kanban/listas: mantém funcionalidade, mas usa bordas e fundos do piloto. */
+.dnb-kanban,
+.dnb-flow-builder,
+.dnb-whatsapp,
+.dnb-ai-chat,
+.dnb-case-grid,
+.dnb-lead-page {
+  border-color: var(--dnb-pilot-border) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05) !important;
+}
+
+@media (min-width: 1185px) {
+  .dnb-pilot-content,
+  .dnb-footer {
+    margin-left: 0;
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 980px) {
+  .dnb-pilot-header {
+    position: relative;
+  }
+
+  .dnb-pilot-header__main {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .dnb-pilot-header__actions {
+    justify-content: space-between;
+  }
+
+  .dnb-pilot-brand__copy span {
+    max-width: 560px;
+  }
+
+  .dnb-pilot-tabs {
+    padding-top: 8px;
+  }
+}
+
+@media (max-width: 680px) {
+  .dnb-pilot-header__main {
+    padding: 14px 12px 10px;
+  }
+
+  .dnb-pilot-brand img {
+    width: 84px;
+  }
+
+  .dnb-pilot-brand__copy strong {
+    font-size: 13px;
+  }
+
+  .dnb-pilot-brand__copy span {
+    font-size: 9px;
+  }
+
+  .dnb-pilot-header__actions {
+    align-items: flex-end;
+    gap: 7px;
+  }
+
+  .dnb-pilot-period {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .dnb-pilot-user > summary {
+    min-width: 42px;
+    width: 42px;
+    justify-content: center;
+    padding: 4px;
+  }
+
+  .dnb-pilot-user .dnb-user__identity,
+  .dnb-pilot-user__chevron {
+    display: none;
+  }
+
+  .dnb-pilot-tabs {
+    gap: 5px;
+    padding: 8px 12px 0;
+  }
+
+  .dnb-pilot-tab {
+    min-height: 36px;
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+
+  .dnb-pilot-more__menu {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .dnb-pilot-content {
+    padding: 14px 12px 30px;
+  }
+
+  .dnb-footer {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 440px) {
+  .dnb-pilot-brand__copy span {
+    display: none;
+  }
+
+  .dnb-pilot-header__actions {
+    width: 100%;
+  }
+
+  .dnb-pilot-content .grid.grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media print {
+  .dnb-pilot-header,
+  .dnb-footer {
+    display: none !important;
+  }
+
+  .dnb-pilot-content {
+    max-width: none;
+    padding: 0;
+  }
+}

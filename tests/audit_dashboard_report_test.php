@@ -20,9 +20,9 @@ auditOk(str_contains($page,'foreach($relatorios as $m=>$r)'), 'meses devem ser r
 auditOk(str_contains($service,'calcularMes($pdo,$mes,$vendedores)'), 'auditoria deve usar o mesmo motor do Painel');
 auditOk(str_contains($service,'mesesAuditoriaPainel'), 'deve existir histórico mensal contínuo');
 foreach(['Negociações','Oportunidades / propostas','Pedidos faturados','Visitas e prospecções','Apuração por colaborador'] as $secao)auditOk(str_contains($page,$secao),"deve exibir seção {$secao}");
-auditOk(str_contains($header,"'rotulo' => 'Auditoria'"), 'sidebar deve ter grupo Auditoria');
-auditOk(str_contains($header,"'Relatório do Painel'"), 'sidebar deve ter relatório do painel');
-auditOk(str_contains($header,"'Log de Fluxos'"), 'sidebar deve manter log de fluxos dentro de Auditoria');
+auditOk(str_contains($header,"'Relatório do Painel'"), 'menu Mais deve ter relatório do painel');
+auditOk(str_contains($header,"'Log de Fluxos'"), 'menu Mais deve manter log de fluxos');
+auditOk(str_contains($header,'dnb-pilot-more__menu'), 'Auditoria deve permanecer acessível no menu Mais do shell horizontal');
 auditOk(str_contains($header,"[PAPEL_ADMINISTRADOR]"), 'itens da Auditoria devem ser exclusivos do ADM');
 
 require_once $root.'/includes/audit_pdf_service.php';
