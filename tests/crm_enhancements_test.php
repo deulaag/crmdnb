@@ -43,7 +43,7 @@ ok(!str_contains($painel, 'KPIs automáticos (gatilhos de bonificação'), 'bloc
 ok(str_contains($header, "['wpp', 'WhatsApp', 'chat.php', 'whatsapp', [PAPEL_ADMINISTRADOR]]"), 'Atendimento deve aparecer apenas ao ADM');
 ok(str_contains($header, "['ia', 'IA central', 'ia.php', 'ai', [PAPEL_ADMINISTRADOR]]"), 'Agente de IA deve aparecer apenas ao ADM');
 ok(str_contains($header, '$humorAtual'), 'cabeçalho global deve carregar sentimento do usuário');
-ok(str_contains($footer, 'crm-enhancements.js?v=3.5.0'), 'shell deve carregar melhorias globais do CRM');
+ok(str_contains($footer, 'crm-enhancements.js?v=4.3.0'), 'shell deve carregar melhorias globais do CRM');
 ok(str_contains($enhancements, 'initKanbanAjaxFilters'), 'filtros legados de oportunidades devem continuar atualizando sem recarga completa');
 ok(str_contains($enhancements, 'reorderOpportunityAboveFilters'), 'Nova oportunidade deve ser posicionada antes dos filtros');
 ok(str_contains($enhancements, 'addCrmInfoButtons'), 'módulos CRM devem receber botões de informação');
