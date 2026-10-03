@@ -1,4 +1,0 @@
-Options -Indexes
-<FilesMatch "^(config(\.local|\.local\.example)?|whatsapp\.local(\.example)?|integrations\.local)\.php$">
-  Require all denied
-</FilesMatch>
