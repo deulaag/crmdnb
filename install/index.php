@@ -41,7 +41,8 @@ $usuario=usuarioLogado();
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/style.css?v=3.0.0">
+  <link rel="stylesheet" href="/assets/style.css?v=4.3.0">
+<link rel="stylesheet" href="/assets/crm-pilot-ui.css?v=4.3.0">
 </head>
 <body class="dnb-body">
 <main class="dnb-auth">
