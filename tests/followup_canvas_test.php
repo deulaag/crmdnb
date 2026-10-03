@@ -53,7 +53,7 @@ confirmarCanvas(str_contains($javascript, "storagePrefix = 'dnb-followup-layout-
 confirmarCanvas(str_contains($estilo, '.dnb-flow-canvas'), 'canvas deve possuir estilos próprios');
 confirmarCanvas(str_contains($estilo, '.dnb-flow-port'), 'pontos de conexão devem estar visíveis');
 confirmarCanvas(str_contains($estilo, '.dnb-flow-edge--pulse'), 'conexões devem ter tratamento visual');
-confirmarCanvas(str_contains($cabecalho, '/assets/style.css?v=3.7.0'), 'CSS deve usar a nova versão de cache');
+confirmarCanvas(str_contains($cabecalho, '/assets/style.css?v=4.2.0'), 'CSS deve usar a nova versão de cache');
 confirmarCanvas(str_contains($rodape, '/assets/ui.js?v=3.7.0'), 'JavaScript deve usar a nova versão de cache');
 
 fwrite(STDOUT, "Follow-up visual canvas: OK\n");
