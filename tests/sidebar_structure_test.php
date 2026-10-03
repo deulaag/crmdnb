@@ -38,13 +38,13 @@ verificar(!str_contains($header, '<aside class="dnb-sidebar"'), 'sidebar antiga 
 verificar(str_contains($header, 'class="dnb-pilot-tabs"'), 'navegação deve ser horizontal como no HTML piloto');
 verificar(str_contains($header, 'class="dnb-pilot-more'), 'módulos adicionais devem ficar no menu Mais');
 
-foreach (['#003060','#a4c8ff','#5f6e7c','#f0f4f8'] as $cor) {
+foreach (['#003060','#a4c8ff','#f0f4f8','#e2e8f0','#64748b'] as $cor) {
     verificar(str_contains(strtolower($style), strtolower($cor)), "cor {$cor} deve existir no tema piloto");
 }
 verificar(str_contains($style, '.dnb-pilot-tab.is-active'), 'aba ativa deve ter estado visual');
 verificar(str_contains($style, '.dnb-pilot-content .bg-white.rounded-xl'), 'cards existentes devem seguir o modelo do HTML piloto');
-verificar(str_contains($style, 'font-family: "Michroma"'), 'títulos devem respeitar a tipografia principal da marca');
-verificar(str_contains($style, 'font-family: "Lato"'), 'textos devem respeitar a tipografia secundária da marca');
-verificar(str_contains($style, '@media (max-width: 680px)'), 'layout deve permanecer responsivo');
+verificar(str_contains($style, 'font-family:Arial,sans-serif'), 'tema deve usar a tipografia do HTML piloto');
+verificar(!str_contains($header, 'fonts.googleapis.com'), 'shell não deve carregar tipografia do tema antigo');
+verificar(str_contains($style, '@media(max-width:760px)'), 'layout deve permanecer responsivo');
 
 fwrite(STDOUT, "Navegação horizontal DNB Pilot: OK\n");
