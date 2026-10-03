@@ -368,6 +368,30 @@ td{color:#334155}
 .dnb-ai-chat{background:#fff!important}
 .dnb-ai-result{border:1px solid #bfdbfe!important;border-radius:8px!important;background:#eff6ff!important}
 
+/* Perguntar à IA no mesmo padrão simples do HTML. */
+.dnb-ask-ai{
+  display:grid;gap:12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:16px;
+  box-shadow:0 1px 2px rgba(15,23,42,.05);
+}
+.dnb-ask-ai__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dnb-ask-ai__head h2{margin:3px 0;color:#003060;font-size:18px;font-weight:700}
+.dnb-ask-ai__head p{margin:0;color:#64748b;font-size:12px}
+.dnb-ask-ai__context label{display:grid;gap:4px;color:#475569;font-size:11px;font-weight:600}
+.dnb-ai-chat{min-height:360px;max-height:62vh;overflow:auto;padding:14px}
+.dnb-ai-chat__msg{max-width:min(78%,700px);margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:10px 12px}
+.dnb-ai-chat__msg.is-user{margin-left:auto;background:#eff6ff;border-color:#bfdbfe}
+.dnb-ai-chat__msg span{display:block;margin-bottom:3px;color:#64748b;font-size:10px;font-weight:700}
+.dnb-ai-chat__msg p{margin:0;color:#334155;font-size:13px;white-space:pre-wrap}
+.dnb-ai-chat__welcome{display:grid;min-height:300px;place-content:center;text-align:center;color:#64748b}
+.dnb-ai-chat__welcome h3{margin:0 0 6px;color:#003060;font-size:18px}
+.dnb-ask-ai__quick{display:flex;gap:6px;flex-wrap:wrap}
+.dnb-ask-ai__quick button{border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#475569;padding:7px 10px;font-size:11px;font-weight:700}
+.dnb-ask-ai__quick button:hover{background:#f1f5f9;color:#003060}
+.dnb-ask-ai__composer{border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:8px}
+.dnb-ask-ai__composer textarea{width:100%;min-height:90px;border:0!important;box-shadow:none!important;padding:6px!important;resize:vertical}
+.dnb-ask-ai__composer>div{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dnb-ask-ai__composer button{width:34px;height:34px;border:0;border-radius:8px;background:#003060;color:#fff;font-weight:700}
+
 /* Notificações no mesmo card do HTML. */
 .dnb-notifications{position:relative}
 .dnb-notifications summary{position:relative}
