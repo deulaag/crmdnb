@@ -3,7 +3,7 @@
 
   const css = document.createElement('link');
   css.rel = 'stylesheet';
-  css.href = '/assets/crm-enhancements.css?v=3.5.0';
+  css.href = '/assets/crm-enhancements.css?v=4.3.0';
   document.head.appendChild(css);
 
   const normalize = (value) => String(value || '').trim().toLowerCase();
@@ -82,22 +82,27 @@
   }
 
   function addCrmInfoButtons() {
-    const group = Array.from(document.querySelectorAll('.dnb-nav__group')).find((item) => normalize(item.querySelector('.dnb-nav__eyebrow')?.textContent) === 'crm');
-    if (!group) return;
-    group.querySelectorAll(':scope > .dnb-nav__link').forEach((link) => {
+    const links = Array.from(document.querySelectorAll('.dnb-pilot-tabs a, .dnb-crm-subnav a'));
+    links.forEach((link) => {
       const file = new URL(link.href, location.href).pathname.split('/').pop().toLowerCase();
-      if (!tutorials[file] || link.closest('.dnb-nav__row')) return;
-      const row = document.createElement('div');
-      row.className = 'dnb-nav__row';
+      if (!tutorials[file] || link.closest('.dnb-pilot-tabrow,.dnb-pilot-menu-row')) return;
+
+      const row = document.createElement('span');
+      row.className = link.closest('.dnb-pilot-more__menu') ? 'dnb-pilot-menu-row' : 'dnb-pilot-tabrow';
       link.before(row);
       row.appendChild(link);
+
       const info = document.createElement('button');
       info.type = 'button';
-      info.className = 'dnb-nav__info';
+      info.className = 'dnb-pilot-info';
       info.textContent = 'i';
       info.title = 'Como funciona';
       info.setAttribute('aria-label', 'Como funciona ' + link.textContent.trim());
-      info.addEventListener('click', () => openTutorial(file));
+      info.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openTutorial(file);
+      });
       row.appendChild(info);
     });
   }
