@@ -3,7 +3,7 @@ $root = dirname(__DIR__);
 $required = [
     'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
-    'includes/layout.php','assets/css/app.css','assets/js/app.js','config/database.example.php'
+    'includes/layout.php','assets/css/app.css','assets/js/app.js','assets/dnb-logo.png','config/database.example.php'
 ];
 foreach ($required as $file) {
     if (!is_file($root . '/' . $file)) {

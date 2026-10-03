@@ -64,6 +64,55 @@ function valid_month(?string $month): string
     return preg_match('/^\d{4}-\d{2}$/', $month) ? $month : current_month();
 }
 
+function valid_date_string(?string $date): bool
+{
+    if (!is_string($date) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return false;
+    }
+    $check = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    return $check instanceof DateTimeImmutable && $check->format('Y-m-d') === $date;
+}
+
+function normalized_name(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (function_exists('iconv')) {
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if (is_string($ascii) && $ascii !== '') {
+            $value = $ascii;
+        }
+    }
+    $value = strtolower($value);
+    return preg_replace('/[^a-z0-9]+/', ' ', $value) ? trim((string) preg_replace('/[^a-z0-9]+/', ' ', $value)) : trim($value);
+}
+
+function find_user_id_by_name(PDO $pdo, string $name): ?int
+{
+    $needle = normalized_name($name);
+    if ($needle === '') {
+        return null;
+    }
+    $users = $pdo->query('SELECT id, name FROM users WHERE active = 1')->fetchAll();
+    $needleFirst = explode(' ', $needle)[0] ?? $needle;
+    foreach ($users as $user) {
+        $candidate = normalized_name((string) $user['name']);
+        if ($candidate === $needle) {
+            return (int) $user['id'];
+        }
+    }
+    foreach ($users as $user) {
+        $candidate = normalized_name((string) $user['name']);
+        $candidateFirst = explode(' ', $candidate)[0] ?? $candidate;
+        if ($needleFirst !== '' && $candidateFirst === $needleFirst) {
+            return (int) $user['id'];
+        }
+    }
+    return null;
+}
+
 function generate_opportunity_number(PDO $pdo, ?int $sellerId, string $date): string
 {
     $initials = 'DNB';
@@ -168,6 +217,147 @@ function integration_upsert(PDO $pdo, string $provider, array $data, int $userId
         !empty($data['is_active']) ? 1 : 0,
         $userId,
     ]);
+}
+
+function openai_response_text(array $response): string
+{
+    if (isset($response['output_text']) && is_string($response['output_text'])) {
+        return trim($response['output_text']);
+    }
+    $parts = [];
+    foreach (($response['output'] ?? []) as $item) {
+        foreach (($item['content'] ?? []) as $part) {
+            if (($part['type'] ?? '') === 'output_text' && isset($part['text'])) {
+                $parts[] = (string) $part['text'];
+            }
+        }
+    }
+    return trim(implode("\n", $parts));
+}
+
+function openai_extract_iliot_visit(PDO $pdo, string $tmpPath, string $filename): array
+{
+    $config = integration_get($pdo, 'openai');
+    $apiKey = secret_decrypt($config['access_token'] ?? '');
+    if (empty($config['is_active']) || $apiKey === '') {
+        throw new RuntimeException('Configure e ative ChatGPT / OpenAI em Configurações antes de importar PDFs.');
+    }
+    if (!extension_loaded('curl')) {
+        throw new RuntimeException('A extensão PHP cURL precisa estar ativa no servidor.');
+    }
+
+    $bytes = file_get_contents($tmpPath);
+    if ($bytes === false || $bytes === '') {
+        throw new RuntimeException('Não foi possível ler o PDF.');
+    }
+    if (strlen($bytes) > 20 * 1024 * 1024) {
+        throw new RuntimeException('PDF acima do limite de 20 MB por arquivo.');
+    }
+
+    $extra = json_decode((string) ($config['extra_json'] ?? '{}'), true);
+    $model = trim((string) ($extra['model'] ?? '')) ?: 'gpt-5.6-sol';
+    $prompt = <<<'PROMPT'
+Este PDF é uma ORDEM DE SERVIÇO DE CAMPO SIMPLIFICADA emitida pelo iliot (app.iliot.tech) para a DNB.
+O layout pode conter: cabeçalho com "OS:", "CÓD. CHECKLIST" e "DATA ENVIO OS SISTEMA"; "IDENTIFICAÇÃO DA LOCALIDADE" com endereço; "EVENTOS EM CAMPO" com check-in/check-out; seção "0 - INFORMAÇÃO DO CLIENTE" com Responsável, Nº Contato, Setor, Local da Instalação e Vendedor; e seção "6 - OPORTUNIDADES IDENTIFICADAS".
+
+Extraia somente informações existentes no documento.
+Regras:
+- os: número da OS.
+- data: data do PRIMEIRO check-in em YYYY-MM-DD; se não houver, use a data de envio do sistema. Se nenhuma existir, deixe vazio.
+- cliente: empresa visitada; quando não houver campo explícito, pode ser deduzida somente do comentário de oportunidades ou do local da instalação.
+- vendedor: nome do campo Vendedor.
+- contato: Responsável.
+- fone: Nº Contato e telefones citados.
+- setor: Setor.
+- oportunidade: comentário da seção 6, resumido em até 300 caracteres.
+- equipamentos: modelos/marcas de equipamentos ou máquinas citados, separados por vírgula.
+- agendar: se houver solicitação, promessa ou necessidade de NOVA visita/retorno, resuma o objetivo em até 120 caracteres; caso contrário deixe vazio.
+- data_sugerida: YYYY-MM-DD somente quando o documento indicar um prazo/data para essa nova visita; caso contrário deixe vazio.
+Nunca invente dados.
+PROMPT;
+
+    $schema = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'os' => ['type' => 'string'],
+            'data' => ['type' => 'string'],
+            'cliente' => ['type' => 'string'],
+            'vendedor' => ['type' => 'string'],
+            'contato' => ['type' => 'string'],
+            'fone' => ['type' => 'string'],
+            'setor' => ['type' => 'string'],
+            'oportunidade' => ['type' => 'string'],
+            'equipamentos' => ['type' => 'string'],
+            'agendar' => ['type' => 'string'],
+            'data_sugerida' => ['type' => 'string'],
+        ],
+        'required' => ['os','data','cliente','vendedor','contato','fone','setor','oportunidade','equipamentos','agendar','data_sugerida'],
+    ];
+
+    $payload = [
+        'model' => $model,
+        'store' => false,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                [
+                    'type' => 'input_file',
+                    'filename' => preg_replace('/[^A-Za-z0-9._-]/', '_', $filename) ?: 'visita.pdf',
+                    'file_data' => 'data:application/pdf;base64,' . base64_encode($bytes),
+                ],
+                ['type' => 'input_text', 'text' => $prompt],
+            ],
+        ]],
+        'text' => [
+            'format' => [
+                'type' => 'json_schema',
+                'name' => 'iliot_visit',
+                'strict' => true,
+                'schema' => $schema,
+            ],
+        ],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 150,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ]);
+    $raw = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($raw === false) {
+        throw new RuntimeException('Falha ao consultar a OpenAI: ' . $curlError);
+    }
+    $response = json_decode($raw, true);
+    if (!is_array($response)) {
+        throw new RuntimeException('A OpenAI retornou uma resposta inválida.');
+    }
+    if ($status < 200 || $status >= 300) {
+        $message = (string) ($response['error']['message'] ?? 'erro desconhecido');
+        throw new RuntimeException('OpenAI HTTP ' . $status . ': ' . $message);
+    }
+
+    $text = openai_response_text($response);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        throw new RuntimeException('A IA não retornou os campos da visita em formato válido.');
+    }
+
+    foreach (['os','data','cliente','vendedor','contato','fone','setor','oportunidade','equipamentos','agendar','data_sugerida'] as $key) {
+        $data[$key] = trim((string) ($data[$key] ?? ''));
+    }
+    return $data;
 }
 
 function audit(PDO $pdo, int $userId, string $action, string $entity, ?int $entityId = null, array $context = []): void
