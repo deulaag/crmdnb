@@ -32,7 +32,7 @@ verificar(str_contains($header, '$papeisUsuario = papeisAtuais();'), 'RBAC deve 
 verificar(str_contains($header, 'array_intersect($papeisUsuario, $papeis)'), 'abas principais devem respeitar RBAC');
 verificar(str_contains($header, 'array_intersect($papeisUsuario, $item[4])'), 'menu Mais deve respeitar RBAC');
 verificar(str_contains($header, 'aria-current="page"'), 'aba ativa deve ser anunciada por tecnologia assistiva');
-verificar(str_contains($header, "($k === 'neg' && $tabAtual === 'orc')"), 'Orçamentos deve manter Negociações ativa');
+verificar(str_contains($header, "(\$k === 'neg' && \$tabAtual === 'orc')"), 'Orçamentos deve manter Negociações ativa');
 
 verificar(!str_contains($header, '<aside class="dnb-sidebar"'), 'sidebar antiga não deve fazer parte do shell novo');
 verificar(str_contains($header, 'class="dnb-pilot-tabs"'), 'navegação deve ser horizontal como no HTML piloto');
