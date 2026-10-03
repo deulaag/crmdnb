@@ -6,7 +6,6 @@
   </div>
 </div>
 
-<link rel="stylesheet" href="/assets/crm-pilot-ui.css?v=4.3.0">
 <script src="/assets/ui.js?v=3.7.0"></script>
 <script src="/assets/crm-enhancements.js?v=4.3.0"></script>
 <script src="/assets/crm-v36.js?v=3.7.0"></script>
