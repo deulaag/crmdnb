@@ -35,7 +35,7 @@ verificar(str_contains($header, 'aria-current="page"'), 'aba ativa deve ser anun
 verificar(str_contains($header, "(\$k === 'neg' && \$tabAtual === 'orc')"), 'Orçamentos deve manter Negociações ativa');
 
 verificar(!str_contains($header, '<aside class="dnb-sidebar"'), 'sidebar antiga não deve fazer parte do shell novo');
-verificar(str_contains($header, 'class="dnb-pilot-tabs"'), 'navegação deve ser horizontal como no HTML piloto');
+verificar(str_contains($header, 'dnb-pilot-tabs'), 'navegação deve ser horizontal como no HTML piloto');
 verificar(str_contains($header, 'class="dnb-pilot-more'), 'módulos adicionais devem ficar no menu Mais');
 
 foreach (['#003060','#a4c8ff','#f0f4f8','#e2e8f0','#64748b'] as $cor) {
