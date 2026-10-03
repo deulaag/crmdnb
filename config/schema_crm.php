@@ -1,0 +1,102 @@
+<?php
+declare(strict_types=1);
+
+return [
+<<<'SQL'
+CREATE TABLE IF NOT EXISTS companies (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ name VARCHAR(190) NOT NULL,
+ cnpj VARCHAR(30) NULL,
+ industry VARCHAR(120) NULL,
+ city VARCHAR(120) NULL,
+ state VARCHAR(40) NULL,
+ website VARCHAR(190) NULL,
+ owner_user_id INT UNSIGNED NULL,
+ source VARCHAR(50) NOT NULL DEFAULT 'manual',
+ rd_crm_id VARCHAR(120) NULL,
+ rd_marketing_uuid VARCHAR(120) NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ INDEX idx_company_name (name),
+ INDEX idx_company_cnpj (cnpj),
+ CONSTRAINT fk_company_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+<<<'SQL'
+CREATE TABLE IF NOT EXISTS contacts (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NULL,
+ name VARCHAR(160) NOT NULL,
+ email VARCHAR(190) NULL,
+ phone VARCHAR(60) NULL,
+ job_title VARCHAR(120) NULL,
+ rd_crm_id VARCHAR(120) NULL,
+ rd_marketing_uuid VARCHAR(120) NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ INDEX idx_contact_email (email),
+ CONSTRAINT fk_contact_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+<<<'SQL'
+CREATE TABLE IF NOT EXISTS opportunities (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ number VARCHAR(80) NOT NULL UNIQUE,
+ opportunity_date DATE NOT NULL,
+ client_name VARCHAR(190) NOT NULL,
+ company_id BIGINT UNSIGNED NULL,
+ seller_user_id INT UNSIGNED NULL,
+ support_user_id INT UNSIGNED NULL,
+ product_line_id INT UNSIGNED NOT NULL,
+ funnel_id INT UNSIGNED NOT NULL,
+ stage_id INT UNSIGNED NOT NULL,
+ item_type VARCHAR(60) NOT NULL,
+ amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+ dnb_commission_estimated DECIMAL(15,2) NOT NULL DEFAULT 0,
+ status ENUM('Aberta','Ganha','Perdida') NOT NULL DEFAULT 'Aberta',
+ source VARCHAR(50) NOT NULL DEFAULT 'manual',
+ notes TEXT NULL,
+ rd_deal_id VARCHAR(120) NULL,
+ created_by INT UNSIGNED NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ INDEX idx_opportunity_date (opportunity_date),
+ INDEX idx_opportunity_status (status),
+ CONSTRAINT fk_opp_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL,
+ CONSTRAINT fk_opp_seller FOREIGN KEY (seller_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_opp_support FOREIGN KEY (support_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_opp_line FOREIGN KEY (product_line_id) REFERENCES product_lines(id),
+ CONSTRAINT fk_opp_funnel FOREIGN KEY (funnel_id) REFERENCES funnels(id),
+ CONSTRAINT fk_opp_stage FOREIGN KEY (stage_id) REFERENCES funnel_stages(id),
+ CONSTRAINT fk_opp_creator FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+<<<'SQL'
+CREATE TABLE IF NOT EXISTS orders (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ number VARCHAR(80) NOT NULL UNIQUE,
+ order_date DATE NOT NULL,
+ opportunity_id BIGINT UNSIGNED NULL,
+ client_name VARCHAR(190) NOT NULL,
+ seller_user_id INT UNSIGNED NULL,
+ support_user_id INT UNSIGNED NULL,
+ product_line_id INT UNSIGNED NOT NULL,
+ amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+ modality ENUM('revenda','agenciada') NOT NULL DEFAULT 'revenda',
+ dnb_commission DECIMAL(15,2) NOT NULL DEFAULT 0,
+ margin_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+ invoiced TINYINT(1) NOT NULL DEFAULT 0,
+ invoice_date DATE NULL,
+ created_by INT UNSIGNED NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ INDEX idx_order_date (order_date),
+ INDEX idx_invoice_date (invoice_date),
+ CONSTRAINT fk_order_opp FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL,
+ CONSTRAINT fk_order_seller FOREIGN KEY (seller_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_order_support FOREIGN KEY (support_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_order_line FOREIGN KEY (product_line_id) REFERENCES product_lines(id),
+ CONSTRAINT fk_order_creator FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL
+];
