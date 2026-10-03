@@ -1,0 +1,6 @@
+/config/database.local.php
+/storage/installed.lock
+/storage/*.log
+/vendor/
+.DS_Store
+Thumbs.db

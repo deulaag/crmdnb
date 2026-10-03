@@ -1,4 +1,4 @@
-name: Deploy Automático cPanel  42
+name: Deploy Automático cPanel
 
 on:
   push:
@@ -17,28 +17,23 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: mbstring, json, curl, pdo_mysql
+          extensions: openssl, pdo_mysql
           coverage: none
-      - name: Instalar dependências
-        run: composer install --no-dev --optimize-autoloader --prefer-dist
       - name: Validar sintaxe PHP
-        run: find . -name '*.php' -not -path './DNB_CRM_v2.jsx - Claude_files/*' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+        run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Validar JavaScript
+        run: node --check assets/js/app.js
       - name: Executar testes automatizados
-        run: for test in tests/*_test.php; do php "$test"; done
+        run: php tests/smoke_test.php
 
   web-deploy:
     name: Atualizar site no cPanel
     needs: php-quality
     runs-on: ubuntu-latest
-
     steps:
       - name: Obter código do repositório
         uses: actions/checkout@v4
-
-      - name: Listar arquivos antes do deploy
-        run: ls -la
-
-      - name: Enviar arquivos para o cPanel (public_html)
+      - name: Enviar arquivos para o cPanel
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -57,7 +52,7 @@ jobs:
             **/.github/**
             **/node_modules/**
             **/tests/**
-            recovered_schema.txt
-            config.local.php
-            whatsapp.local.php
             **/*.md
+            config/database.local.php
+            storage/installed.lock
+            storage/*.log
