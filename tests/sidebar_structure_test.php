@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $header = file_get_contents($root . '/includes/layout_header.php');
 $style = file_get_contents($root . '/assets/crm-pilot-ui.css');
+$footer = file_get_contents($root . '/includes/layout_footer.php');
 
 function verificar(bool $condicao, string $mensagem): void
 {
@@ -15,6 +16,7 @@ function verificar(bool $condicao, string $mensagem): void
 
 verificar($header !== false, 'layout_header.php deve estar acessível');
 verificar($style !== false, 'crm-pilot-ui.css deve estar acessível');
+verificar($footer !== false, 'layout_footer.php deve estar acessível');
 
 verificar(str_contains($header, 'DNB · CRM Comercial'), 'cabeçalho deve reproduzir o título do HTML piloto');
 verificar(str_contains($header, 'Políticas de comissão vigentes · metas derivadas por conversão · dados compartilhados entre a equipe'), 'subtítulo do HTML piloto deve estar presente');
@@ -45,6 +47,10 @@ verificar(str_contains($style, '.dnb-pilot-tab.is-active'), 'aba ativa deve ter 
 verificar(str_contains($style, '.dnb-pilot-content .bg-white.rounded-xl'), 'cards existentes devem seguir o modelo do HTML piloto');
 verificar(str_contains($style, 'font-family:Arial,sans-serif'), 'tema deve usar a tipografia do HTML piloto');
 verificar(!str_contains($header, 'fonts.googleapis.com'), 'shell não deve carregar tipografia do tema antigo');
+verificar(str_contains($header, '/assets/crm-pilot-ui.css?v=4.3.0'), 'shell deve carregar a camada visual única do HTML');
+verificar(!str_contains($footer, 'crm-os-v38.css'), 'OS não deve carregar folha visual antiga separada');
+verificar(!str_contains($footer, 'crm-phase2.css'), 'CRM Fase 2 não deve carregar folha visual antiga separada');
+verificar(!str_contains($header, 'dnb-logo-blue.png'), 'cabeçalho deve seguir o HTML piloto sem composição visual antiga');
 verificar(str_contains($style, '@media(max-width:760px)'), 'layout deve permanecer responsivo');
 
 fwrite(STDOUT, "Navegação horizontal DNB Pilot: OK\n");
