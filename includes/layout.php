@@ -17,7 +17,9 @@ function page_header(string $title,string $active=''):void
     $user = current_user();
     $flash = pull_flash();
     $month = valid_month($_GET['mes'] ?? null);
-    $security = security_settings(db());
+    $pdo = db();
+    $security = security_settings($pdo);
+    $portalLogoUrl = branding_logo_url($pdo, 'portal');
 
     $menu = [
         'painel' => ['Painel','painel.php'],
@@ -44,7 +46,7 @@ function page_header(string $title,string $active=''):void
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/app.css?v=6">
+    <link rel="stylesheet" href="assets/css/app.css?v=7">
 </head>
 <body
     class="source-body"
@@ -59,7 +61,7 @@ function page_header(string $title,string $active=''):void
     <header class="source-header">
         <div class="source-brand-block">
             <a class="source-logo-box" href="painel.php" aria-label="Ir para o Painel">
-                <img src="assets/dnb-logo.png" alt="DNB">
+                <img src="<?= e($portalLogoUrl) ?>" alt="DNB">
             </a>
             <div>
                 <div class="source-brand-title">CRM Comercial</div>
