@@ -27,6 +27,26 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL,
 <<<'SQL'
+CREATE TABLE IF NOT EXISTS user_commission_policies (
+ user_id INT UNSIGNED PRIMARY KEY,
+ operation_role ENUM('vendedor','suporte') NOT NULL DEFAULT 'vendedor',
+ policy_key VARCHAR(50) NOT NULL DEFAULT 'sem_politica',
+ params_json LONGTEXT NULL,
+ linked_user_id INT UNSIGNED NULL,
+ linked_user_id2 INT UNSIGNED NULL,
+ mentor_user_id INT UNSIGNED NULL,
+ hired_month CHAR(7) NULL,
+ active_operation TINYINT(1) NOT NULL DEFAULT 1,
+ updated_by INT UNSIGNED NULL,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ CONSTRAINT fk_policy_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+ CONSTRAINT fk_policy_linked_user FOREIGN KEY (linked_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_policy_linked_user2 FOREIGN KEY (linked_user_id2) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_policy_mentor FOREIGN KEY (mentor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+ CONSTRAINT fk_policy_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+<<<'SQL'
 CREATE TABLE IF NOT EXISTS funnels (
  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  funnel_key VARCHAR(50) NOT NULL UNIQUE,
