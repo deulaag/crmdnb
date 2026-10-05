@@ -7,6 +7,7 @@ function page_header(string $title,string $active=''):void
     $user = current_user();
     $flash = pull_flash();
     $month = valid_month($_GET['mes'] ?? null);
+    $security = security_settings(db());
 
     $menu = [
         'painel' => ['Painel','painel.php'],
@@ -26,9 +27,17 @@ function page_header(string $title,string $active=''):void
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light">
     <title><?= e($title) ?> · DNB CRM</title>
-    <link rel="stylesheet" href="assets/css/app.css?v=3">
+    <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
+    <link rel="stylesheet" href="assets/css/app.css?v=5">
 </head>
-<body class="source-body">
+<body
+    class="source-body"
+    data-session-timeout-ms="<?= (int)$security['inactivity_timeout_ms'] ?>"
+    data-warning-before-timeout-ms="<?= (int)$security['warning_before_timeout_ms'] ?>"
+    data-security-scope="<?= e(security_scope()) ?>"
+    data-session-refresh-url="session_refresh.php"
+    data-logout-url="logout.php"
+>
     <header class="source-header">
         <div class="source-brand-block">
             <span class="source-logo-box"><img src="assets/dnb-logo.png" alt="DNB"></span>
@@ -56,6 +65,18 @@ function page_header(string $title,string $active=''):void
         <?php endforeach; ?>
     </nav>
 
+    <div class="session-modal-backdrop" data-session-modal hidden>
+        <section class="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-modal-title" aria-describedby="session-modal-description">
+            <span class="eyebrow">SEGURANÇA DA SESSÃO</span>
+            <h2 id="session-modal-title">Sua sessão está prestes a expirar</h2>
+            <p id="session-modal-description">Por segurança, o CRM encerra sessões sem atividade.</p>
+            <div class="session-countdown" aria-live="polite">
+                Sua sessão expirará em <strong data-session-countdown>60s</strong>
+            </div>
+            <button class="btn btn-primary btn-block" type="button" data-session-continue>Continuar conectado</button>
+        </section>
+    </div>
+
     <main class="source-main">
         <?php if($flash): ?><div class="alert alert-<?= e($flash['type']) ?>" data-autohide><?= e($flash['message']) ?></div><?php endif; ?>
 <?php
@@ -65,7 +86,7 @@ function page_footer():void
 {
 ?>
     </main>
-    <script src="assets/js/app.js?v=3"></script>
+    <script src="assets/js/app.js?v=5"></script>
 </body>
 </html>
 <?php
