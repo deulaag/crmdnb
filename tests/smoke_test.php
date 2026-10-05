@@ -110,9 +110,9 @@ if (str_contains($orders, 'name="dnb_commission"')) {
     exit(1);
 }
 
-$commissions = file_get_contents($root . '/comissoes.php');
-if (!str_contains($commissions, 'Políticas por pessoa (parâmetros editáveis)')) {
-    fwrite(STDERR, "Políticas por pessoa ausentes da página de Comissões.\n");
+$configPage = file_get_contents($root . '/configuracoes.php');
+if (!str_contains($configPage, 'Políticas por pessoa (parâmetros editáveis)')) {
+    fwrite(STDERR, "Políticas por pessoa ausentes da página de Configurações.\n");
     exit(1);
 }
 
