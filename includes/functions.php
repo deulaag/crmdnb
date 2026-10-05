@@ -305,6 +305,7 @@ PROMPT;
                     'type' => 'input_file',
                     'filename' => preg_replace('/[^A-Za-z0-9._-]/', '_', $filename) ?: 'visita.pdf',
                     'file_data' => 'data:application/pdf;base64,' . base64_encode($bytes),
+                    'detail' => 'high',
                 ],
                 ['type' => 'input_text', 'text' => $prompt],
             ],
@@ -324,7 +325,7 @@ PROMPT;
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 15,
-        CURLOPT_TIMEOUT => 150,
+        CURLOPT_TIMEOUT => 180,
         CURLOPT_HTTPHEADER => [
             'Authorization: Bearer ' . $apiKey,
             'Content-Type: application/json',
@@ -345,7 +346,10 @@ PROMPT;
     }
     if ($status < 200 || $status >= 300) {
         $message = (string) ($response['error']['message'] ?? 'erro desconhecido');
-        throw new RuntimeException('OpenAI HTTP ' . $status . ': ' . $message);
+        $code = (string) ($response['error']['code'] ?? '');
+        $type = (string) ($response['error']['type'] ?? '');
+        $suffix = trim(implode(' · ', array_filter([$type, $code])));
+        throw new RuntimeException('OpenAI HTTP ' . $status . ': ' . $message . ($suffix !== '' ? ' (' . $suffix . ')' : ''));
     }
 
     $text = openai_response_text($response);
