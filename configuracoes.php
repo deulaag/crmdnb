@@ -110,7 +110,7 @@ page_header('Configurações','configuracoes');
     <div>
         <span class="eyebrow">ADMINISTRAÇÃO</span>
         <h2>Integrações e segurança</h2>
-        <p>Credenciais privadas são armazenadas criptografadas no banco. O CRM não utiliza arquivo .env.</p>
+        <p>Credenciais privadas são armazenadas criptografadas no banco e não ficam expostas no código.</p>
     </div>
 </div>
 
