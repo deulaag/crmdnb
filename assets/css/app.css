@@ -162,3 +162,25 @@ input,select,textarea{width:100%;border:1px solid #cfd9e3;background:#fff;color:
  .extract-actions,.extract-discard{justify-content:stretch}
  .extract-actions .btn,.extract-discard .btn{width:100%}
 }
+
+/* Dados do cliente / CNPJá */
+.customer-card{border-color:#cbd5e1!important}
+.customer-card .card-title p{margin:4px 0 0;font-size:12px;color:#64748b}
+.cnpja-lookup-row{display:grid;grid-template-columns:minmax(220px,320px) auto 1fr;gap:10px;align-items:end;margin-bottom:14px}
+.cnpj-field{display:flex;flex-direction:column;gap:6px}
+.cnpj-field span{font-size:11px;font-weight:700;color:#475569}
+.cnpja-status{min-height:18px;font-size:11px;font-weight:700;align-self:center}
+.cnpja-status.loading{color:#475569}
+.cnpja-status.success{color:#166534}
+.cnpja-status.error{color:#b91c1c}
+.customer-data-grid{padding-top:12px;border-top:1px solid #e2e8f0}
+.customer-data-grid label small{font-size:10px;color:#64748b}
+@media(max-width:820px){
+ .cnpja-lookup-row{grid-template-columns:1fr auto}
+ .cnpja-status{grid-column:1/-1}
+}
+@media(max-width:560px){
+ .cnpja-lookup-row{grid-template-columns:1fr}
+ .cnpja-lookup-row .btn{width:100%}
+ .cnpja-status{grid-column:auto}
+}
