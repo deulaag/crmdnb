@@ -26,7 +26,7 @@ function page_header(string $title,string $active=''):void
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light">
     <title><?= e($title) ?> · DNB CRM</title>
-    <link rel="stylesheet" href="assets/css/app.css?v=2">
+    <link rel="stylesheet" href="assets/css/app.css?v=3">
 </head>
 <body class="source-body">
     <header class="source-header">
@@ -65,7 +65,7 @@ function page_footer():void
 {
 ?>
     </main>
-    <script src="assets/js/app.js?v=2"></script>
+    <script src="assets/js/app.js?v=3"></script>
 </body>
 </html>
 <?php
