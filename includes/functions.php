@@ -642,7 +642,7 @@ function company_upsert_from_customer_data(PDO $pdo, array $data, ?int $ownerUse
 
     if ($id > 0) {
         $sql = 'UPDATE companies SET
-            name=:name, alias=:alias, registration_status=:registration_status,
+            name=:name, cnpj=:cnpj, alias=:alias, registration_status=:registration_status,
             registration_status_date=:registration_status_date, founded=:founded,
             company_type=:company_type, company_size=:company_size, legal_nature=:legal_nature,
             capital_social=:capital_social, email=:email, phone=:phone, zip=:zip,
