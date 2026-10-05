@@ -85,4 +85,35 @@ foreach (['name="portal_logo"','name="pdf_logo"','enctype="multipart/form-data"'
     }
 }
 
+$quotes = file_get_contents($root . '/orcamentos.php');
+foreach ([
+    'Triagem de leads das visitas',
+    'FUNIS DE VENDA · OPORTUNIDADES ABERTAS',
+    'IMPORTAR DO COTADOR DNB (JSON)',
+    'IMPORTAR ORÇAMENTO DO ERP (PDF)',
+    'SINCRONIZAR RELATÓRIO SEMANAL SALESFORCE (AGENCIADOS IR)'
+] as $needle) {
+    if (!str_contains($quotes, $needle)) {
+        fwrite(STDERR, "Modelo de Orçamentos incompleto: {$needle}\n");
+        exit(1);
+    }
+}
+
+if (str_contains($quotes, 'name="dnb_commission_estimated"')) {
+    fwrite(STDERR, "Campo manual de comissão estimada não pode existir em Orçamentos.\n");
+    exit(1);
+}
+
+$orders = file_get_contents($root . '/pedidos.php');
+if (str_contains($orders, 'name="dnb_commission"')) {
+    fwrite(STDERR, "Campo manual de comissão DNB não pode existir em Pedidos.\n");
+    exit(1);
+}
+
+$commissions = file_get_contents($root . '/comissoes.php');
+if (!str_contains($commissions, 'Políticas por pessoa (parâmetros editáveis)')) {
+    fwrite(STDERR, "Políticas por pessoa ausentes da página de Comissões.\n");
+    exit(1);
+}
+
 echo "Smoke test OK\n";
