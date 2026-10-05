@@ -3,11 +3,12 @@
 declare(strict_types=1);
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
-    $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    ini_set('session.use_strict_mode', '1');
+    session_name('DNBCRMSESSID');
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => '/',
-        'secure' => $secure,
+        'secure' => true,
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
@@ -15,6 +16,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/security.php';
 
 function app_config(): array
 {
