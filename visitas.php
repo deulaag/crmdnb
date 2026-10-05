@@ -413,7 +413,7 @@ page_header('Visitas','visitas');
     <?php if ($openaiReady): ?>
         <div class="ai-ready"><span></span> ChatGPT / OpenAI ativo · <?= e($openaiModel) ?></div>
     <?php else: ?>
-        <div class="alert alert-warning">Configure e ative ChatGPT / OpenAI em Configurações para a leitura automática funcionar.</div>
+        <div class="info-panel"><strong>Integração necessária.</strong><p>Configure e ative ChatGPT / OpenAI em Configurações para a leitura automática funcionar.</p></div>
     <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data" data-upload-form>
