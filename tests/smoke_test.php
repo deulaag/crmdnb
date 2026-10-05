@@ -1,7 +1,7 @@
 <?php
 $root = dirname(__DIR__);
 $required = [
-    'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php',
+    'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
     'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/dnb-logo.png','config/database.example.php'
 ];
@@ -65,6 +65,22 @@ $layout = file_get_contents($root . '/includes/layout.php');
 foreach (['data-notification-modal','data-confirm-modal','assets/js/ui.js'] as $needle) {
     if (!str_contains($layout, $needle)) {
         fwrite(STDERR, "Layout sem padrão global de modal: {$needle}\n");
+        exit(1);
+    }
+}
+
+$functions = file_get_contents($root . '/includes/functions.php');
+foreach (['branding_settings','branding_logo_path','branding_logo_url','branding_save_logo_upload'] as $needle) {
+    if (!str_contains($functions, 'function ' . $needle)) {
+        fwrite(STDERR, "Função de branding ausente: {$needle}\n");
+        exit(1);
+    }
+}
+
+$configPage = file_get_contents($root . '/configuracoes.php');
+foreach (['name="portal_logo"','name="pdf_logo"','enctype="multipart/form-data"'] as $needle) {
+    if (!str_contains($configPage, $needle)) {
+        fwrite(STDERR, "Configuração de logo ausente: {$needle}\n");
         exit(1);
     }
 }
