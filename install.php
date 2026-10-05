@@ -82,10 +82,72 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     }
 }
 ?>
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Instalar · DNB CRM</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Michroma&display=swap" rel="stylesheet"><link rel="stylesheet" href="assets/css/app.css?v=1"></head><body class="auth-body"><div class="install-wrap"><div class="auth-brand"><img src="assets/dnb-logo.png" alt="DNB"><span>CRM Comercial</span></div><div class="install-card"><div class="install-heading"><span class="eyebrow">INSTALAÇÃO SEGURA</span><h1>Preparar CRM DNB</h1><p>Cria o banco, a estrutura do CRM, os funis e a primeira conta administradora. Nenhum cliente, contato, oportunidade, pedido ou visita de exemplo será criado.</p></div>
-<?php if($success): ?><div class="alert alert-success">Instalação concluída. O banco está pronto e o administrador foi criado.</div><a class="btn btn-primary btn-block" href="login.php">Entrar no CRM</a>
-<?php else: foreach($errors as $error): ?><div class="alert alert-danger"><?= e($error) ?></div><?php endforeach; ?>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#003060">
+<title>Instalar · DNB CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/app.css?v=6">
+</head>
+<body class="auth-body">
+<div class="install-wrap">
+<div class="auth-brand"><img src="assets/dnb-logo.png" alt="DNB"><span>CRM Comercial</span></div>
+<div class="install-card">
+<div class="install-heading">
+<span class="eyebrow">INSTALAÇÃO SEGURA</span>
+<h1>Preparar CRM DNB</h1>
+<p>Cria o banco, a estrutura do CRM, os funis e a primeira conta administradora. Nenhum cliente, contato, oportunidade, pedido ou visita de exemplo será criado.</p>
+</div>
+<?php if($success): ?>
+<a class="btn btn-primary btn-block" href="login.php">Entrar no CRM</a>
+<?php else: ?>
 <form method="post" class="form-grid install-grid" autocomplete="off"><?= csrf_field() ?><div class="form-section-title">Banco de dados</div>
 <label><span>Servidor</span><input name="db_host" required value="<?= e($_POST['db_host']??'localhost') ?>"></label><label><span>Porta</span><input name="db_port" type="number" required value="<?= e($_POST['db_port']??'3306') ?>"></label><label><span>Nome do banco</span><input name="db_name" required value="<?= e($_POST['db_name']??'') ?>" placeholder="ex: crmdnb"></label><label><span>Usuário do banco</span><input name="db_user" required value="<?= e($_POST['db_user']??'') ?>"></label><label class="span-2"><span>Senha do banco</span><input name="db_pass" type="password"></label>
 <div class="form-section-title">Administrador</div><label><span>Nome</span><input name="admin_name" required value="<?= e($_POST['admin_name']??'') ?>"></label><label><span>E-mail</span><input name="admin_email" type="email" required value="<?= e($_POST['admin_email']??'') ?>"></label><label><span>Senha</span><input name="admin_pass" type="password" minlength="10" required></label><label><span>Confirmar senha</span><input name="admin_pass_confirm" type="password" minlength="10" required></label>
-<div class="span-2 install-note">A configuração do banco é criada localmente em <code>config/database.local.php</code> e fica fora do Git.</div><button class="btn btn-primary span-2" type="submit">Instalar CRM e criar administrador</button></form><?php endif; ?></div></div></body></html>
+<div class="span-2 install-note">A configuração do banco é criada localmente em <code>config/database.local.php</code> e fica fora do Git.</div>
+<button class="btn btn-primary span-2" type="submit">Instalar CRM e criar administrador</button>
+</form>
+<?php endif; ?>
+</div>
+</div>
+
+<?php if($success || $errors): ?>
+<div
+    class="ui-modal-backdrop"
+    data-ui-modal
+    data-notification-modal
+    data-modal-auto-open
+    data-dismiss-backdrop="true"
+    aria-hidden="true"
+    hidden
+>
+    <section class="ui-modal <?= $success ? 'ui-modal-success' : 'ui-modal-danger' ?>" role="dialog" aria-modal="true" aria-labelledby="install-notification-title" aria-describedby="install-notification-message">
+        <div class="ui-modal-status" aria-hidden="true"></div>
+        <div class="ui-modal-content">
+            <span class="eyebrow">NOTIFICAÇÃO</span>
+            <h2 id="install-notification-title"><?= $success ? 'Instalação concluída' : 'Não foi possível instalar' ?></h2>
+            <div id="install-notification-message">
+                <?php if($success): ?>
+                    <p>O banco está pronto e o administrador foi criado.</p>
+                <?php else: ?>
+                    <ul class="ui-modal-list">
+                        <?php foreach($errors as $error): ?><li><?= e($error) ?></li><?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="ui-modal-actions">
+            <button class="btn btn-primary" type="button" data-modal-close data-modal-primary>Entendi</button>
+        </div>
+    </section>
+</div>
+<?php endif; ?>
+
+<script src="assets/js/ui.js?v=1"></script>
+</body>
+</html>
