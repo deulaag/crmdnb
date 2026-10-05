@@ -591,6 +591,25 @@ function cnpja_lookup(PDO $pdo, string $cnpj, ?string $strategy = null): array
     return $mapped;
 }
 
+function ensure_opportunity_visit_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+
+    $database = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME="opportunities" AND COLUMN_NAME="visit_id"');
+    $stmt->execute([$database]);
+
+    if (!(int) $stmt->fetchColumn()) {
+        $pdo->exec('ALTER TABLE opportunities ADD COLUMN visit_id BIGINT UNSIGNED NULL AFTER company_id');
+        $pdo->exec('ALTER TABLE opportunities ADD INDEX idx_opportunity_visit (visit_id)');
+    }
+
+    $done = true;
+}
+
 function company_upsert_from_customer_data(PDO $pdo, array $data, ?int $ownerUserId = null, ?array $rawLookup = null): int
 {
     ensure_company_cnpja_schema($pdo);
