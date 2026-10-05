@@ -1,13 +1,19 @@
 <?php
+declare(strict_types=1);
+
 require_once __DIR__ . '/includes/bootstrap.php';
+
+$redirectTo = safe_internal_redirect((string)($_GET['redirect_to'] ?? ''), '');
+
 if (!empty($_SESSION['user_id'])) {
-    try { audit(db(), (int) $_SESSION['user_id'], 'logout', 'user', (int) $_SESSION['user_id']); } catch (Throwable $e) {}
+    try {
+        audit(db(), (int)$_SESSION['user_id'], 'logout', 'user', (int)$_SESSION['user_id'], [
+            'automatic' => isset($_GET['automatic']) ? 1 : 0,
+        ]);
+    } catch (Throwable $e) {
+    }
 }
-$_SESSION = [];
-if (ini_get('session.use_cookies')) {
-    $params = session_get_cookie_params();
-    setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'] ?? '', (bool) $params['secure'], (bool) $params['httponly']);
-}
-session_destroy();
-header('Location: login.php');
+
+destroy_auth_session();
+header('Location: ' . security_login_url($redirectTo));
 exit;
