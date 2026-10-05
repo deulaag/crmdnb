@@ -1014,7 +1014,9 @@ function spreadsheet_rows_from_upload(array $file): array
         if ($sharedXml !== false) {
             $xml = simplexml_load_string($sharedXml);
             if ($xml) {
-                foreach ($xml->si as $si) {
+                $sharedNamespaces = $xml->getNamespaces(true);
+                $sharedRoot = isset($sharedNamespaces['']) ? $xml->children($sharedNamespaces['']) : $xml;
+                foreach ($sharedRoot->si as $si) {
                     $parts = [];
                     if (isset($si->t)) $parts[] = (string)$si->t;
                     foreach ($si->r as $run) $parts[] = (string)$run->t;
