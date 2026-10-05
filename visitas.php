@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/layout.php';
 
 $user = require_auth();
 $pdo = db();
+ensure_opportunity_visit_schema($pdo);
 $openai = integration_get($pdo, 'openai');
 $openaiExtra = json_decode((string)($openai['extra_json'] ?? '{}'), true) ?: [];
 $openaiModel = trim((string)($openaiExtra['model'] ?? '')) ?: 'gpt-5.6-sol';
@@ -359,6 +360,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'delete') {
             $id = (int)($_POST['id'] ?? 0);
             if ($id > 0) {
+                $q = $pdo->prepare('SELECT COUNT(*) FROM opportunities WHERE visit_id=?');
+                $q->execute([$id]);
+                if ((int)$q->fetchColumn() > 0) {
+                    throw new RuntimeException('Esta visita já virou uma oportunidade. Exclua primeiro a oportunidade em Orçamentos.');
+                }
                 $pdo->prepare('DELETE FROM visits WHERE id=?')->execute([$id]);
                 audit($pdo, (int)$user['id'], 'delete', 'visit', $id);
             }
@@ -376,9 +382,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $users = $pdo->query("SELECT id,name FROM users WHERE active=1 ORDER BY name")->fetchAll();
 $rows = $pdo->query(
-    "SELECT v.*,u.name seller_name
+    "SELECT v.*,u.name seller_name,o.id opportunity_id,o.number opportunity_number
      FROM visits v
      LEFT JOIN users u ON u.id=v.seller_user_id
+     LEFT JOIN opportunities o ON o.visit_id=v.id
      ORDER BY v.id DESC"
 )->fetchAll();
 
@@ -578,7 +585,7 @@ page_header('Visitas','visitas');
     <div class="table-wrap">
         <table class="source-table">
             <thead>
-                <tr><th>Data</th><th>Tipo</th><th>OS</th><th>Cliente</th><th>Responsável</th><th>Oportunidade</th><th></th></tr>
+                <tr><th>Data</th><th>Tipo</th><th>OS</th><th>Cliente</th><th>Responsável</th><th>Oportunidade</th><th>Virar oportunidade?</th><th></th></tr>
             </thead>
             <tbody>
             <?php foreach($rows as $row): ?>
@@ -589,6 +596,17 @@ page_header('Visitas','visitas');
                     <td><strong><?= e($row['client_name']) ?></strong><small><?= e($row['contact_name'] ?: '') ?></small></td>
                     <td><?= e($row['seller_name'] ?: '—') ?></td>
                     <td class="source-opportunity"><?= e($row['opportunity_text'] ?: '—') ?></td>
+                    <td>
+                        <?php if (!empty($row['opportunity_id'])): ?>
+                            <a class="visit-opportunity-done" href="orcamentos.php?edit=<?= (int)$row['opportunity_id'] ?>#opportunity-form">
+                                Oportunidade <?= e($row['opportunity_number'] ?: 'criada') ?>
+                            </a>
+                        <?php else: ?>
+                            <a class="visit-opportunity-btn" href="orcamentos.php?from_visit=<?= (int)$row['id'] ?>#opportunity-form">
+                                Virar oportunidade?
+                            </a>
+                        <?php endif; ?>
+                    </td>
                     <td class="source-right">
                         <form method="post" onsubmit="return confirm('Excluir esta atividade?');">
                             <?= csrf_field() ?>
@@ -601,7 +619,7 @@ page_header('Visitas','visitas');
             <?php endforeach; ?>
 
             <?php if(!$rows): ?>
-                <tr><td colspan="7" class="empty-row">Nenhuma atividade registrada.</td></tr>
+                <tr><td colspan="8" class="empty-row">Nenhuma atividade registrada.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
