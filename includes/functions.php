@@ -511,6 +511,581 @@ PROMPT;
 }
 
 
+function commission_policy_definitions(): array
+{
+    return [
+        'vendedor_ir' => [
+            'label' => 'Vendedor IR (v3)',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 500000,
+                'metaAgenciadas' => 300000,
+                'pctPecasServ' => 0.5,
+                'pctAgenciada' => 1,
+                'visitasMes' => 60,
+                'prospecMes' => 0,
+                'convIR' => 40,
+                'convEquip' => 20,
+                'convDemais' => 15,
+            ],
+        ],
+        'vendedor_externo' => [
+            'label' => 'Vendedor Externo (rev02 — jul/2026)',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 500000,
+                'metaAgenciadas' => 300000,
+                'pctPecasServ' => 0.5,
+                'pctAgenciada' => 1,
+                'bonifKpiPct' => 100,
+                'visitasMes' => 40,
+                'prospecMes' => 0,
+                'convIR' => 40,
+                'convEquip' => 20,
+                'convDemais' => 15,
+            ],
+        ],
+        'suporte_ir' => [
+            'label' => 'Suporte em Vendas IR (v3)',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 500000,
+                'metaAgenciadas' => 300000,
+                'pctPecasServ' => 0.25,
+                'pctAgenciada' => 0.5,
+                'prospecMes' => 80,
+                'visitasMes' => 0,
+                'convIR' => 40,
+                'convEquip' => 20,
+                'convDemais' => 15,
+            ],
+        ],
+        'interno' => [
+            'label' => 'Vendedor Interno Sênior (PCV-INT-001)',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 500000,
+                'metaAgenciadas' => 0,
+                'pctPecasServ' => 0.5,
+                'pctAgenciada' => 1,
+                'tetoBonusMes' => 9600,
+                'visitasMes' => 0,
+                'prospecMes' => 40,
+                'convIR' => 0,
+                'convEquip' => 0,
+                'convDemais' => 15,
+                'pipelineMin' => 1700000,
+                'cotacoesMin' => 80,
+                'oportunidadesMin' => 60,
+                'convMin' => 25,
+            ],
+        ],
+        'representante' => [
+            'label' => 'Representante Comercial Autônomo (PCV-REP-001)',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 300000,
+                'metaAgenciadas' => 0,
+                'metaCompressores' => 200000,
+                'metaAcessorios' => 100000,
+                'pctComDNB' => 30,
+                'pctMargem' => 5,
+                'bonifKpiPct' => 20,
+                'pipelineMin' => 1000000,
+                'cotacoesMin' => 48,
+                'convMin' => 25,
+                'visitasMes' => 40,
+                'prospecMes' => 0,
+                'convIR' => 40,
+                'convEquip' => 20,
+                'convDemais' => 15,
+            ],
+        ],
+        'consultor_senior' => [
+            'label' => 'Consultor Comercial Sênior (v2 — anual)',
+            'regime' => 'anual',
+            'defaults' => [
+                'metaPropriasAno' => 6300000,
+                'metaOrientadoAno' => 3150000,
+                'metaAgenciadasAno' => 2500000,
+                'pctAgenciada' => 6,
+                'tetoAgMes' => 8000,
+                'tetoAgAno' => 60000,
+                'tetoPropriasAno' => 60000,
+                'tetoOrientAno' => 20000,
+                'tetoGlobalAno' => 120000,
+                'metaPropostasMes' => 3119792,
+                'visitasMes' => 40,
+                'prospecMes' => 0,
+            ],
+        ],
+        'sem_politica' => [
+            'label' => 'Sem política definida',
+            'regime' => 'mensal',
+            'defaults' => [
+                'metaRevenda' => 0,
+                'metaAgenciadas' => 0,
+                'pctPecasServ' => 0,
+                'pctAgenciada' => 0,
+                'visitasMes' => 0,
+                'prospecMes' => 0,
+                'convIR' => 40,
+                'convEquip' => 20,
+                'convDemais' => 15,
+            ],
+        ],
+    ];
+}
+
+function commission_policy_field_labels(string $policyKey): array
+{
+    if ($policyKey === 'consultor_senior') {
+        return [
+            'metaPropriasAno' => 'Meta anual próprias (R$)',
+            'metaOrientadoAno' => 'Meta anual orientado (R$)',
+            'metaAgenciadasAno' => 'Meta anual agenciadas (R$)',
+            'metaPropostasMes' => 'Meta propostas/mês (R$)',
+            'pctAgenciada' => '% s/ comissão DNB (agenc.)',
+            'tetoAgMes' => 'Teto agenc./mês (R$)',
+            'tetoGlobalAno' => 'Teto global/ano (R$)',
+            'visitasMes' => 'Visitas/mês',
+        ];
+    }
+
+    if ($policyKey === 'interno') {
+        return [
+            'metaRevenda' => 'Meta revenda/mês (R$)',
+            'pctPecasServ' => '% peças/serviços',
+            'pctAgenciada' => '% s/ comissão DNB (agenc.)',
+            'tetoBonusMes' => 'Teto bônus/mês (R$)',
+            'prospecMes' => 'Prospecções/mês',
+            'cotacoesMin' => 'Cotações mín./mês',
+            'pipelineMin' => 'Pipeline mínimo (R$)',
+        ];
+    }
+
+    if ($policyKey === 'representante') {
+        return [
+            'metaRevenda' => 'Meta mensal (rev+agenc.) (R$)',
+            'pctComDNB' => '% s/ comissão DNB',
+            'pctMargem' => '% s/ margem revenda',
+            'bonifKpiPct' => 'Bonificação KPIs (%)',
+            'visitasMes' => 'Visitas/mês (KPI)',
+            'cotacoesMin' => 'Cotações mín./mês',
+            'pipelineMin' => 'Pipeline mínimo (R$)',
+        ];
+    }
+
+    return [
+        'metaRevenda' => 'Meta revenda/mês (R$)',
+        'metaAgenciadas' => 'Meta agenciadas/mês (R$)',
+        'pctPecasServ' => '% peças/serviços',
+        'pctAgenciada' => '% s/ comissão DNB (agenc.)',
+        'visitasMes' => 'Visitas/mês',
+        'convIR' => 'Conversão IR peças/serv (%)',
+        'convEquip' => 'Conversão equipamentos (%)',
+    ];
+}
+
+function ensure_commission_policy_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS user_commission_policies (
+            user_id INT UNSIGNED PRIMARY KEY,
+            operation_role ENUM('vendedor','suporte') NOT NULL DEFAULT 'vendedor',
+            policy_key VARCHAR(50) NOT NULL DEFAULT 'sem_politica',
+            params_json LONGTEXT NULL,
+            linked_user_id INT UNSIGNED NULL,
+            linked_user_id2 INT UNSIGNED NULL,
+            mentor_user_id INT UNSIGNED NULL,
+            hired_month CHAR(7) NULL,
+            active_operation TINYINT(1) NOT NULL DEFAULT 1,
+            updated_by INT UNSIGNED NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_policy_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_policy_linked_user FOREIGN KEY (linked_user_id) REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_policy_linked_user2 FOREIGN KEY (linked_user_id2) REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_policy_mentor FOREIGN KEY (mentor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_policy_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $done = true;
+}
+
+function user_commission_policy(PDO $pdo, int $userId): array
+{
+    ensure_commission_policy_schema($pdo);
+    $definitions = commission_policy_definitions();
+
+    $q = $pdo->prepare('SELECT * FROM user_commission_policies WHERE user_id=? LIMIT 1');
+    $q->execute([$userId]);
+    $row = $q->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $policyKey = (string)($row['policy_key'] ?? 'sem_politica');
+    if (!isset($definitions[$policyKey])) {
+        $policyKey = 'sem_politica';
+    }
+
+    $saved = json_decode((string)($row['params_json'] ?? '{}'), true);
+    $saved = is_array($saved) ? $saved : [];
+
+    return [
+        'user_id' => $userId,
+        'operation_role' => (string)($row['operation_role'] ?? 'vendedor'),
+        'policy_key' => $policyKey,
+        'params' => array_merge($definitions[$policyKey]['defaults'], $saved),
+        'linked_user_id' => isset($row['linked_user_id']) ? (int)$row['linked_user_id'] : null,
+        'linked_user_id2' => isset($row['linked_user_id2']) ? (int)$row['linked_user_id2'] : null,
+        'mentor_user_id' => isset($row['mentor_user_id']) ? (int)$row['mentor_user_id'] : null,
+        'hired_month' => (string)($row['hired_month'] ?? ''),
+        'active_operation' => array_key_exists('active_operation', $row) ? (bool)$row['active_operation'] : true,
+    ];
+}
+
+function save_user_commission_policy(PDO $pdo, int $userId, array $input, int $updatedBy): void
+{
+    ensure_commission_policy_schema($pdo);
+    $definitions = commission_policy_definitions();
+
+    $policyKey = (string)($input['policy_key'] ?? 'sem_politica');
+    if (!isset($definitions[$policyKey])) {
+        throw new RuntimeException('Política de comissão inválida.');
+    }
+
+    $operationRole = (string)($input['operation_role'] ?? 'vendedor');
+    if (!in_array($operationRole, ['vendedor','suporte'], true)) {
+        $operationRole = 'vendedor';
+    }
+
+    $params = $definitions[$policyKey]['defaults'];
+    foreach ($params as $key => $default) {
+        if (isset($input['params'][$key]) && $input['params'][$key] !== '') {
+            $params[$key] = (float)$input['params'][$key];
+        }
+    }
+
+    $linked1 = !empty($input['linked_user_id']) ? (int)$input['linked_user_id'] : null;
+    $linked2 = !empty($input['linked_user_id2']) ? (int)$input['linked_user_id2'] : null;
+    $mentor = !empty($input['mentor_user_id']) ? (int)$input['mentor_user_id'] : null;
+    $hiredMonth = preg_match('/^\d{4}-\d{2}$/', (string)($input['hired_month'] ?? ''))
+        ? (string)$input['hired_month']
+        : null;
+
+    $q = $pdo->prepare(
+        'INSERT INTO user_commission_policies
+         (user_id,operation_role,policy_key,params_json,linked_user_id,linked_user_id2,mentor_user_id,hired_month,active_operation,updated_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+         operation_role=VALUES(operation_role),policy_key=VALUES(policy_key),params_json=VALUES(params_json),
+         linked_user_id=VALUES(linked_user_id),linked_user_id2=VALUES(linked_user_id2),mentor_user_id=VALUES(mentor_user_id),
+         hired_month=VALUES(hired_month),active_operation=VALUES(active_operation),updated_by=VALUES(updated_by),
+         updated_at=CURRENT_TIMESTAMP'
+    );
+
+    $q->execute([
+        $userId,
+        $operationRole,
+        $policyKey,
+        json_encode($params, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        $linked1,
+        $linked2,
+        $mentor,
+        $hiredMonth,
+        !empty($input['active_operation']) ? 1 : 0,
+        $updatedBy,
+    ]);
+}
+
+function product_line_id_from_text(PDO $pdo, string $text): ?int
+{
+    $needle = normalized_name($text);
+    if ($needle === '') return null;
+
+    $lines = $pdo->query('SELECT id,name FROM product_lines WHERE active=1 ORDER BY sort_order')->fetchAll();
+
+    foreach ($lines as $line) {
+        if (normalized_name((string)$line['name']) === $needle) {
+            return (int)$line['id'];
+        }
+    }
+
+    $rules = [
+        'Parker Filtração de Processos' => ['filtracao de processos','filtracao processo','process filter'],
+        'Parker Filtração GSF' => ['gsf','filtracao gsf'],
+        'Parker Automação' => ['parker automacao','automacao parker'],
+        'Parker Conexões' => ['parker conexoes','conexoes parker'],
+        'Peças ARO' => ['peca aro','pecas aro'],
+        'Bombas ARO' => ['bomba aro','bombas aro','aro pump'],
+        'Compressores IR (agenciamento)' => ['compressor','compressores','ingersoll rand compressor'],
+        'Serviço Manutenção IR' => ['manutencao','reparo','servico ir','assistencia tecnica'],
+        'Locação' => ['locacao','aluguel'],
+        'Peças IR' => ['peca ir','pecas ir','ingersoll rand peca'],
+    ];
+
+    foreach ($rules as $lineName => $keywords) {
+        foreach ($keywords as $keyword) {
+            if (str_contains($needle, normalized_name($keyword))) {
+                foreach ($lines as $line) {
+                    if ((string)$line['name'] === $lineName) {
+                        return (int)$line['id'];
+                    }
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function openai_extract_erp_quote(PDO $pdo, string $tmpPath, string $filename): array
+{
+    $config = integration_get($pdo, 'openai');
+    $apiKey = secret_decrypt($config['access_token'] ?? '');
+    if (empty($config['is_active']) || $apiKey === '') {
+        throw new RuntimeException('Configure e ative ChatGPT / OpenAI antes de importar orçamento do ERP.');
+    }
+    if (!extension_loaded('curl')) {
+        throw new RuntimeException('A extensão PHP cURL precisa estar ativa no servidor.');
+    }
+
+    $bytes = file_get_contents($tmpPath);
+    if ($bytes === false || $bytes === '') {
+        throw new RuntimeException('Não foi possível ler o PDF.');
+    }
+    if (strlen($bytes) > 20 * 1024 * 1024) {
+        throw new RuntimeException('PDF acima do limite de 20 MB por arquivo.');
+    }
+
+    $extra = json_decode((string)($config['extra_json'] ?? '{}'), true);
+    $model = trim((string)($extra['model'] ?? '')) ?: 'gpt-5.6-sol';
+
+    $schema = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'numero' => ['type' => 'string'],
+            'data' => ['type' => 'string'],
+            'cliente' => ['type' => 'string'],
+            'vendedor' => ['type' => 'string'],
+            'suporte' => ['type' => 'string'],
+            'valor' => ['type' => 'number'],
+            'linha' => ['type' => 'string'],
+        ],
+        'required' => ['numero','data','cliente','vendedor','suporte','valor','linha'],
+    ];
+
+    $prompt = <<<'PROMPT'
+Este PDF é um ORÇAMENTO emitido pelo ERP da DNB.
+Extraia somente os dados existentes no documento.
+Responda no schema informado:
+- numero: número do orçamento;
+- data: data de emissão em YYYY-MM-DD;
+- cliente: razão social/nome do cliente;
+- vendedor: nome do vendedor;
+- suporte: nome do suporte, se houver;
+- valor: valor total do orçamento;
+- linha: linha de produto predominante, usando quando possível uma destas categorias:
+  Compressores IR (agenciamento), Serviço Manutenção IR, Locação, Peças IR, Bombas ARO, Peças ARO, Parker Automação, Parker Filtração de Processos, Parker Filtração GSF, Parker Conexões.
+Não invente informações. Se o documento misturar linhas distintas, use a linha predominante e preserve a revisão manual posterior.
+PROMPT;
+
+    $payload = [
+        'model' => $model,
+        'store' => false,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                [
+                    'type' => 'input_file',
+                    'filename' => preg_replace('/[^A-Za-z0-9._-]/', '_', $filename) ?: 'orcamento.pdf',
+                    'file_data' => 'data:application/pdf;base64,' . base64_encode($bytes),
+                    'detail' => 'high',
+                ],
+                ['type' => 'input_text', 'text' => $prompt],
+            ],
+        ]],
+        'text' => [
+            'format' => [
+                'type' => 'json_schema',
+                'name' => 'erp_quote',
+                'strict' => true,
+                'schema' => $schema,
+            ],
+        ],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 180,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ]);
+
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false) throw new RuntimeException('Falha ao consultar a OpenAI: ' . $error);
+
+    $response = json_decode($raw, true);
+    if (!is_array($response) || $status < 200 || $status >= 300) {
+        $message = is_array($response) ? (string)($response['error']['message'] ?? 'erro não informado') : 'resposta inválida';
+        throw new RuntimeException('OpenAI HTTP ' . $status . ': ' . $message);
+    }
+
+    $data = json_decode(openai_response_text($response), true);
+    if (!is_array($data)) {
+        throw new RuntimeException('A IA não retornou os dados do orçamento em formato válido.');
+    }
+
+    return [
+        'numero' => trim((string)($data['numero'] ?? '')),
+        'data' => trim((string)($data['data'] ?? '')),
+        'cliente' => trim((string)($data['cliente'] ?? '')),
+        'vendedor' => trim((string)($data['vendedor'] ?? '')),
+        'suporte' => trim((string)($data['suporte'] ?? '')),
+        'valor' => (float)($data['valor'] ?? 0),
+        'linha' => trim((string)($data['linha'] ?? '')),
+    ];
+}
+
+function spreadsheet_rows_from_upload(array $file): array
+{
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Não foi possível receber o arquivo do relatório.');
+    }
+
+    $tmp = (string)($file['tmp_name'] ?? '');
+    $name = strtolower((string)($file['name'] ?? ''));
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+
+    if ($ext === 'csv') {
+        $handle = fopen($tmp, 'rb');
+        if (!$handle) throw new RuntimeException('Não foi possível abrir o CSV.');
+
+        $first = fgets($handle);
+        if ($first === false) {
+            fclose($handle);
+            return [];
+        }
+
+        $delimiter = substr_count($first, ';') >= substr_count($first, ',') ? ';' : ',';
+        rewind($handle);
+        $rows = [];
+        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+            $rows[] = $row;
+        }
+        fclose($handle);
+        return $rows;
+    }
+
+    if ($ext === 'xlsx') {
+        if (!class_exists('ZipArchive')) {
+            throw new RuntimeException('O servidor precisa da extensão ZIP do PHP para ler XLSX.');
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($tmp) !== true) {
+            throw new RuntimeException('Não foi possível abrir o XLSX.');
+        }
+
+        $sharedStrings = [];
+        $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+        if ($sharedXml !== false) {
+            $xml = simplexml_load_string($sharedXml);
+            if ($xml) {
+                foreach ($xml->si as $si) {
+                    $parts = [];
+                    if (isset($si->t)) $parts[] = (string)$si->t;
+                    foreach ($si->r as $run) $parts[] = (string)$run->t;
+                    $sharedStrings[] = implode('', $parts);
+                }
+            }
+        }
+
+        $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+        if ($sheetXml === false) {
+            throw new RuntimeException('A primeira planilha do XLSX não foi encontrada.');
+        }
+
+        $xml = simplexml_load_string($sheetXml);
+        if (!$xml) throw new RuntimeException('XLSX inválido.');
+
+        $rows = [];
+        foreach ($xml->sheetData->row as $rowNode) {
+            $row = [];
+            foreach ($rowNode->c as $cell) {
+                $ref = (string)$cell['r'];
+                preg_match('/([A-Z]+)/', $ref, $m);
+                $letters = $m[1] ?? 'A';
+                $index = 0;
+                for ($i=0; $i<strlen($letters); $i++) {
+                    $index = $index * 26 + (ord($letters[$i]) - 64);
+                }
+                $index--;
+
+                $value = (string)$cell->v;
+                if ((string)$cell['t'] === 's') {
+                    $value = $sharedStrings[(int)$value] ?? '';
+                }
+                $row[$index] = $value;
+            }
+
+            if ($row) {
+                ksort($row);
+                $max = max(array_keys($row));
+                $dense = [];
+                for ($i=0; $i<=$max; $i++) $dense[] = $row[$i] ?? '';
+                $rows[] = $dense;
+            }
+        }
+        return $rows;
+    }
+
+    throw new RuntimeException('Formato não suportado. Use CSV ou XLSX.');
+}
+
+function rows_to_assoc(array $rows): array
+{
+    if (!$rows) return [];
+    $headers = array_map(static fn($v) => normalized_name((string)$v), array_shift($rows));
+    $out = [];
+
+    foreach ($rows as $row) {
+        $assoc = [];
+        foreach ($headers as $i => $header) {
+            if ($header !== '') $assoc[$header] = trim((string)($row[$i] ?? ''));
+        }
+        if (array_filter($assoc, static fn($v) => $v !== '')) $out[] = $assoc;
+    }
+
+    return $out;
+}
+
+function pick_assoc_value(array $row, array $keys): string
+{
+    foreach ($keys as $key) {
+        $normalized = normalized_name($key);
+        if (isset($row[$normalized]) && trim((string)$row[$normalized]) !== '') {
+            return trim((string)$row[$normalized]);
+        }
+    }
+    return '';
+}
+
 function cnpj_digits(string $value): string
 {
     return preg_replace('/\D+/', '', $value) ?: '';
