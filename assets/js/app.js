@@ -22,18 +22,28 @@
     const input = form.querySelector('input[type="file"]');
     const selected = form.querySelector('[data-upload-selected]');
     const button = form.querySelector('[data-upload-button]');
+
     if (input && selected) {
       input.addEventListener('change', () => {
         const files = Array.from(input.files || []);
         selected.textContent = files.length
           ? files.map(file => file.name).join(' · ')
-          : 'Nenhum arquivo selecionado.';
+          : 'Nenhum PDF selecionado.';
       });
     }
-    form.addEventListener('submit', () => {
+
+    form.addEventListener('submit', (event) => {
+      const files = input ? Array.from(input.files || []) : [];
+      if (input && !files.length) {
+        event.preventDefault();
+        if (selected) selected.textContent = 'Selecione pelo menos um PDF antes de extrair.';
+        return;
+      }
+
       if (!button || button.disabled) return;
       button.disabled = true;
-      button.textContent = 'Lendo e importando PDFs...';
+      button.dataset.originalLabel = button.textContent;
+      button.textContent = button.dataset.loadingLabel || 'Processando...';
     });
   });
 })();
