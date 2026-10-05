@@ -1,7 +1,7 @@
 <?php
 $root = dirname(__DIR__);
 $required = [
-    'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php',
+    'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
     'includes/layout.php','assets/css/app.css','assets/js/app.js','assets/dnb-logo.png','config/database.example.php'
 ];
