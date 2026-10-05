@@ -273,3 +273,71 @@ input,select,textarea{width:100%;border:1px solid #cfd9e3;background:#fff;color:
 .table-action.success{color:#166534;border-color:#bbf7d0;background:#f0fdf4}
 .table-action.warning{color:#92400e;border-color:#fde68a;background:#fffbeb}
 .table-action.danger{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
+
+/* Segurança de acesso e sessão */
+.auth-realm{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:9px 11px;
+  margin:0 0 14px;
+  border:1px solid #d8e2ec;
+  border-radius:10px;
+  background:#f7f9fb;
+  font-size:11px;
+  color:#64748b;
+}
+.auth-realm strong{color:var(--dnb-navy)}
+.auth-realm span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;text-align:right}
+.turnstile-wrap{min-height:65px;display:flex;align-items:center;justify-content:flex-start}
+.turnstile-feedback{min-height:16px;font-size:11px;color:#64748b;margin-top:-7px}
+.turnstile-feedback[data-state="success"]{color:#166534}
+.turnstile-feedback[data-state="warning"]{color:#92400e}
+.turnstile-feedback[data-state="error"]{color:#b91c1c}
+
+.session-modal-backdrop[hidden]{display:none!important}
+.session-modal-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:10000;
+  display:grid;
+  place-items:center;
+  padding:20px;
+  background:rgba(15,23,42,.58);
+  backdrop-filter:blur(3px);
+}
+.session-modal{
+  width:min(100%,430px);
+  border-radius:18px;
+  background:#fff;
+  padding:24px;
+  box-shadow:0 30px 80px rgba(15,23,42,.32);
+  border:1px solid #dbe4ee;
+}
+.session-modal h2{
+  margin:7px 0 8px;
+  color:#1F3864;
+  font-size:20px;
+}
+.session-modal p{
+  margin:0 0 15px;
+  color:#64748b;
+  font-size:13px;
+  line-height:1.5;
+}
+.session-countdown{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0 0 16px;
+  padding:14px;
+  border-radius:12px;
+  background:#fff7ed;
+  color:#9a3412;
+  border:1px solid #fed7aa;
+  font-size:13px;
+}
+.session-countdown strong{margin-left:5px;font-size:18px}
+.session-warning-open,
+.session-warning-open body{overflow:hidden}
