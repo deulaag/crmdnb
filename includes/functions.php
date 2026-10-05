@@ -219,6 +219,152 @@ function integration_upsert(PDO $pdo, string $provider, array $data, int $userId
     ]);
 }
 
+function branding_settings(PDO $pdo): array
+{
+    $cfg = integration_get($pdo, 'branding');
+    $extra = json_decode((string)($cfg['extra_json'] ?? '{}'), true);
+    return is_array($extra) ? $extra : [];
+}
+
+function branding_storage_dir(): string
+{
+    return dirname(__DIR__) . '/storage/branding';
+}
+
+function branding_logo_path(PDO $pdo, string $kind = 'portal'): string
+{
+    if (!in_array($kind, ['portal', 'pdf'], true)) {
+        $kind = 'portal';
+    }
+
+    $settings = branding_settings($pdo);
+    $relative = trim((string)($settings[$kind . '_logo'] ?? ''));
+    if ($relative !== '') {
+        $root = dirname(__DIR__);
+        $candidate = $root . '/' . ltrim($relative, '/');
+        $brandingDir = branding_storage_dir();
+
+        $realFile = is_file($candidate) ? realpath($candidate) : false;
+        $realDir = is_dir($brandingDir) ? realpath($brandingDir) : false;
+
+        if ($realFile !== false && $realDir !== false && str_starts_with($realFile, $realDir . DIRECTORY_SEPARATOR)) {
+            return $realFile;
+        }
+    }
+
+    return dirname(__DIR__) . '/assets/dnb-logo.png';
+}
+
+function branding_logo_url(PDO $pdo, string $kind = 'portal'): string
+{
+    $path = branding_logo_path($pdo, $kind);
+    $default = dirname(__DIR__) . '/assets/dnb-logo.png';
+
+    if ($path === $default || !is_file($path)) {
+        return 'assets/dnb-logo.png';
+    }
+
+    return 'branding_asset.php?kind=' . rawurlencode($kind) . '&v=' . rawurlencode((string)filemtime($path));
+}
+
+function branding_save_logo_upload(array $file, string $kind): array
+{
+    if (!in_array($kind, ['portal', 'pdf'], true)) {
+        throw new RuntimeException('Tipo de logo inválido.');
+    }
+
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        throw new RuntimeException('Selecione uma imagem para enviar.');
+    }
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Falha no upload da logo. Código: ' . $error . '.');
+    }
+
+    $tmp = (string)($file['tmp_name'] ?? '');
+    $size = (int)($file['size'] ?? 0);
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException('Upload de logo inválido.');
+    }
+    if ($size <= 0 || $size > 5 * 1024 * 1024) {
+        throw new RuntimeException('A logo deve ter no máximo 5 MB.');
+    }
+
+    $info = @getimagesize($tmp);
+    if (!is_array($info) || empty($info[0]) || empty($info[1])) {
+        throw new RuntimeException('O arquivo enviado não é uma imagem válida.');
+    }
+
+    $width = (int)$info[0];
+    $height = (int)$info[1];
+    if ($width > 8000 || $height > 8000) {
+        throw new RuntimeException('A imagem é grande demais. Use no máximo 8000 × 8000 px.');
+    }
+
+    $mime = (string)($info['mime'] ?? '');
+    $extensions = [
+        'image/png' => 'png',
+        'image/jpeg' => 'jpg',
+        'image/webp' => 'webp',
+    ];
+
+    if (!isset($extensions[$mime])) {
+        throw new RuntimeException('Formato não permitido. Envie PNG, JPG ou WEBP.');
+    }
+
+    $dir = branding_storage_dir();
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        throw new RuntimeException('Não foi possível preparar a pasta de branding.');
+    }
+
+    foreach (glob($dir . '/' . $kind . '-logo.*') ?: [] as $old) {
+        if (is_file($old)) {
+            @unlink($old);
+        }
+    }
+
+    $filename = $kind . '-logo.' . $extensions[$mime];
+    $destination = $dir . '/' . $filename;
+
+    if (!move_uploaded_file($tmp, $destination)) {
+        throw new RuntimeException('Não foi possível salvar a logo enviada.');
+    }
+
+    @chmod($destination, 0644);
+
+    return [
+        'relative_path' => 'storage/branding/' . $filename,
+        'mime' => $mime,
+        'width' => $width,
+        'height' => $height,
+        'size' => $size,
+    ];
+}
+
+function branding_remove_logo(PDO $pdo, string $kind): void
+{
+    if (!in_array($kind, ['portal', 'pdf'], true)) {
+        return;
+    }
+
+    $settings = branding_settings($pdo);
+    $relative = trim((string)($settings[$kind . '_logo'] ?? ''));
+    if ($relative === '') {
+        return;
+    }
+
+    $root = dirname(__DIR__);
+    $candidate = $root . '/' . ltrim($relative, '/');
+    $brandingDir = branding_storage_dir();
+
+    $realFile = is_file($candidate) ? realpath($candidate) : false;
+    $realDir = is_dir($brandingDir) ? realpath($brandingDir) : false;
+
+    if ($realFile !== false && $realDir !== false && str_starts_with($realFile, $realDir . DIRECTORY_SEPARATOR)) {
+        @unlink($realFile);
+    }
+}
+
 function openai_response_text(array $response): string
 {
     if (isset($response['output_text']) && is_string($response['output_text'])) {
