@@ -56,3 +56,4 @@ jobs:
             config/database.local.php
             storage/installed.lock
             storage/*.log
+            storage/branding/**
