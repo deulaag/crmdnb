@@ -478,8 +478,9 @@ page_header('Orçamentos','orcamentos');
         </div>
 
         <?php if (!$cnpjaReady): ?>
-            <div class="alert alert-warning">
-                A consulta por CNPJ ainda não está disponível. O administrador precisa configurar e ativar <strong>CNPJá · Receita Federal</strong> em Configurações.
+            <div class="info-panel">
+                <strong>Consulta CNPJ indisponível.</strong>
+                <p>O administrador precisa configurar e ativar CNPJá · Receita Federal em Configurações.</p>
             </div>
         <?php endif; ?>
 
