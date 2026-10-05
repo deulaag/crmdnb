@@ -702,7 +702,7 @@ function ensure_commission_policy_schema(PDO $pdo): void
             linked_user_id2 INT UNSIGNED NULL,
             mentor_user_id INT UNSIGNED NULL,
             hired_month CHAR(7) NULL,
-            active_operation TINYINT(1) NOT NULL DEFAULT 1,
+            active_operation TINYINT(1) NOT NULL DEFAULT 0,
             updated_by INT UNSIGNED NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             CONSTRAINT fk_policy_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -742,7 +742,7 @@ function user_commission_policy(PDO $pdo, int $userId): array
         'linked_user_id2' => isset($row['linked_user_id2']) ? (int)$row['linked_user_id2'] : null,
         'mentor_user_id' => isset($row['mentor_user_id']) ? (int)$row['mentor_user_id'] : null,
         'hired_month' => (string)($row['hired_month'] ?? ''),
-        'active_operation' => array_key_exists('active_operation', $row) ? (bool)$row['active_operation'] : true,
+        'active_operation' => array_key_exists('active_operation', $row) ? (bool)$row['active_operation'] : false,
     ];
 }
 
