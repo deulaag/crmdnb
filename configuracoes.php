@@ -12,6 +12,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
 
     try {
+        $action = (string)($_POST['action'] ?? 'integration');
+
+        if ($action === 'branding') {
+            $branding = branding_settings($pdo);
+            $changed = false;
+
+            if (isset($_POST['remove_portal_logo'])) {
+                branding_remove_logo($pdo, 'portal');
+                unset($branding['portal_logo'], $branding['portal_meta']);
+                $changed = true;
+            }
+
+            if (isset($_POST['remove_pdf_logo'])) {
+                branding_remove_logo($pdo, 'pdf');
+                unset($branding['pdf_logo'], $branding['pdf_meta']);
+                $changed = true;
+            }
+
+            foreach (['portal' => 'portal_logo', 'pdf' => 'pdf_logo'] as $kind => $field) {
+                $file = $_FILES[$field] ?? null;
+                if (!is_array($file) || (int)($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                    continue;
+                }
+
+                $saved = branding_save_logo_upload($file, $kind);
+                $branding[$kind . '_logo'] = $saved['relative_path'];
+                $branding[$kind . '_meta'] = [
+                    'mime' => $saved['mime'],
+                    'width' => $saved['width'],
+                    'height' => $saved['height'],
+                    'size' => $saved['size'],
+                    'updated_at' => date(DATE_ATOM),
+                ];
+                $changed = true;
+            }
+
+            if (!$changed) {
+                throw new RuntimeException('Selecione uma logo para o portal ou para o PDF.');
+            }
+
+            integration_upsert($pdo, 'branding', [
+                'is_active' => true,
+                'extra' => $branding,
+            ], (int)$user['id']);
+
+            audit($pdo, (int)$user['id'], 'configure', 'branding', null, [
+                'portal_logo' => !empty($branding['portal_logo']),
+                'pdf_logo' => !empty($branding['pdf_logo']),
+            ]);
+
+            flash('success', 'Identidade visual atualizada. A proporção original da imagem será preservada.');
+            redirect('configuracoes.php');
+        }
+
         $provider = (string)($_POST['provider'] ?? '');
         if (!in_array($provider, $allowedProviders, true)) {
             throw new RuntimeException('Integração inválida.');
@@ -96,6 +150,10 @@ foreach (array_keys($providers) as $provider) {
     $configs[$provider] = integration_get($pdo, $provider);
 }
 
+$branding = branding_settings($pdo);
+$portalLogoUrl = branding_logo_url($pdo, 'portal');
+$pdfLogoUrl = branding_logo_url($pdo, 'pdf');
+
 $lines = $pdo->query(
     'SELECT pl.*,f.label funnel_label
      FROM product_lines pl
@@ -112,6 +170,70 @@ page_header('Configurações','configuracoes');
         <h2>Integrações e segurança</h2>
         <p>Credenciais privadas são armazenadas criptografadas no banco e não ficam expostas no código.</p>
     </div>
+</div>
+
+<div class="card branding-card">
+    <div class="card-title">
+        <div>
+            <span class="tag">IDENTIDADE VISUAL</span>
+            <h3>Logos do sistema</h3>
+            <p>Use uma imagem para o portal e outra específica para documentos/PDF. O sistema preserva a proporção original para evitar logo esticada ou quebrada.</p>
+        </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="branding-grid" data-no-draft>
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="branding">
+
+        <section class="branding-slot">
+            <div class="branding-preview branding-preview-dark">
+                <img src="<?= e($portalLogoUrl) ?>" alt="Prévia da logo do portal">
+            </div>
+            <div class="branding-slot-copy">
+                <strong>Logo do portal</strong>
+                <span>Usada no cabeçalho e na tela de login.</span>
+                <small>PNG recomendado com fundo transparente. Também aceita JPG e WEBP · até 5 MB.</small>
+            </div>
+            <label class="branding-upload">
+                <span>Alterar logo do portal</span>
+                <input type="file" name="portal_logo" accept="image/png,image/jpeg,image/webp">
+            </label>
+            <?php if (!empty($branding['portal_logo'])): ?>
+                <label class="toggle branding-remove">
+                    <input type="checkbox" name="remove_portal_logo" value="1">
+                    <span>Voltar para a logo padrão</span>
+                </label>
+            <?php endif; ?>
+        </section>
+
+        <section class="branding-slot">
+            <div class="branding-preview branding-preview-light">
+                <img src="<?= e($pdfLogoUrl) ?>" alt="Prévia da logo usada em PDF">
+            </div>
+            <div class="branding-slot-copy">
+                <strong>Logo para PDF</strong>
+                <span>Arquivo separado para relatórios e documentos gerados pelo CRM.</span>
+                <small>Prefira PNG de alta resolução e fundo transparente para impressão limpa.</small>
+            </div>
+            <label class="branding-upload">
+                <span>Alterar logo do PDF</span>
+                <input type="file" name="pdf_logo" accept="image/png,image/jpeg,image/webp">
+            </label>
+            <?php if (!empty($branding['pdf_logo'])): ?>
+                <label class="toggle branding-remove">
+                    <input type="checkbox" name="remove_pdf_logo" value="1">
+                    <span>Voltar para a logo padrão</span>
+                </label>
+            <?php endif; ?>
+        </section>
+
+        <div class="branding-actions">
+            <div class="install-note">
+                A imagem é armazenada no servidor e não no Git. Atualizações futuras do sistema não substituem a logo enviada pelo administrador.
+            </div>
+            <button class="btn btn-primary" type="submit">Salvar logos</button>
+        </div>
+    </form>
 </div>
 
 <div class="integration-grid">
