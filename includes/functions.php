@@ -969,6 +969,14 @@ function spreadsheet_rows_from_upload(array $file): array
 
     $tmp = (string)($file['tmp_name'] ?? '');
     $name = strtolower((string)($file['name'] ?? ''));
+    $size = (int)($file['size'] ?? 0);
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException('Upload do relatório inválido.');
+    }
+    if ($size <= 0 || $size > 15 * 1024 * 1024) {
+        throw new RuntimeException('O relatório deve ter no máximo 15 MB.');
+    }
+
     $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
 
     if ($ext === 'csv') {
@@ -1024,8 +1032,14 @@ function spreadsheet_rows_from_upload(array $file): array
         $xml = simplexml_load_string($sheetXml);
         if (!$xml) throw new RuntimeException('XLSX inválido.');
 
+        $namespaces = $xml->getNamespaces(true);
+        $sheet = isset($namespaces['']) ? $xml->children($namespaces['']) : $xml;
+        if (!isset($sheet->sheetData)) {
+            throw new RuntimeException('A primeira planilha do XLSX não possui dados legíveis.');
+        }
+
         $rows = [];
-        foreach ($xml->sheetData->row as $rowNode) {
+        foreach ($sheet->sheetData->row as $rowNode) {
             $row = [];
             foreach ($rowNode->c as $cell) {
                 $ref = (string)$cell['r'];
