@@ -6,12 +6,14 @@ require_once __DIR__ . '/includes/layout.php';
 $user = require_admin();
 $pdo = db();
 
+$allowedProviders = ['rd_crm','rd_marketing','openai','cnpja','turnstile','security'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
 
     try {
         $provider = (string)($_POST['provider'] ?? '');
-        if (!in_array($provider, ['rd_crm','rd_marketing','openai','cnpja'], true)) {
+        if (!in_array($provider, $allowedProviders, true)) {
             throw new RuntimeException('Integração inválida.');
         }
 
@@ -39,14 +41,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
+        if ($provider === 'security') {
+            $timeoutMinutes = max(5, min(720, (int)($_POST['inactivity_timeout_minutes'] ?? 30)));
+            $warningSeconds = max(15, min(600, (int)($_POST['warning_before_timeout_seconds'] ?? 60)));
+
+            if (($warningSeconds * 1000) >= ($timeoutMinutes * 60000)) {
+                throw new RuntimeException('O aviso de inatividade precisa acontecer antes do encerramento da sessão.');
+            }
+
+            $extra = [
+                'inactivity_timeout_ms' => $timeoutMinutes * 60000,
+                'warning_before_timeout_ms' => $warningSeconds * 1000,
+            ];
+        }
+
+        $isActive = $provider === 'security' ? true : isset($_POST['is_active']);
+
         $data = [
             'client_id' => trim((string)($_POST['client_id'] ?? '')) ?: ($current['client_id'] ?? null),
             'client_secret' => $secret !== '' ? $secret : secret_decrypt($current['client_secret'] ?? ''),
             'access_token' => $access !== '' ? $access : secret_decrypt($current['access_token'] ?? ''),
             'refresh_token' => $refresh !== '' ? $refresh : secret_decrypt($current['refresh_token'] ?? ''),
-            'is_active' => isset($_POST['is_active']),
+            'is_active' => $isActive,
             'extra' => $extra,
         ];
+
+        if ($provider === 'turnstile' && $isActive) {
+            if (trim((string)$data['client_id']) === '' || trim((string)$data['client_secret']) === '') {
+                throw new RuntimeException('Para ativar o Turnstile, informe TURNSTILE_SITE_KEY e TURNSTILE_SECRET_KEY.');
+            }
+        }
 
         integration_upsert($pdo, $provider, $data, (int)$user['id']);
         audit($pdo, (int)$user['id'], 'configure', 'integration', null, ['provider' => $provider]);
@@ -63,6 +87,8 @@ $providers = [
     'rd_marketing' => ['RD Station Marketing', 'Base de leads, conversões e contexto de marketing.'],
     'openai' => ['ChatGPT / OpenAI', 'Assistência de IA acionada somente pelo backend PHP.'],
     'cnpja' => ['CNPJá · Receita Federal', 'Consulta CNPJ para preencher automaticamente os dados cadastrais do cliente.'],
+    'turnstile' => ['Cloudflare Turnstile', 'Proteção anti-bot do login, validada no backend antes da autenticação.'],
+    'security' => ['Sessão e Inatividade', 'Tempo de sessão, aviso prévio e renovação segura de acesso.'],
 ];
 
 $configs = [];
@@ -83,8 +109,8 @@ page_header('Configurações','configuracoes');
 <div class="page-actions">
     <div>
         <span class="eyebrow">ADMINISTRAÇÃO</span>
-        <h2>Integrações</h2>
-        <p>As credenciais são informadas nesta tela e armazenadas criptografadas no banco.</p>
+        <h2>Integrações e segurança</h2>
+        <p>Credenciais privadas são armazenadas criptografadas no banco. O CRM não utiliza arquivo .env.</p>
     </div>
 </div>
 
@@ -92,6 +118,7 @@ page_header('Configurações','configuracoes');
 <?php foreach ($providers as $key => [$title,$desc]):
     $cfg = $configs[$key];
     $extra = json_decode((string)($cfg['extra_json'] ?? '{}'), true) ?: [];
+    $active = $key === 'security' || !empty($cfg['is_active']);
 ?>
     <div class="card integration-card">
         <div class="card-title">
@@ -100,46 +127,25 @@ page_header('Configurações','configuracoes');
                 <h3><?= e($title) ?></h3>
                 <p><?= e($desc) ?></p>
             </div>
-            <span class="dot <?= !empty($cfg['is_active']) ? 'on' : '' ?>"></span>
+            <span class="dot <?= $active ? 'on' : '' ?>"></span>
         </div>
 
-        <form method="post" class="stack-form">
+        <form method="post" class="stack-form" data-no-draft>
             <?= csrf_field() ?>
             <input type="hidden" name="provider" value="<?= e($key) ?>">
 
             <?php if (in_array($key, ['rd_crm','rd_marketing'], true)): ?>
-                <label>
-                    <span>Client ID</span>
-                    <input name="client_id" value="<?= e($cfg['client_id'] ?? '') ?>">
-                </label>
-                <label>
-                    <span>Client Secret</span>
-                    <input name="client_secret" type="password" placeholder="<?= !empty($cfg['client_secret']) ? '•••••••• salvo' : 'informe o segredo' ?>">
-                </label>
-                <label>
-                    <span>Access Token</span>
-                    <input name="access_token" type="password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salvo' : 'opcional / OAuth' ?>">
-                </label>
-                <label>
-                    <span>Refresh Token</span>
-                    <input name="refresh_token" type="password" placeholder="<?= !empty($cfg['refresh_token']) ? '•••••••• salvo' : 'opcional / OAuth' ?>">
-                </label>
+                <label><span>Client ID</span><input name="client_id" value="<?= e($cfg['client_id'] ?? '') ?>"></label>
+                <label><span>Client Secret</span><input name="client_secret" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['client_secret']) ? '•••••••• salvo' : 'informe o segredo' ?>"></label>
+                <label><span>Access Token</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salvo' : 'opcional / OAuth' ?>"></label>
+                <label><span>Refresh Token</span><input name="refresh_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['refresh_token']) ? '•••••••• salvo' : 'opcional / OAuth' ?>"></label>
 
             <?php elseif ($key === 'openai'): ?>
-                <label>
-                    <span>API Key</span>
-                    <input name="access_token" type="password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'API Key' ?>">
-                </label>
-                <label>
-                    <span>Modelo</span>
-                    <input name="model" value="<?= e($extra['model'] ?? '') ?>" placeholder="gpt-5.6-sol">
-                </label>
+                <label><span>API Key</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'API Key' ?>"></label>
+                <label><span>Modelo</span><input name="model" value="<?= e($extra['model'] ?? '') ?>" placeholder="gpt-5.6-sol"></label>
 
             <?php elseif ($key === 'cnpja'): ?>
-                <label>
-                    <span>Chave de API CNPJá</span>
-                    <input name="access_token" type="password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'cole a chave de API' ?>">
-                </label>
+                <label><span>Chave de API CNPJá</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'cole a chave de API' ?>"></label>
 
                 <label>
                     <span>Estratégia da consulta</span>
@@ -153,25 +159,53 @@ page_header('Configurações','configuracoes');
                 </label>
 
                 <div class="form-grid">
-                    <label>
-                        <span>Máx. idade do cache (dias)</span>
-                        <input type="number" min="1" max="3650" name="max_age" value="<?= e((string)($extra['max_age'] ?? 1)) ?>">
-                    </label>
-                    <label>
-                        <span>Máx. cache de contingência (dias)</span>
-                        <input type="number" min="1" max="3650" name="max_stale" value="<?= e((string)($extra['max_stale'] ?? 30)) ?>">
-                    </label>
+                    <label><span>Máx. idade do cache (dias)</span><input type="number" min="1" max="3650" name="max_age" value="<?= e((string)($extra['max_age'] ?? 1)) ?>"></label>
+                    <label><span>Máx. cache de contingência (dias)</span><input type="number" min="1" max="3650" name="max_stale" value="<?= e((string)($extra['max_stale'] ?? 30)) ?>"></label>
                 </div>
 
+                <div class="install-note">Para buscar os dados diretamente na fonte no momento da consulta, use <strong>ONLINE</strong>.</div>
+
+            <?php elseif ($key === 'turnstile'): ?>
+                <label>
+                    <span>TURNSTILE_SITE_KEY</span>
+                    <input name="client_id" autocomplete="off" value="<?= e($cfg['client_id'] ?? '') ?>" placeholder="chave pública do widget">
+                </label>
+
+                <label>
+                    <span>TURNSTILE_SECRET_KEY</span>
+                    <input name="client_secret" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['client_secret']) ? '•••••••• salva' : 'chave privada do backend' ?>">
+                </label>
+
                 <div class="install-note">
-                    Para buscar os dados diretamente na fonte no momento da consulta, use <strong>ONLINE</strong>. Essa modalidade pode consumir créditos da CNPJá.
+                    A chave privada nunca é enviada ao navegador. O login valida o token diretamente no endpoint <strong>siteverify</strong> da Cloudflare.
+                </div>
+
+            <?php elseif ($key === 'security'): ?>
+                <?php
+                    $timeoutMinutes = max(5, (int)round(((int)($extra['inactivity_timeout_ms'] ?? 1800000)) / 60000));
+                    $warningSeconds = max(15, (int)round(((int)($extra['warning_before_timeout_ms'] ?? 60000)) / 1000));
+                ?>
+                <label>
+                    <span>INACTIVITY_TIMEOUT_MS · em minutos</span>
+                    <input type="number" min="5" max="720" name="inactivity_timeout_minutes" value="<?= e((string)$timeoutMinutes) ?>">
+                </label>
+
+                <label>
+                    <span>WARNING_BEFORE_TIMEOUT_MS · em segundos</span>
+                    <input type="number" min="15" max="600" name="warning_before_timeout_seconds" value="<?= e((string)$warningSeconds) ?>">
+                </label>
+
+                <div class="install-note">
+                    Padrão: 30 minutos de inatividade com aviso 60 segundos antes do logout. O botão <strong>Continuar conectado</strong> renova a sessão no backend.
                 </div>
             <?php endif; ?>
 
-            <label class="toggle">
-                <input type="checkbox" name="is_active" value="1" <?= !empty($cfg['is_active']) ? 'checked' : '' ?>>
-                <span>Integração ativa</span>
-            </label>
+            <?php if ($key !== 'security'): ?>
+                <label class="toggle">
+                    <input type="checkbox" name="is_active" value="1" <?= !empty($cfg['is_active']) ? 'checked' : '' ?>>
+                    <span><?= $key === 'turnstile' ? 'TURNSTILE_ENABLED' : 'Integração ativa' ?></span>
+                </label>
+            <?php endif; ?>
 
             <button class="btn btn-primary" type="submit">Salvar configuração</button>
         </form>
