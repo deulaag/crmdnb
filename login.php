@@ -18,6 +18,7 @@ $flash = pull_flash();
 $turnstile = turnstile_settings($pdo);
 $turnstileEnabled = !empty($turnstile['enabled']);
 $turnstileSiteKey = (string)($turnstile['site_key'] ?? '');
+$portalLogoUrl = branding_logo_url($pdo, 'portal');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -89,7 +90,7 @@ if ($error !== '') {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Michroma&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/app.css?v=6">
+    <link rel="stylesheet" href="assets/css/app.css?v=7">
     <?php if ($turnstileEnabled && $turnstileSiteKey !== ''): ?>
         <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
         <script src="assets/js/auth.js?v=1" defer></script>
@@ -98,7 +99,7 @@ if ($error !== '') {
 <body class="auth-body">
     <div class="login-card">
         <div class="auth-brand">
-            <img src="assets/dnb-logo.png" alt="DNB">
+            <img src="<?= e($portalLogoUrl) ?>" alt="DNB">
             <span>CRM Comercial</span>
         </div>
 
