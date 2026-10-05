@@ -24,14 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $email = strtolower(trim((string)($_POST['sys_dnb_crm_user'] ?? '')));
     $password = (string)($_POST['sys_dnb_crm_pass'] ?? '');
+    $remoteIp = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
 
     try {
         if ($turnstileEnabled) {
             $token = (string)($_POST['cf-turnstile-response'] ?? '');
-            if (!verify_turnstile($pdo, $token, (string)($_SERVER['REMOTE_ADDR'] ?? ''))) {
+            if (!verify_turnstile($pdo, $token, $remoteIp)) {
                 http_response_code(403);
                 throw new RuntimeException('Não foi possível validar a verificação de segurança. Tente novamente.');
             }
+        }
+
+        if (!login_throttle_allowed($pdo, $email, $remoteIp)) {
+            http_response_code(429);
+            throw new RuntimeException('Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.');
         }
 
         $q = $pdo->prepare('SELECT * FROM users WHERE email=? AND active=1 LIMIT 1');
@@ -39,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $loginUser = $q->fetch();
 
         if ($loginUser && password_verify($password, (string)$loginUser['password_hash'])) {
+            login_attempt_record($pdo, $email, $remoteIp, true);
             session_mark_authenticated((int)$loginUser['id']);
             $pdo->prepare('UPDATE users SET last_login_at=NOW() WHERE id=?')->execute([(int)$loginUser['id']]);
             audit($pdo, (int)$loginUser['id'], 'login', 'user', (int)$loginUser['id'], [
@@ -47,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect($redirectTo);
         }
 
+        login_attempt_record($pdo, $email, $remoteIp, false);
         http_response_code(403);
         $error = 'E-mail ou senha inválidos.';
     } catch (Throwable $e) {
