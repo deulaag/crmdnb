@@ -63,6 +63,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $hostLabel = preg_replace('/[^A-Za-z0-9\.\-:]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'CRM DNB')) ?: 'CRM DNB';
+
+$notification = null;
+if ($error !== '') {
+    $notification = ['title' => 'Não foi possível entrar', 'message' => $error, 'tone' => 'danger'];
+} elseif ($flash) {
+    $tone = in_array(($flash['type'] ?? ''), ['success','warning','danger'], true) ? $flash['type'] : 'info';
+    $title = $tone === 'success' ? 'Sucesso' : ($tone === 'warning' ? 'Atenção' : ($tone === 'danger' ? 'Não foi possível concluir' : 'Informação'));
+    $notification = ['title' => $title, 'message' => (string)$flash['message'], 'tone' => $tone];
+} elseif ($turnstileEnabled && $turnstileSiteKey === '') {
+    $notification = [
+        'title' => 'Turnstile incompleto',
+        'message' => 'A proteção anti-bot está ativa, mas a chave pública não foi configurada. Procure o administrador.',
+        'tone' => 'danger',
+    ];
+}
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -74,7 +89,7 @@ $hostLabel = preg_replace('/[^A-Za-z0-9\.\-:]/', '', (string)($_SERVER['HTTP_HOS
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Michroma&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/app.css?v=4">
+    <link rel="stylesheet" href="assets/css/app.css?v=6">
     <?php if ($turnstileEnabled && $turnstileSiteKey !== ''): ?>
         <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
         <script src="assets/js/auth.js?v=1" defer></script>
@@ -96,18 +111,6 @@ $hostLabel = preg_replace('/[^A-Za-z0-9\.\-:]/', '', (string)($_SERVER['HTTP_HOS
                 <strong>Origem protegida</strong>
                 <span><?= e($hostLabel) ?></span>
             </div>
-
-            <?php if($flash): ?>
-                <div class="alert alert-<?= e($flash['type']) ?>"><?= e($flash['message']) ?></div>
-            <?php endif; ?>
-
-            <?php if($error): ?>
-                <div class="alert alert-danger"><?= e($error) ?></div>
-            <?php endif; ?>
-
-            <?php if($turnstileEnabled && $turnstileSiteKey === ''): ?>
-                <div class="alert alert-danger">O Turnstile está ativo, mas a chave pública não foi configurada. Procure o administrador.</div>
-            <?php endif; ?>
 
             <form method="post" class="stack-form" autocomplete="off" data-auth-form>
                 <?= csrf_field() ?>
@@ -158,5 +161,31 @@ $hostLabel = preg_replace('/[^A-Za-z0-9\.\-:]/', '', (string)($_SERVER['HTTP_HOS
             </form>
         </div>
     </div>
+
+    <?php if ($notification): ?>
+        <div
+            class="ui-modal-backdrop"
+            data-ui-modal
+            data-notification-modal
+            data-modal-auto-open
+            data-dismiss-backdrop="true"
+            aria-hidden="true"
+            hidden
+        >
+            <section class="ui-modal ui-modal-<?= e($notification['tone']) ?>" role="dialog" aria-modal="true" aria-labelledby="login-notification-title" aria-describedby="login-notification-message">
+                <div class="ui-modal-status" aria-hidden="true"></div>
+                <div class="ui-modal-content">
+                    <span class="eyebrow">NOTIFICAÇÃO</span>
+                    <h2 id="login-notification-title"><?= e($notification['title']) ?></h2>
+                    <p id="login-notification-message"><?= e($notification['message']) ?></p>
+                </div>
+                <div class="ui-modal-actions">
+                    <button class="btn btn-primary" type="button" data-modal-close data-modal-primary>Entendi</button>
+                </div>
+            </section>
+        </div>
+    <?php endif; ?>
+
+    <script src="assets/js/ui.js?v=1"></script>
 </body>
 </html>
