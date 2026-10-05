@@ -532,7 +532,7 @@ page_header('Visitas','visitas');
         </div>
     </form>
 
-    <form method="post" class="extract-discard" onsubmit="return confirm('Descartar os dados extraídos?');">
+    <form method="post" class="extract-discard" data-confirm="Descartar os dados extraídos?" data-confirm-action="Descartar">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="clear_extracted">
         <button class="btn btn-ghost" type="submit">Descartar extração</button>
@@ -608,7 +608,7 @@ page_header('Visitas','visitas');
                         <?php endif; ?>
                     </td>
                     <td class="source-right">
-                        <form method="post" onsubmit="return confirm('Excluir esta atividade?');">
+                        <form method="post" data-confirm="Excluir esta atividade? Esta ação não poderá ser desfeita." data-confirm-action="Excluir">
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
