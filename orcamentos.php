@@ -656,7 +656,7 @@ page_header('Orçamentos','orcamentos');
                                     </form>
                                 <?php endif; ?>
 
-                                <form method="post" onsubmit="return confirm('Excluir definitivamente a oportunidade <?= e($row['number']) ?>?');">
+                                <form method="post" data-confirm="Excluir definitivamente a oportunidade <?= e($row['number']) ?>? Esta ação não poderá ser desfeita." data-confirm-action="Excluir">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
