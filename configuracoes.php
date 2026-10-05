@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/layout.php';
 
 $user = require_admin();
 $pdo = db();
+ensure_commission_policy_schema($pdo);
 
 $allowedProviders = ['rd_crm','rd_marketing','openai','cnpja','turnstile','security'];
 
@@ -13,6 +14,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         $action = (string)($_POST['action'] ?? 'integration');
+
+        if ($action === 'commission_policy') {
+            $targetUserId = (int)($_POST['user_id'] ?? 0);
+            $q = $pdo->prepare('SELECT id FROM users WHERE id=? LIMIT 1');
+            $q->execute([$targetUserId]);
+            if (!$q->fetchColumn()) {
+                throw new RuntimeException('Usuário não encontrado.');
+            }
+
+            $params = $_POST['params'] ?? [];
+            if (!is_array($params)) {
+                $params = [];
+            }
+
+            save_user_commission_policy($pdo, $targetUserId, [
+                'operation_role' => (string)($_POST['operation_role'] ?? 'vendedor'),
+                'policy_key' => (string)($_POST['policy_key'] ?? 'sem_politica'),
+                'params' => $params,
+                'linked_user_id' => (string)($_POST['linked_user_id'] ?? ''),
+                'linked_user_id2' => (string)($_POST['linked_user_id2'] ?? ''),
+                'mentor_user_id' => (string)($_POST['mentor_user_id'] ?? ''),
+                'hired_month' => (string)($_POST['hired_month'] ?? ''),
+                'active_operation' => isset($_POST['active_operation']),
+            ], (int)$user['id']);
+
+            audit($pdo, (int)$user['id'], 'save_policy', 'user', $targetUserId, [
+                'policy_key' => (string)($_POST['policy_key'] ?? 'sem_politica'),
+            ]);
+            flash('success', 'Política da pessoa atualizada.');
+            redirect('configuracoes.php#politicas-pessoa');
+        }
 
         if ($action === 'branding') {
             $branding = branding_settings($pdo);
@@ -153,6 +185,13 @@ foreach (array_keys($providers) as $provider) {
 $branding = branding_settings($pdo);
 $portalLogoUrl = branding_logo_url($pdo, 'portal');
 $pdfLogoUrl = branding_logo_url($pdo, 'pdf');
+
+$policyDefinitions = commission_policy_definitions();
+$policyUsers = $pdo->query('SELECT id,name,email,role,active FROM users ORDER BY active DESC,name')->fetchAll();
+$userPolicies = [];
+foreach ($policyUsers as $person) {
+    $userPolicies[(int)$person['id']] = user_commission_policy($pdo, (int)$person['id']);
+}
 
 $lines = $pdo->query(
     'SELECT pl.*,f.label funnel_label
@@ -333,6 +372,130 @@ page_header('Configurações','configuracoes');
         </form>
     </div>
 <?php endforeach; ?>
+</div>
+
+<div class="card" id="politicas-pessoa">
+    <div class="card-title">
+        <div>
+            <span class="tag">COMISSÕES E METAS</span>
+            <h3>Políticas por pessoa (parâmetros editáveis)</h3>
+            <p>Modelo do HTML de referência aplicado somente aos usuários reais cadastrados neste CRM. Nenhum colaborador de demonstração é criado.</p>
+        </div>
+    </div>
+
+    <?php foreach ($policyUsers as $person):
+        $personId = (int)$person['id'];
+        $policy = $userPolicies[$personId];
+        $definition = $policyDefinitions[$policy['policy_key']] ?? $policyDefinitions['sem_politica'];
+        $fields = commission_policy_field_labels($policy['policy_key']);
+    ?>
+        <form method="post" class="policy-person-card" data-no-draft>
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="commission_policy">
+            <input type="hidden" name="user_id" value="<?= $personId ?>">
+
+            <div class="policy-person-head">
+                <div>
+                    <strong><?= e($person['name']) ?></strong>
+                    <span><?= e($person['email']) ?></span>
+                </div>
+
+                <label class="toggle">
+                    <input type="checkbox" name="active_operation" value="1" <?= $policy['active_operation'] ? 'checked' : '' ?>>
+                    <span><?= $policy['active_operation'] ? 'ativo na operação' : 'fora da operação' ?></span>
+                </label>
+            </div>
+
+            <div class="policy-controls">
+                <label>
+                    <span>Função</span>
+                    <select name="operation_role">
+                        <option value="vendedor" <?= $policy['operation_role']==='vendedor'?'selected':'' ?>>vendedor</option>
+                        <option value="suporte" <?= $policy['operation_role']==='suporte'?'selected':'' ?>>suporte</option>
+                    </select>
+                </label>
+
+                <label class="policy-control-wide">
+                    <span>Política</span>
+                    <select name="policy_key">
+                        <?php foreach ($policyDefinitions as $policyKey => $policyDef): ?>
+                            <option value="<?= e($policyKey) ?>" <?= $policy['policy_key']===$policyKey?'selected':'' ?>><?= e($policyDef['label']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </div>
+
+            <div class="policy-fields">
+                <?php foreach ($fields as $key => $label): ?>
+                    <label>
+                        <span><?= e($label) ?></span>
+                        <input type="number" step="0.01" name="params[<?= e($key) ?>]" value="<?= e((string)($policy['params'][$key] ?? '')) ?>">
+                    </label>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="policy-relations">
+                <?php if ($policy['operation_role'] === 'suporte'): ?>
+                    <label>
+                        <span>Suporte vinculado a</span>
+                        <select name="linked_user_id">
+                            <option value="">— sem vínculo (vendas próprias) —</option>
+                            <?php foreach ($policyUsers as $candidate): if ((int)$candidate['id'] === $personId) continue; ?>
+                                <option value="<?= (int)$candidate['id'] ?>" <?= (int)$policy['linked_user_id']===(int)$candidate['id']?'selected':'' ?>><?= e($candidate['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Vínculo adicional (opcional)</span>
+                        <select name="linked_user_id2">
+                            <option value="">—</option>
+                            <?php foreach ($policyUsers as $candidate): if ((int)$candidate['id'] === $personId) continue; ?>
+                                <option value="<?= (int)$candidate['id'] ?>" <?= (int)$policy['linked_user_id2']===(int)$candidate['id']?'selected':'' ?>><?= e($candidate['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                <?php endif; ?>
+
+                <label>
+                    <span>Contratação (ativa a rampa de 6 meses)</span>
+                    <input type="month" name="hired_month" value="<?= e($policy['hired_month']) ?>">
+                </label>
+
+                <label>
+                    <span>Orientado por (Consultor Sênior)</span>
+                    <select name="mentor_user_id">
+                        <option value="">—</option>
+                        <?php foreach ($policyUsers as $candidate):
+                            if ((int)$candidate['id'] === $personId) continue;
+                            $candidatePolicy = $userPolicies[(int)$candidate['id']];
+                            if ($candidatePolicy['policy_key'] !== 'consultor_senior') continue;
+                        ?>
+                            <option value="<?= (int)$candidate['id'] ?>" <?= (int)$policy['mentor_user_id']===(int)$candidate['id']?'selected':'' ?>><?= e($candidate['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+
+                <div class="policy-derived">
+                    <span>Regime</span>
+                    <strong><?= e($definition['regime']) ?></strong>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-primary" type="submit">Salvar política desta pessoa</button>
+            </div>
+        </form>
+    <?php endforeach; ?>
+
+    <?php if (!$policyUsers): ?>
+        <?php empty_state('Nenhuma pessoa cadastrada','Cadastre usuários para configurar as políticas individuais.'); ?>
+    <?php endif; ?>
+
+    <div class="info-panel">
+        <strong>Importante</strong>
+        <p>Alterar parâmetros aqui afeta os cálculos do mês corrente e seguintes. As políticas são associadas aos usuários cadastrados no CRM, sem copiar pessoas da base de teste.</p>
+    </div>
 </div>
 
 <div class="card">
