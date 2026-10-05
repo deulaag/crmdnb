@@ -184,3 +184,92 @@ input,select,textarea{width:100%;border:1px solid #cfd9e3;background:#fff;color:
  .cnpja-lookup-row .btn{width:100%}
  .cnpja-status{grid-column:auto}
 }
+
+/* Centralização visual do CRM durante os testes */
+.source-header,
+.source-tabs,
+.source-main{
+  width:min(1280px,calc(100% - 32px));
+  margin-left:auto;
+  margin-right:auto;
+  box-sizing:border-box;
+}
+.source-main{max-width:1280px;padding-left:0;padding-right:0}
+.html-page{max-width:none;width:100%;margin-left:auto;margin-right:auto}
+.source-header{padding-left:0;padding-right:0}
+.source-tabs{padding-left:0;padding-right:0}
+@media(max-width:720px){
+  .source-header,.source-tabs,.source-main{width:calc(100% - 24px)}
+  .source-main{padding-left:0;padding-right:0}
+}
+
+/* Visita -> oportunidade */
+.visit-opportunity-btn,
+.visit-opportunity-done{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:30px;
+  padding:6px 10px;
+  border-radius:8px;
+  text-decoration:none;
+  font-size:11px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.visit-opportunity-btn{
+  color:#fff;
+  background:#1F3864;
+  border:1px solid #1F3864;
+}
+.visit-opportunity-btn:hover{filter:brightness(1.08)}
+.visit-opportunity-done{
+  color:#166534;
+  background:#f0fdf4;
+  border:1px solid #bbf7d0;
+}
+.visit-origin-banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:16px;
+  padding:14px 16px;
+  border:1px solid #bfdbfe;
+  border-left:4px solid #2E5EA6;
+  border-radius:10px;
+  background:#eff6ff;
+}
+.visit-origin-banner div{display:grid;gap:4px}
+.visit-origin-banner strong{color:#1F3864}
+.visit-origin-banner span{font-size:12px;color:#475569}
+
+/* Ações dos orçamentos */
+.opportunity-actions{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  min-width:230px;
+}
+.opportunity-actions form{margin:0}
+.table-action{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  padding:5px 8px;
+  border-radius:7px;
+  border:1px solid #cbd5e1;
+  background:#fff;
+  color:#1F3864;
+  font:inherit;
+  font-size:10px;
+  font-weight:800;
+  text-decoration:none;
+  cursor:pointer;
+}
+.table-action:hover{background:#f8fafc;border-color:#94a3b8}
+.table-action.success{color:#166534;border-color:#bbf7d0;background:#f0fdf4}
+.table-action.warning{color:#92400e;border-color:#fde68a;background:#fffbeb}
+.table-action.danger{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
