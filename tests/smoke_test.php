@@ -3,7 +3,7 @@ $root = dirname(__DIR__);
 $required = [
     'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
-    'includes/layout.php','assets/css/app.css','assets/js/app.js','assets/dnb-logo.png','config/database.example.php'
+    'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/dnb-logo.png','config/database.example.php'
 ];
 
 foreach ($required as $file) {
@@ -32,6 +32,27 @@ if (str_contains($all, '.env')) {
         fwrite(STDERR, "Uso indevido de .env encontrado.\n");
         exit(1);
     }
+}
+
+$login = file_get_contents($root . '/login.php');
+foreach (['sys_dnb_crm_user','sys_dnb_crm_pass','cf-turnstile-response','redirect_to'] as $needle) {
+    if (!str_contains($login, $needle)) {
+        fwrite(STDERR, "Login sem requisito de segurança: {$needle}\n");
+        exit(1);
+    }
+}
+
+$bootstrap = file_get_contents($root . '/includes/bootstrap.php');
+foreach (["session_name('DNBCRMSESSID')", "'secure' => true", "'httponly' => true", "'samesite' => 'Lax'"] as $needle) {
+    if (!str_contains($bootstrap, $needle)) {
+        fwrite(STDERR, "Cookie de sessão fora do padrão: {$needle}\n");
+        exit(1);
+    }
+}
+
+if (preg_match("/['\"]domain['\"]\s*=>/i", $bootstrap)) {
+    fwrite(STDERR, "Cookie de sessão não pode definir Domain amplo.\n");
+    exit(1);
 }
 
 echo "Smoke test OK\n";
