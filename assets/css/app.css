@@ -1104,3 +1104,114 @@ td small{font-size:11px;line-height:1.35}
     transition-duration:.001ms!important;
   }
 }
+
+
+/* Branding configurável */
+.source-logo-box{
+  width:148px;
+  min-height:50px;
+  flex:0 0 148px;
+}
+.source-logo-box img{
+  width:auto!important;
+  height:auto!important;
+  max-width:132px!important;
+  max-height:46px!important;
+  object-fit:contain!important;
+  object-position:left center;
+}
+.auth-brand img{
+  width:auto!important;
+  height:auto!important;
+  max-width:180px!important;
+  max-height:64px!important;
+  object-fit:contain!important;
+}
+.branding-card{margin-bottom:18px}
+.branding-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px;
+}
+.branding-slot{
+  display:grid;
+  gap:12px;
+  min-width:0;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#FBFCFD;
+}
+.branding-preview{
+  min-height:130px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:22px;
+  border-radius:11px;
+  overflow:hidden;
+}
+.branding-preview-dark{background:var(--dnb-navy)}
+.branding-preview-light{
+  background:#fff;
+  border:1px solid var(--line);
+}
+.branding-preview img{
+  display:block;
+  width:auto;
+  height:auto;
+  max-width:min(100%,320px);
+  max-height:86px;
+  object-fit:contain;
+}
+.branding-slot-copy{display:grid;gap:3px}
+.branding-slot-copy strong{
+  color:var(--dnb-navy);
+  font-size:14px;
+}
+.branding-slot-copy span{
+  color:#405166;
+  font-size:13px;
+}
+.branding-slot-copy small{
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.45;
+}
+.branding-upload{
+  display:grid;
+  gap:7px;
+}
+.branding-upload>span{
+  color:#405166;
+  font-size:12px;
+  font-weight:900;
+}
+.branding-upload input[type="file"]{
+  min-height:48px;
+  padding:9px;
+  background:#fff;
+}
+.branding-remove{margin-top:-2px}
+.branding-actions{
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+}
+.branding-actions .install-note{margin:0;flex:1}
+@media(max-width:760px){
+  .branding-grid{grid-template-columns:1fr}
+  .branding-actions{
+    grid-column:auto;
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .branding-actions .btn{width:100%}
+  .source-logo-box{
+    width:124px;
+    flex-basis:124px;
+  }
+  .source-logo-box img{max-width:112px!important;max-height:42px!important}
+}
