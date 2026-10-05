@@ -101,6 +101,72 @@ function verify_turnstile(PDO $pdo, string $token, ?string $remoteIp = null): bo
     return is_array($response) && !empty($response['success']);
 }
 
+function ensure_login_attempts_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS login_attempts (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            identifier_hash CHAR(64) NOT NULL,
+            ip_address VARCHAR(45) NULL,
+            success TINYINT(1) NOT NULL DEFAULT 0,
+            attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_login_attempt_identifier_time (identifier_hash, attempted_at),
+            INDEX idx_login_attempt_ip_time (ip_address, attempted_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $done = true;
+}
+
+function login_identifier_hash(string $identifier): string
+{
+    return hash_hmac('sha256', strtolower(trim($identifier)), app_key_bytes());
+}
+
+function login_throttle_allowed(PDO $pdo, string $identifier, string $ipAddress): bool
+{
+    ensure_login_attempts_schema($pdo);
+
+    $hash = login_identifier_hash($identifier);
+
+    $q = $pdo->prepare(
+        'SELECT COUNT(*) FROM login_attempts
+         WHERE identifier_hash=? AND success=0 AND attempted_at >= (NOW() - INTERVAL 15 MINUTE)'
+    );
+    $q->execute([$hash]);
+    $identifierFailures = (int)$q->fetchColumn();
+
+    $q = $pdo->prepare(
+        'SELECT COUNT(*) FROM login_attempts
+         WHERE ip_address=? AND success=0 AND attempted_at >= (NOW() - INTERVAL 15 MINUTE)'
+    );
+    $q->execute([$ipAddress]);
+    $ipFailures = (int)$q->fetchColumn();
+
+    return $identifierFailures < 8 && $ipFailures < 25;
+}
+
+function login_attempt_record(PDO $pdo, string $identifier, string $ipAddress, bool $success): void
+{
+    ensure_login_attempts_schema($pdo);
+
+    $hash = login_identifier_hash($identifier);
+
+    if ($success) {
+        $q = $pdo->prepare('DELETE FROM login_attempts WHERE identifier_hash=? OR ip_address=?');
+        $q->execute([$hash, $ipAddress]);
+        return;
+    }
+
+    $q = $pdo->prepare('INSERT INTO login_attempts (identifier_hash, ip_address, success) VALUES (?, ?, 0)');
+    $q->execute([$hash, $ipAddress]);
+
+    $pdo->exec('DELETE FROM login_attempts WHERE attempted_at < (NOW() - INTERVAL 2 DAY)');
+}
+
 function session_mark_authenticated(int $userId): void
 {
     session_regenerate_id(true);
