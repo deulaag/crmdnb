@@ -5,12 +5,15 @@ require_once __DIR__ . '/includes/layout.php';
 $user = require_auth();
 $pdo = db();
 $openai = integration_get($pdo, 'openai');
+$openaiExtra = json_decode((string)($openai['extra_json'] ?? '{}'), true) ?: [];
+$openaiModel = trim((string)($openaiExtra['model'] ?? '')) ?: 'gpt-5.6-sol';
 $openaiReady = !empty($openai['is_active']) && secret_decrypt($openai['access_token'] ?? '') !== '';
 
 function visitas_upload_files(array $files): array
 {
     if (!isset($files['name'])) return [];
     if (!is_array($files['name'])) return [$files];
+
     $out = [];
     foreach ($files['name'] as $i => $name) {
         $out[] = [
@@ -22,6 +25,34 @@ function visitas_upload_files(array $files): array
         ];
     }
     return $out;
+}
+
+function visitas_upload_error(int $code): string
+{
+    return match ($code) {
+        UPLOAD_ERR_INI_SIZE => 'o PDF ultrapassa o upload_max_filesize do servidor',
+        UPLOAD_ERR_FORM_SIZE => 'o PDF ultrapassa o limite permitido pelo formulário',
+        UPLOAD_ERR_PARTIAL => 'o upload do PDF foi recebido apenas parcialmente',
+        UPLOAD_ERR_NO_FILE => 'nenhum PDF foi recebido',
+        UPLOAD_ERR_NO_TMP_DIR => 'o servidor está sem diretório temporário para upload',
+        UPLOAD_ERR_CANT_WRITE => 'o servidor não conseguiu gravar o PDF temporariamente',
+        UPLOAD_ERR_EXTENSION => 'uma extensão do PHP interrompeu o upload',
+        default => 'falha de upload (código ' . $code . ')',
+    };
+}
+
+function visitas_ini_bytes(string $value): int
+{
+    $value = trim($value);
+    if ($value === '') return 0;
+    $unit = strtolower(substr($value, -1));
+    $number = (float)$value;
+    return match ($unit) {
+        'g' => (int)($number * 1024 * 1024 * 1024),
+        'm' => (int)($number * 1024 * 1024),
+        'k' => (int)($number * 1024),
+        default => (int)$number,
+    };
 }
 
 function visitas_insert(PDO $pdo, int $createdBy, array $data, string $source): int
@@ -41,12 +72,72 @@ function visitas_insert(PDO $pdo, int $createdBy, array $data, string $source): 
         trim((string)($data['fone'] ?? '')),
         trim((string)($data['setor'] ?? '')),
         trim((string)($data['equipamentos'] ?? '')),
-        '',
+        trim((string)($data['resumo'] ?? '')),
         trim((string)($data['oportunidade'] ?? '')),
         $source,
         $createdBy,
     ]);
     return (int)$pdo->lastInsertId();
+}
+
+function visitas_update_agenda(PDO $pdo, int $visitId, array $data, int $createdBy): bool
+{
+    $client = trim((string)($data['cliente'] ?? ''));
+    $visitDate = (string)($data['data'] ?? date('Y-m-d'));
+    $clientPrefix = strtolower(substr($client, 0, 12));
+
+    if ($clientPrefix !== '') {
+        $q = $pdo->query("SELECT id, client_name, event_date FROM agenda WHERE status IN ('agendado','confirmado') ORDER BY id DESC");
+        foreach ($q->fetchAll() as $agenda) {
+            $agendaClient = strtolower((string)$agenda['client_name']);
+            $days = abs((strtotime((string)$agenda['event_date']) - strtotime($visitDate)) / 86400);
+            if (str_contains($agendaClient, $clientPrefix) && $days < 8) {
+                $pdo->prepare("UPDATE agenda SET status='concluido', visit_id=? WHERE id=?")
+                    ->execute([$visitId, (int)$agenda['id']]);
+            }
+        }
+    }
+
+    if (trim((string)($data['agendar'] ?? '')) === '') {
+        return false;
+    }
+
+    $suggestedDate = valid_date_string($data['data_sugerida'] ?? '')
+        ? (string)$data['data_sugerida']
+        : date('Y-m-d', strtotime('+14 days'));
+
+    $q = $pdo->prepare("SELECT COUNT(*) FROM agenda WHERE visit_id=? AND status='sugerido'");
+    $q->execute([$visitId]);
+    if ((int)$q->fetchColumn()) return false;
+
+    $contact = trim(implode(' · ', array_filter([
+        trim((string)($data['contato'] ?? '')),
+        trim((string)($data['fone'] ?? '')),
+    ])));
+
+    $q = $pdo->prepare(
+        'INSERT INTO agenda
+        (event_date,event_time,client_name,user_id,contact_name,objective,status,source,visit_id,created_by)
+        VALUES (?,NULL,?,?,?,?,"sugerido","ia-os",?,?)'
+    );
+    $q->execute([
+        $suggestedDate,
+        $client,
+        ($data['seller_user_id'] ?? '') !== '' ? (int)$data['seller_user_id'] : null,
+        $contact,
+        trim((string)$data['agendar']),
+        $visitId,
+        $createdBy,
+    ]);
+
+    return true;
+}
+
+$contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+$postMax = visitas_ini_bytes((string)ini_get('post_max_size'));
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $contentLength > 0 && $postMax > 0 && $contentLength > $postMax && empty($_POST)) {
+    $_SESSION['visitas_status'] = 'O PDF não chegou ao CRM porque o envio ultrapassou o post_max_size do servidor (' . ini_get('post_max_size') . ').';
+    redirect('visitas.php');
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -71,6 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'setor' => trim((string)($_POST['sector'] ?? '')),
                 'oportunidade' => trim((string)($_POST['opportunity_text'] ?? '')),
             ], 'manual');
+
             audit($pdo, (int)$user['id'], 'create', 'visit', $visitId);
             flash('success', 'Atividade registrada.');
         }
@@ -88,6 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $sellerId = find_user_id_by_name($pdo, (string)($item['vendedor'] ?? ''));
                 $typeRaw = strtolower(trim((string)($item['tipo'] ?? 'visita')));
+
                 $visitId = visitas_insert($pdo, (int)$user['id'], [
                     'os' => trim((string)($item['os'] ?? '')),
                     'data' => valid_date_string($item['data'] ?? '') ? $item['data'] : date('Y-m-d'),
@@ -98,6 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'setor' => trim((string)($item['setor'] ?? '')),
                     'oportunidade' => trim((string)($item['oportunidade'] ?? $item['comentario'] ?? '')),
                 ], 'json');
+
                 audit($pdo, (int)$user['id'], 'import_json', 'visit', $visitId);
                 $count++;
             }
@@ -105,124 +199,161 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', $count . ' visita(s) importada(s).');
         }
 
-        if ($action === 'upload_pdf') {
+        if ($action === 'extract_pdf') {
             if (!$openaiReady) {
-                throw new RuntimeException('Configure e ative ChatGPT / OpenAI em Configurações para importar PDFs.');
+                throw new RuntimeException('A integração ChatGPT / OpenAI não está ativa ou não possui API Key salva.');
             }
 
+            @set_time_limit(300);
             $files = visitas_upload_files($_FILES['visit_pdfs'] ?? []);
             if (!$files) throw new RuntimeException('Selecione pelo menos um PDF.');
             if (count($files) > 10) throw new RuntimeException('Envie no máximo 10 PDFs por vez.');
 
             $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $success = 0;
-            $messages = [];
+            $drafts = [];
+            $errors = [];
 
-            foreach ($files as $index => $file) {
-                $name = (string)($file['name'] ?? 'arquivo.pdf');
+            foreach ($files as $file) {
+                $filename = (string)($file['name'] ?? 'arquivo.pdf');
+
                 try {
-                    if ((int)($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                        throw new RuntimeException('não foi possível receber o arquivo');
+                    $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+                    if ($uploadError !== UPLOAD_ERR_OK) {
+                        throw new RuntimeException(visitas_upload_error($uploadError));
                     }
+
                     $tmp = (string)($file['tmp_name'] ?? '');
                     $size = (int)($file['size'] ?? 0);
-                    if ($size <= 0 || $size > 20 * 1024 * 1024) {
-                        throw new RuntimeException('arquivo vazio ou acima de 20 MB');
-                    }
-                    if ($finfo->file($tmp) !== 'application/pdf') {
-                        throw new RuntimeException('arquivo não é um PDF válido');
-                    }
 
-                    $extracted = openai_extract_iliot_visit($pdo, $tmp, $name);
-                    $sellerId = find_user_id_by_name($pdo, $extracted['vendedor'] ?? '');
+                    if ($size <= 0) throw new RuntimeException('arquivo vazio');
+                    if ($size > 20 * 1024 * 1024) throw new RuntimeException('o PDF ultrapassa 20 MB');
+                    if (!is_uploaded_file($tmp)) throw new RuntimeException('o arquivo temporário do upload não é válido');
+                    if ($finfo->file($tmp) !== 'application/pdf') throw new RuntimeException('o arquivo não foi reconhecido como PDF');
 
-                    $visitDate = valid_date_string($extracted['data'] ?? '') ? $extracted['data'] : date('Y-m-d');
-                    $client = trim((string)($extracted['cliente'] ?? ''));
-                    if ($client === '') $client = $name;
+                    $extracted = openai_extract_iliot_visit($pdo, $tmp, $filename);
+                    $draftId = bin2hex(random_bytes(8));
+                    $sellerId = find_user_id_by_name($pdo, (string)($extracted['vendedor'] ?? ''));
 
-                    $visitId = visitas_insert($pdo, (int)$user['id'], [
-                        'os' => $extracted['os'] ?? '',
-                        'data' => $visitDate,
-                        'cliente' => $client,
+                    $drafts[$draftId] = [
+                        'draft_id' => $draftId,
+                        'arquivo' => $filename,
+                        'os' => trim((string)($extracted['os'] ?? '')),
+                        'data' => valid_date_string($extracted['data'] ?? '') ? (string)$extracted['data'] : '',
+                        'cliente' => trim((string)($extracted['cliente'] ?? '')),
+                        'vendedor' => trim((string)($extracted['vendedor'] ?? '')),
                         'seller_user_id' => $sellerId,
-                        'tipo' => 'visita',
-                        'contato' => $extracted['contato'] ?? '',
-                        'fone' => $extracted['fone'] ?? '',
-                        'setor' => $extracted['setor'] ?? '',
-                        'equipamentos' => $extracted['equipamentos'] ?? '',
-                        'oportunidade' => $extracted['oportunidade'] ?? '',
-                    ], 'ia-pdf');
+                        'contato' => trim((string)($extracted['contato'] ?? '')),
+                        'fone' => trim((string)($extracted['fone'] ?? '')),
+                        'setor' => trim((string)($extracted['setor'] ?? '')),
+                        'equipamentos' => trim((string)($extracted['equipamentos'] ?? '')),
+                        'oportunidade' => trim((string)($extracted['oportunidade'] ?? '')),
+                        'agendar' => trim((string)($extracted['agendar'] ?? '')),
+                        'data_sugerida' => valid_date_string($extracted['data_sugerida'] ?? '') ? (string)$extracted['data_sugerida'] : '',
+                    ];
 
-                    $clientPrefix = strtolower(substr($client, 0, 12));
-                    if ($clientPrefix !== '') {
-                        $q = $pdo->prepare("SELECT id, client_name, event_date FROM agenda WHERE status IN ('agendado','confirmado') ORDER BY id DESC");
-                        $q->execute();
-                        foreach ($q->fetchAll() as $agenda) {
-                            $agendaClient = strtolower((string)$agenda['client_name']);
-                            $days = abs((strtotime((string)$agenda['event_date']) - strtotime($visitDate)) / 86400);
-                            if (str_contains($agendaClient, $clientPrefix) && $days < 8) {
-                                $pdo->prepare("UPDATE agenda SET status='concluido', visit_id=? WHERE id=?")->execute([$visitId, (int)$agenda['id']]);
-                            }
-                        }
-                    }
-
-                    $scheduled = false;
-                    if (trim((string)($extracted['agendar'] ?? '')) !== '') {
-                        $suggestedDate = valid_date_string($extracted['data_sugerida'] ?? '')
-                            ? $extracted['data_sugerida']
-                            : date('Y-m-d', strtotime('+14 days'));
-
-                        $q = $pdo->prepare("SELECT COUNT(*) FROM agenda WHERE visit_id=? AND status='sugerido'");
-                        $q->execute([$visitId]);
-                        if (!(int)$q->fetchColumn()) {
-                            $contact = trim(implode(' · ', array_filter([
-                                trim((string)($extracted['contato'] ?? '')),
-                                trim((string)($extracted['fone'] ?? '')),
-                            ])));
-                            $q = $pdo->prepare('INSERT INTO agenda (event_date,event_time,client_name,user_id,contact_name,objective,status,source,visit_id,created_by) VALUES (?,NULL,?,?,?,?,"sugerido","ia-os",?,?)');
-                            $q->execute([
-                                $suggestedDate,
-                                $client,
-                                $sellerId,
-                                $contact,
-                                trim((string)$extracted['agendar']),
-                                $visitId,
-                                (int)$user['id'],
-                            ]);
-                            $scheduled = true;
-                        }
-                    }
-
-                    $modelExtra = json_decode((string)($openai['extra_json'] ?? '{}'), true) ?: [];
-                    $modelName = trim((string)($modelExtra['model'] ?? '')) ?: 'gpt-6-luna';
-                    $q = $pdo->prepare('INSERT INTO ai_logs (feature,entity_type,entity_id,model_name,status,prompt_hash,response_excerpt,created_by) VALUES ("visita_pdf","visit",?,?,?,?,?,?)');
+                    $q = $pdo->prepare(
+                        'INSERT INTO ai_logs
+                        (feature,entity_type,entity_id,model_name,status,prompt_hash,response_excerpt,created_by)
+                        VALUES ("visita_pdf","visit",NULL,?,"success",?,?,?)'
+                    );
                     $q->execute([
-                        $visitId,
-                        $modelName,
-                        'success',
-                        hash('sha256', 'iliot-visit-v1'),
+                        $openaiModel,
+                        hash('sha256', 'iliot-visit-v2'),
                         substr((string)($extracted['oportunidade'] ?? ''), 0, 500),
                         (int)$user['id'],
                     ]);
 
-                    audit($pdo, (int)$user['id'], 'import_pdf', 'visit', $visitId, ['file' => $name, 'os' => $extracted['os'] ?? '']);
-                    $success++;
-                    $sellerName = 'vendedor a definir';
-                    if ($sellerId) {
-                        $q = $pdo->prepare('SELECT name FROM users WHERE id=?');
-                        $q->execute([$sellerId]);
-                        $sellerName = (string)($q->fetchColumn() ?: $sellerName);
-                    }
-                    $messages[] = 'OS ' . (($extracted['os'] ?? '') ?: 's/n') . ': ' . $client . ' · ' . $sellerName . ' — importada' . ($scheduled ? ' · visita futura sugerida no Cronograma' : '') . '.';
+                    audit($pdo, (int)$user['id'], 'extract_pdf', 'visit', null, ['file' => $filename]);
                 } catch (Throwable $fileError) {
-                    $messages[] = $name . ': não foi possível extrair — registre manualmente. (' . $fileError->getMessage() . ')';
+                    $errors[] = $filename . ': ' . $fileError->getMessage();
+
+                    try {
+                        $q = $pdo->prepare(
+                            'INSERT INTO ai_logs
+                            (feature,entity_type,entity_id,model_name,status,prompt_hash,response_excerpt,created_by)
+                            VALUES ("visita_pdf","visit",NULL,?,"error",?,?,?)'
+                        );
+                        $q->execute([
+                            $openaiModel,
+                            hash('sha256', 'iliot-visit-v2'),
+                            substr($fileError->getMessage(), 0, 500),
+                            (int)$user['id'],
+                        ]);
+                    } catch (Throwable $ignored) {
+                    }
                 }
             }
 
-            if (count($files) > 1) {
-                $messages[] = $success . ' de ' . count($files) . ' OS importadas. Revise cliente e vendedor na tabela.';
+            $_SESSION['visit_pdf_drafts'] = $drafts;
+
+            if ($drafts) {
+                $_SESSION['visitas_status'] = count($drafts) . ' PDF(s) extraído(s) com IA. Revise os campos abaixo e clique em Importar visita(s).'
+                    . ($errors ? ' ' . count($errors) . ' arquivo(s) tiveram erro: ' . implode(' | ', array_slice($errors, 0, 3)) : '');
+            } else {
+                $_SESSION['visitas_status'] = 'Nenhum PDF foi extraído. ' . implode(' | ', array_slice($errors, 0, 3));
             }
-            $_SESSION['visitas_status'] = implode(' ', $messages);
+        }
+
+        if ($action === 'import_extracted') {
+            $storedDrafts = $_SESSION['visit_pdf_drafts'] ?? [];
+            $postedDrafts = $_POST['drafts'] ?? [];
+            if (!is_array($storedDrafts) || !$storedDrafts || !is_array($postedDrafts)) {
+                throw new RuntimeException('Não há dados extraídos aguardando importação.');
+            }
+
+            $imported = 0;
+            $warnings = [];
+
+            foreach ($postedDrafts as $draftId => $posted) {
+                if (!isset($storedDrafts[$draftId]) || !is_array($posted)) continue;
+                $original = $storedDrafts[$draftId];
+
+                $data = [
+                    'os' => trim((string)($posted['os'] ?? '')),
+                    'data' => trim((string)($posted['data'] ?? '')),
+                    'cliente' => trim((string)($posted['cliente'] ?? '')),
+                    'seller_user_id' => ($posted['seller_user_id'] ?? '') !== '' ? (int)$posted['seller_user_id'] : null,
+                    'tipo' => 'visita',
+                    'contato' => trim((string)($posted['contato'] ?? '')),
+                    'fone' => trim((string)($posted['fone'] ?? '')),
+                    'setor' => trim((string)($posted['setor'] ?? '')),
+                    'equipamentos' => trim((string)($posted['equipamentos'] ?? '')),
+                    'oportunidade' => trim((string)($posted['oportunidade'] ?? '')),
+                    'agendar' => trim((string)($posted['agendar'] ?? '')),
+                    'data_sugerida' => trim((string)($posted['data_sugerida'] ?? '')),
+                ];
+
+                if ($data['cliente'] === '') {
+                    $warnings[] = ($original['arquivo'] ?? 'PDF') . ': informe o cliente antes de importar.';
+                    continue;
+                }
+                if (!valid_date_string($data['data'])) {
+                    $warnings[] = ($original['arquivo'] ?? 'PDF') . ': informe uma data válida.';
+                    continue;
+                }
+
+                $visitId = visitas_insert($pdo, (int)$user['id'], $data, 'ia-pdf');
+                $scheduled = visitas_update_agenda($pdo, $visitId, $data, (int)$user['id']);
+
+                audit($pdo, (int)$user['id'], 'import_extracted_pdf', 'visit', $visitId, [
+                    'file' => $original['arquivo'] ?? '',
+                    'os' => $data['os'],
+                    'scheduled' => $scheduled,
+                ]);
+
+                unset($storedDrafts[$draftId]);
+                $imported++;
+            }
+
+            $_SESSION['visit_pdf_drafts'] = $storedDrafts;
+            $message = $imported . ' visita(s) importada(s).';
+            if ($warnings) $message .= ' ' . implode(' | ', $warnings);
+            flash($warnings && $imported === 0 ? 'danger' : ($warnings ? 'warning' : 'success'), $message);
+        }
+
+        if ($action === 'clear_extracted') {
+            unset($_SESSION['visit_pdf_drafts']);
+            flash('success', 'Prévia extraída descartada.');
         }
 
         if ($action === 'delete') {
@@ -233,7 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } catch (Throwable $e) {
-        if ($action === 'upload_pdf') {
+        if ($action === 'extract_pdf') {
             $_SESSION['visitas_status'] = $e->getMessage();
         } else {
             flash('danger', $e->getMessage());
@@ -244,9 +375,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $users = $pdo->query("SELECT id,name FROM users WHERE active=1 ORDER BY name")->fetchAll();
-$rows = $pdo->query("SELECT v.*,u.name seller_name FROM visits v LEFT JOIN users u ON u.id=v.seller_user_id ORDER BY v.id DESC")->fetchAll();
+$rows = $pdo->query(
+    "SELECT v.*,u.name seller_name
+     FROM visits v
+     LEFT JOIN users u ON u.id=v.seller_user_id
+     ORDER BY v.id DESC"
+)->fetchAll();
+
 $pdfStatus = (string)($_SESSION['visitas_status'] ?? '');
 unset($_SESSION['visitas_status']);
+$pdfDrafts = $_SESSION['visit_pdf_drafts'] ?? [];
+if (!is_array($pdfDrafts)) $pdfDrafts = [];
 
 page_header('Visitas','visitas');
 ?>
@@ -254,21 +393,154 @@ page_header('Visitas','visitas');
 <div class="html-page">
 
 <div class="card">
-    <div class="card-title"><div><h3>Importar OS de visita do iliot (PDF)</h3></div></div>
-    <div class="source-help">Anexe as OS Simplificadas exportadas do iliot (app.iliot.tech) — o agente extrai nº da OS, data do check-in, cliente, vendedor, contato, setor e o comentário de oportunidades. Aceita vários PDFs de uma vez. Cada OS importada conta para a meta de visitas do vendedor.</div>
-    <?php if (!$openaiReady): ?><div class="alert alert-warning">Configure e ative ChatGPT / OpenAI em Configurações para a leitura automática funcionar.</div><?php endif; ?>
+    <div class="card-title">
+        <div>
+            <h3>Importar OS de visita do iliot (PDF)</h3>
+        </div>
+    </div>
+
+    <div class="source-help">
+        Anexe as OS Simplificadas exportadas do iliot (app.iliot.tech) — o agente extrai nº da OS, data do check-in, cliente, vendedor, contato, setor e o comentário de oportunidades. Aceita vários PDFs de uma vez. Cada OS importada conta para a meta de visitas do vendedor.
+    </div>
+
+    <?php if ($openaiReady): ?>
+        <div class="ai-ready"><span></span> ChatGPT / OpenAI ativo · <?= e($openaiModel) ?></div>
+    <?php else: ?>
+        <div class="alert alert-warning">Configure e ative ChatGPT / OpenAI em Configurações para a leitura automática funcionar.</div>
+    <?php endif; ?>
+
     <form method="post" enctype="multipart/form-data" data-upload-form>
-        <?= csrf_field() ?><input type="hidden" name="action" value="upload_pdf">
-        <input type="file" name="visit_pdfs[]" accept="application/pdf" multiple class="plain-file-input" onchange="if(this.files.length){this.form.submit();}" <?= !$openaiReady ? 'disabled' : '' ?>>
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="extract_pdf">
+
+        <div class="pdf-upload-row">
+            <input type="file" name="visit_pdfs[]" accept="application/pdf,.pdf" multiple class="plain-file-input" data-pdf-input <?= !$openaiReady ? 'disabled' : '' ?>>
+            <button
+                class="btn btn-primary"
+                type="submit"
+                data-upload-button
+                data-loading-label="Extraindo dados com IA..."
+                <?= !$openaiReady ? 'disabled' : '' ?>
+            >Extrair dados com IA</button>
+        </div>
+
+        <div class="upload-selected" data-upload-selected>Nenhum PDF selecionado.</div>
+        <div class="source-help source-help-tight">
+            Limite do CRM: 20 MB por PDF · servidor: upload_max_filesize <?= e((string)ini_get('upload_max_filesize')) ?> / post_max_size <?= e((string)ini_get('post_max_size')) ?>.
+        </div>
     </form>
+
     <?php if ($pdfStatus !== ''): ?><div class="source-status"><?= e($pdfStatus) ?></div><?php endif; ?>
 </div>
+
+<?php if ($pdfDrafts): ?>
+<div class="card extracted-preview" id="dados-extraidos">
+    <div class="card-title">
+        <div>
+            <h3>Dados extraídos pela IA (<?= count($pdfDrafts) ?>)</h3>
+            <p>Revise os campos antes de gravar a visita no CRM. A extração não cria registro enquanto você não clicar em Importar visita(s).</p>
+        </div>
+    </div>
+
+    <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="import_extracted">
+
+        <?php foreach ($pdfDrafts as $draftId => $draft): ?>
+            <div class="extracted-item">
+                <div class="extracted-file">
+                    <strong><?= e($draft['arquivo'] ?? 'PDF') ?></strong>
+                    <span>extraído com <?= e($openaiModel) ?></span>
+                </div>
+
+                <div class="source-grid source-grid-4">
+                    <label>
+                        <span>Nº OS / referência</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][os]" value="<?= e($draft['os'] ?? '') ?>">
+                    </label>
+
+                    <label>
+                        <span>Data</span>
+                        <input type="date" name="drafts[<?= e((string)$draftId) ?>][data]" value="<?= e($draft['data'] ?? '') ?>" required>
+                    </label>
+
+                    <label>
+                        <span>Responsável</span>
+                        <select name="drafts[<?= e((string)$draftId) ?>][seller_user_id]">
+                            <option value="">— vendedor a definir —</option>
+                            <?php foreach($users as $u): ?>
+                                <option value="<?= (int)$u['id'] ?>" <?= (int)($draft['seller_user_id'] ?? 0)===(int)$u['id']?'selected':'' ?>><?= e($u['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php if (($draft['vendedor'] ?? '') !== '' && empty($draft['seller_user_id'])): ?>
+                            <small class="extract-hint">PDF informou: <?= e($draft['vendedor']) ?></small>
+                        <?php endif; ?>
+                    </label>
+
+                    <label>
+                        <span>Setor</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][setor]" value="<?= e($draft['setor'] ?? '') ?>">
+                    </label>
+
+                    <label class="source-span-2">
+                        <span>Cliente</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][cliente]" value="<?= e($draft['cliente'] ?? '') ?>" required>
+                    </label>
+
+                    <label>
+                        <span>Contato</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][contato]" value="<?= e($draft['contato'] ?? '') ?>">
+                    </label>
+
+                    <label>
+                        <span>Telefone</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][fone]" value="<?= e($draft['fone'] ?? '') ?>">
+                    </label>
+
+                    <label class="source-span-2">
+                        <span>Equipamentos citados</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][equipamentos]" value="<?= e($draft['equipamentos'] ?? '') ?>">
+                    </label>
+
+                    <label>
+                        <span>Data sugerida para retorno</span>
+                        <input type="date" name="drafts[<?= e((string)$draftId) ?>][data_sugerida]" value="<?= e($draft['data_sugerida'] ?? '') ?>">
+                    </label>
+
+                    <label>
+                        <span>Retorno / nova visita sugerida</span>
+                        <input name="drafts[<?= e((string)$draftId) ?>][agendar]" value="<?= e($draft['agendar'] ?? '') ?>">
+                    </label>
+                </div>
+
+                <label class="source-textarea">
+                    <span>Oportunidades identificadas / desfecho</span>
+                    <textarea name="drafts[<?= e((string)$draftId) ?>][oportunidade]" rows="4"><?= e($draft['oportunidade'] ?? '') ?></textarea>
+                </label>
+            </div>
+        <?php endforeach; ?>
+
+        <div class="extract-actions">
+            <button class="btn btn-primary" type="submit">Importar visita(s)</button>
+        </div>
+    </form>
+
+    <form method="post" class="extract-discard" onsubmit="return confirm('Descartar os dados extraídos?');">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="clear_extracted">
+        <button class="btn btn-ghost" type="submit">Descartar extração</button>
+    </form>
+</div>
+<?php endif; ?>
 
 <div class="card">
     <div class="card-title"><div><h3>Registrar atividade comercial (OS de campo / prospecção)</h3></div></div>
     <div class="source-help">Visitas espelham a OS Simplificada (iliot.tech). Prospecção de novo cliente é a atividade do canal interno (meta: 40/mês).</div>
+
     <form method="post">
-        <?= csrf_field() ?><input type="hidden" name="action" value="manual">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="manual">
+
         <div class="source-grid source-grid-4">
             <label><span>Tipo</span><select name="visit_type"><option value="visita">Visita comercial</option><option value="prospeccao">Prospecção — novo cliente</option></select></label>
             <label><span>Nº OS / referência</span><input name="os_number" placeholder="4391"></label>
@@ -278,7 +550,12 @@ page_header('Visitas','visitas');
             <label><span>Contato</span><input name="contact_name"></label>
             <label><span>Setor</span><input name="sector"></label>
         </div>
-        <label class="source-textarea"><span>Oportunidades identificadas / desfecho</span><textarea name="opportunity_text" rows="4"></textarea></label>
+
+        <label class="source-textarea">
+            <span>Oportunidades identificadas / desfecho</span>
+            <textarea name="opportunity_text" rows="4"></textarea>
+        </label>
+
         <button class="btn btn-primary source-mt" type="submit">Registrar</button>
     </form>
 </div>
@@ -286,8 +563,10 @@ page_header('Visitas','visitas');
 <div class="card">
     <div class="card-title"><div><h3>Importar visitas / relatórios iliot (JSON)</h3></div></div>
     <div class="source-help">Cole o JSON com as visitas (campos: os, data, tipo [visita|prospeccao], cliente, vendedor, contato, setor, oportunidade) — aceita lista.</div>
+
     <form method="post">
-        <?= csrf_field() ?><input type="hidden" name="action" value="import_json">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="import_json">
         <textarea name="visits_json" class="source-json" rows="4" placeholder='[{"os":"4391","data":"2026-07-15","tipo":"visita","cliente":"Cliente","vendedor":"Nome do vendedor","oportunidade":"..."}]'></textarea>
         <div class="source-inline"><button class="btn btn-secondary" type="submit">Importar visitas</button></div>
     </form>
@@ -295,9 +574,12 @@ page_header('Visitas','visitas');
 
 <div class="card">
     <div class="card-title"><div><h3>Atividades registradas (<?= count($rows) ?>)</h3></div></div>
+
     <div class="table-wrap">
         <table class="source-table">
-            <thead><tr><th>Data</th><th>Tipo</th><th>OS</th><th>Cliente</th><th>Responsável</th><th>Oportunidade</th><th></th></tr></thead>
+            <thead>
+                <tr><th>Data</th><th>Tipo</th><th>OS</th><th>Cliente</th><th>Responsável</th><th>Oportunidade</th><th></th></tr>
+            </thead>
             <tbody>
             <?php foreach($rows as $row): ?>
                 <tr>
@@ -309,13 +591,18 @@ page_header('Visitas','visitas');
                     <td class="source-opportunity"><?= e($row['opportunity_text'] ?: '—') ?></td>
                     <td class="source-right">
                         <form method="post" onsubmit="return confirm('Excluir esta atividade?');">
-                            <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
                             <button class="source-x" type="submit">✕</button>
                         </form>
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if(!$rows): ?><tr><td colspan="7" class="empty-row">Nenhuma atividade registrada.</td></tr><?php endif; ?>
+
+            <?php if(!$rows): ?>
+                <tr><td colspan="7" class="empty-row">Nenhuma atividade registrada.</td></tr>
+            <?php endif; ?>
             </tbody>
         </table>
     </div>
