@@ -592,6 +592,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Para registrar uma perda, abra a oportunidade e informe o motivo da perda.');
             }
 
+            if ($status === 'Ganha') {
+                $q = $pdo->prepare('SELECT quote_required,quote_completed_at FROM opportunities WHERE id=? LIMIT 1');
+                $q->execute([$id]);
+                $check = $q->fetch();
+                if ($check && (int)$check['quote_required'] === 1 && empty($check['quote_completed_at'])) {
+                    throw new RuntimeException('Conclua primeiro a pendência "Realizar orçamento" antes de marcar esta oportunidade como Ganha.');
+                }
+            }
+
             $pdo->prepare('UPDATE opportunities SET status=?,loss_reason=NULL,loss_recorded_at=NULL WHERE id=?')->execute([$status,$id]);
             audit($pdo, (int)$user['id'], 'update_status', 'opportunity', $id, ['status'=>$status]);
             flash('success', 'Status atualizado.');
