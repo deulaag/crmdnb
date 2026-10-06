@@ -404,8 +404,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ((int)$q->fetchColumn() > 0) {
                     throw new RuntimeException('Esta visita já virou uma oportunidade. Exclua primeiro a oportunidade em Orçamentos.');
                 }
+                $pdo->prepare('DELETE FROM agenda WHERE visit_id=? AND auto_generated=1')->execute([$id]);
                 $pdo->prepare('DELETE FROM visits WHERE id=?')->execute([$id]);
-                audit($pdo, (int)$user['id'], 'delete', 'visit', $id);
+                audit($pdo, (int)$user['id'], 'delete', 'visit', $id, ['auto_agenda_removed'=>true]);
             }
         }
     } catch (Throwable $e) {
