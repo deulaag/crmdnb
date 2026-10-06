@@ -483,9 +483,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $amount = max(0, (float)($item['amount'] ?? 0));
                 $commission = max(0, (float)($item['commission'] ?? 0));
                 $lossReason = trim((string)($item['loss_reason'] ?? ''));
-                if ($status === 'Perdida' && $lossReason === '') {
-                    $lossReason = 'Motivo não informado no relatório Salesforce.';
-                }
 
                 if ($client === '' || ($dealId === '' && $dealName === '')) {
                     $skipped++;
@@ -493,6 +490,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $status = salesforce_status($stageText);
+                if ($status === 'Perdida' && $lossReason === '') {
+                    $lossReason = 'Motivo não informado no relatório Salesforce.';
+                }
                 $stageId = salesforce_stage_match($pdo, $funnelId, $stageText) ?: $firstStageId;
                 $seller = find_user_id_by_name($pdo, $owner);
 
