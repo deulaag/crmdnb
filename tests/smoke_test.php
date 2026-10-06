@@ -135,7 +135,10 @@ foreach ([
     'openai_read_salesforce_report',
     'openai_build_quote_reminder_email',
     'resend_send_email',
-    'process_quote_reminders'
+    'process_quote_reminders',
+    'commercial_automation_defaults',
+    'schedule_visit_commercial_automation',
+    'process_commercial_agenda_reminders'
 ] as $needle) {
     if (!str_contains($functions, 'function ' . $needle)) {
         fwrite(STDERR, "Automação/agente ausente: {$needle}\n");
@@ -144,7 +147,17 @@ foreach ([
 }
 
 $configPage = file_get_contents($root . '/configuracoes.php');
-foreach (['Resend · E-mail','Lembretes de orçamento originado de visita'] as $needle) {
+foreach ([
+    'Resend · E-mail',
+    'Lembretes de orçamento originado de visita',
+    'Follow-up em 3 dias · próxima visita em 60 dias',
+    'followup_relacionamento',
+    'followup_oportunidade',
+    'followup_tecnico',
+    'visita_relacionamento',
+    'visita_oportunidade',
+    'visita_tecnica'
+] as $needle) {
     if (!str_contains($configPage, $needle)) {
         fwrite(STDERR, "Configuração de lembretes ausente: {$needle}\n");
         exit(1);
@@ -153,6 +166,28 @@ foreach (['Resend · E-mail','Lembretes de orçamento originado de visita'] as $
 
 if (!str_contains($quotes, 'ChatGPT / OpenAI') || !str_contains($quotes, 'Sincronizar relatório com IA')) {
     fwrite(STDERR, "Agente OpenAI não está visível nos importadores de Orçamentos.\n");
+    exit(1);
+}
+
+$visits = file_get_contents($root . '/visitas.php');
+foreach (['schedule_visit_commercial_automation','follow-up em 3 dias','próxima visita em 60 dias'] as $needle) {
+    if (!str_contains($visits, $needle)) {
+        fwrite(STDERR, "Automação pós-visita ausente: {$needle}\n");
+        exit(1);
+    }
+}
+
+$schedule = file_get_contents($root . '/cronograma.php');
+foreach (['Follow-ups programados','Próximas visitas','event_type','reminder_sent_at'] as $needle) {
+    if (!str_contains($schedule, $needle)) {
+        fwrite(STDERR, "Cronograma automático incompleto: {$needle}\n");
+        exit(1);
+    }
+}
+
+$job = file_get_contents($root . '/opportunity_reminders.php');
+if (!str_contains($job, 'process_commercial_agenda_reminders')) {
+    fwrite(STDERR, "Job diário não processa os lembretes do cronograma.\n");
     exit(1);
 }
 
