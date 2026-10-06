@@ -364,6 +364,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $warnings[] = ($original['arquivo'] ?? 'PDF') . ': informe uma data válida.';
                     continue;
                 }
+                if ($data['agendar'] === '') {
+                    $warnings[] = ($original['arquivo'] ?? 'PDF') . ': o agente precisa preencher "Retorno / nova visita sugerida".';
+                    continue;
+                }
+                if (!valid_date_string($data['data_sugerida'])) {
+                    $warnings[] = ($original['arquivo'] ?? 'PDF') . ': o agente precisa preencher uma "Data sugerida para retorno" válida.';
+                    continue;
+                }
 
                 $visitId = visitas_insert($pdo, (int)$user['id'], $data, 'ia-pdf');
                 $plan = schedule_visit_commercial_automation($pdo, $visitId, $data, (int)$user['id']);
@@ -456,7 +464,7 @@ page_header('Visitas','visitas');
         <div class="info-panel"><strong>Integração necessária.</strong><p>Configure e ative ChatGPT / OpenAI em Configurações para a leitura automática funcionar.</p></div>
     <?php endif; ?>
 
-    <form method="post" enctype="multipart/form-data" data-upload-form>
+    <form method="post" enctype="multipart/form-data" data-upload-form data-ai-cmd data-ai-cmd-context="visitas" data-ai-cmd-label="Leitura de OS de visita">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="extract_pdf">
 
@@ -551,12 +559,14 @@ page_header('Visitas','visitas');
 
                     <label>
                         <span>Data sugerida para retorno</span>
-                        <input type="date" name="drafts[<?= e((string)$draftId) ?>][data_sugerida]" value="<?= e($draft['data_sugerida'] ?? '') ?>">
+                        <input type="date" name="drafts[<?= e((string)$draftId) ?>][data_sugerida]" value="<?= e($draft['data_sugerida'] ?? '') ?>" required>
+                        <small class="extract-hint">Preenchido obrigatoriamente pelo agente com base no relatório; sem prazo explícito, aplica +60 dias.</small>
                     </label>
 
                     <label>
                         <span>Retorno / nova visita sugerida</span>
-                        <input name="drafts[<?= e((string)$draftId) ?>][agendar]" value="<?= e($draft['agendar'] ?? '') ?>">
+                        <input name="drafts[<?= e((string)$draftId) ?>][agendar]" value="<?= e($draft['agendar'] ?? '') ?>" required>
+                        <small class="extract-hint">Preenchido obrigatoriamente pelo agente como próximo passo de retorno/nova visita.</small>
                     </label>
                 </div>
 
