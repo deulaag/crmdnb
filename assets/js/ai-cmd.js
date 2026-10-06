@@ -112,6 +112,10 @@
 
     document.querySelectorAll('form[data-ai-cmd]').forEach((form) => {
         form.addEventListener('submit', () => {
+            const fileInputs = Array.from(form.querySelectorAll('input[type="file"]'));
+            if (fileInputs.length && !fileInputs.some((input) => (input.files || []).length > 0)) {
+                return;
+            }
             if (form.dataset.aiCmdStarted === '1') return;
             form.dataset.aiCmdStarted = '1';
             open(form);
