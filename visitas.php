@@ -101,13 +101,14 @@ function visitas_update_agenda(PDO $pdo, int $visitId, array $data, int $created
         }
     }
 
-    if (trim((string)($data['agendar'] ?? '')) === '') {
+    if (
+        trim((string)($data['agendar'] ?? '')) === ''
+        || !valid_date_string($data['data_sugerida'] ?? '')
+    ) {
         return false;
     }
 
-    $suggestedDate = valid_date_string($data['data_sugerida'] ?? '')
-        ? (string)$data['data_sugerida']
-        : date('Y-m-d', strtotime('+14 days'));
+    $suggestedDate = (string)$data['data_sugerida'];
 
     $q = $pdo->prepare("SELECT COUNT(*) FROM agenda WHERE visit_id=? AND status='sugerido'");
     $q->execute([$visitId]);
