@@ -840,6 +840,347 @@ function product_line_id_from_text(PDO $pdo, string $text): ?int
     return null;
 }
 
+function openai_call_json_schema(PDO $pdo, array $content, string $schemaName, array $schema, string $fallbackModel = 'gpt-5.6-sol'): array
+{
+    $config = integration_get($pdo, 'openai');
+    $apiKey = secret_decrypt($config['access_token'] ?? '');
+    if (empty($config['is_active']) || $apiKey === '') {
+        throw new RuntimeException('Configure e ative ChatGPT / OpenAI em Configurações.');
+    }
+    if (!extension_loaded('curl')) {
+        throw new RuntimeException('A extensão PHP cURL precisa estar ativa no servidor.');
+    }
+
+    $extra = json_decode((string)($config['extra_json'] ?? '{}'), true);
+    $model = trim((string)($extra['model'] ?? '')) ?: $fallbackModel;
+
+    $payload = [
+        'model' => $model,
+        'store' => false,
+        'input' => [[
+            'role' => 'user',
+            'content' => $content,
+        ]],
+        'text' => [
+            'format' => [
+                'type' => 'json_schema',
+                'name' => $schemaName,
+                'strict' => true,
+                'schema' => $schema,
+            ],
+        ],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 180,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ]);
+
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false) {
+        throw new RuntimeException('Falha ao consultar a OpenAI: ' . $error);
+    }
+
+    $response = json_decode($raw, true);
+    if (!is_array($response) || $status < 200 || $status >= 300) {
+        $message = is_array($response) ? (string)($response['error']['message'] ?? 'erro não informado') : 'resposta inválida';
+        throw new RuntimeException('OpenAI HTTP ' . $status . ': ' . $message);
+    }
+
+    $data = json_decode(openai_response_text($response), true);
+    if (!is_array($data)) {
+        throw new RuntimeException('A IA não retornou dados estruturados válidos.');
+    }
+
+    return $data;
+}
+
+function openai_read_salesforce_report(PDO $pdo, array $file): array
+{
+    $name = (string)($file['name'] ?? 'relatorio');
+    $tmp = (string)($file['tmp_name'] ?? '');
+    $size = (int)($file['size'] ?? 0);
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+
+    if ($error !== UPLOAD_ERR_OK || $tmp === '' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException('Não foi possível receber o relatório do Salesforce.');
+    }
+    if ($size <= 0 || $size > 20 * 1024 * 1024) {
+        throw new RuntimeException('O relatório do Salesforce deve ter no máximo 20 MB.');
+    }
+
+    $itemSchema = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'deal_id' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+            'client' => ['type' => 'string'],
+            'amount' => ['type' => 'number'],
+            'stage' => ['type' => 'string'],
+            'owner' => ['type' => 'string'],
+            'commission' => ['type' => 'number'],
+        ],
+        'required' => ['deal_id','name','client','amount','stage','owner','commission'],
+    ];
+
+    $schema = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'opportunities' => [
+                'type' => 'array',
+                'items' => $itemSchema,
+            ],
+        ],
+        'required' => ['opportunities'],
+    ];
+
+    $prompt = <<<'PROMPT'
+Você está lendo um relatório semanal de oportunidades agenciadas da Ingersoll Rand / Salesforce para o CRM DNB.
+Extraia as oportunidades do relatório, sem inventar dados.
+
+Para cada oportunidade retorne:
+- deal_id: ID da oportunidade no Salesforce, se existir.
+- name: nome/número da oportunidade.
+- client: conta/cliente.
+- amount: valor total da oportunidade.
+- stage: fase/Stage exatamente como aparece.
+- owner: proprietário/vendedor.
+- commission: comissão DNB, apenas se o relatório trouxer esse valor; caso contrário 0.
+
+Ignore totais, cabeçalhos repetidos, linhas vazias, subtotais e registros que não representem uma oportunidade.
+PROMPT;
+
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $content = [];
+
+    if ($ext === 'pdf') {
+        $bytes = file_get_contents($tmp);
+        if ($bytes === false || $bytes === '') {
+            throw new RuntimeException('Não foi possível ler o PDF do Salesforce.');
+        }
+
+        $content[] = [
+            'type' => 'input_file',
+            'filename' => preg_replace('/[^A-Za-z0-9._-]/', '_', $name) ?: 'salesforce.pdf',
+            'file_data' => 'data:application/pdf;base64,' . base64_encode($bytes),
+        ];
+        $content[] = ['type' => 'input_text', 'text' => $prompt];
+    } else {
+        $rows = rows_to_assoc(spreadsheet_rows_from_upload($file));
+        if (!$rows) {
+            throw new RuntimeException('O relatório do Salesforce está vazio.');
+        }
+        if (count($rows) > 350) {
+            throw new RuntimeException('O relatório possui mais de 350 oportunidades. Divida-o em arquivos menores para leitura segura pela IA.');
+        }
+
+        $content[] = [
+            'type' => 'input_text',
+            'text' => $prompt . "\n\nDADOS DO RELATÓRIO:\n" . json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+    }
+
+    $result = openai_call_json_schema($pdo, $content, 'salesforce_opportunities', $schema);
+    return is_array($result['opportunities'] ?? null) ? $result['opportunities'] : [];
+}
+
+function openai_build_quote_reminder_email(PDO $pdo, array $opportunity, array $latestNotes = []): array
+{
+    $notes = [];
+    foreach (array_slice($latestNotes, 0, 5) as $note) {
+        $notes[] = trim((string)($note['created_at'] ?? '')) . ' · ' . trim((string)($note['author_name'] ?? '')) . ': ' . trim((string)($note['note'] ?? ''));
+    }
+
+    $schema = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'subject' => ['type' => 'string'],
+            'text' => ['type' => 'string'],
+        ],
+        'required' => ['subject','text'],
+    ];
+
+    $prompt = 'Escreva um lembrete interno, curto e profissional, em português do Brasil, para o vendedor e o suporte da DNB. '
+        . 'Existe uma oportunidade originada de visita que continua com a pendência "Realizar orçamento". '
+        . 'Não invente informações. O texto deve pedir ação hoje e mencionar cliente, número da oportunidade e quantos dias a pendência está aberta. '
+        . 'Não use markdown.\n\n'
+        . 'Oportunidade: ' . (string)($opportunity['number'] ?? '') . "\n"
+        . 'Cliente: ' . (string)($opportunity['client_name'] ?? '') . "\n"
+        . 'Vendedor: ' . (string)($opportunity['seller_name'] ?? '') . "\n"
+        . 'Suporte: ' . (string)($opportunity['support_name'] ?? '') . "\n"
+        . 'Pendente desde: ' . (string)($opportunity['quote_required_at'] ?? $opportunity['created_at'] ?? '') . "\n"
+        . 'Últimas anotações: ' . ($notes ? implode(' | ', $notes) : 'nenhuma anotação registrada');
+
+    return openai_call_json_schema(
+        $pdo,
+        [['type' => 'input_text', 'text' => $prompt]],
+        'quote_reminder_email',
+        $schema
+    );
+}
+
+function resend_settings(PDO $pdo): array
+{
+    $cfg = integration_get($pdo, 'resend');
+    $extra = json_decode((string)($cfg['extra_json'] ?? '{}'), true);
+    return [
+        'active' => !empty($cfg['is_active']),
+        'api_key' => secret_decrypt($cfg['access_token'] ?? ''),
+        'from_email' => trim((string)($cfg['client_id'] ?? '')),
+        'from_name' => trim((string)($extra['from_name'] ?? 'DNB CRM')),
+    ];
+}
+
+function resend_send_email(PDO $pdo, array $to, string $subject, string $text): void
+{
+    $cfg = resend_settings($pdo);
+    if (!$cfg['active'] || $cfg['api_key'] === '' || !filter_var($cfg['from_email'], FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Configure e ative o Resend em Configurações antes de enviar lembretes.');
+    }
+
+    $to = array_values(array_unique(array_filter(array_map(
+        static fn($email) => filter_var((string)$email, FILTER_VALIDATE_EMAIL) ? strtolower(trim((string)$email)) : null,
+        $to
+    ))));
+
+    if (!$to) {
+        throw new RuntimeException('A oportunidade não possui destinatários de e-mail válidos.');
+    }
+
+    $from = $cfg['from_name'] !== ''
+        ? $cfg['from_name'] . ' <' . $cfg['from_email'] . '>'
+        : $cfg['from_email'];
+
+    $payload = [
+        'from' => $from,
+        'to' => $to,
+        'subject' => trim($subject),
+        'text' => trim($text),
+    ];
+
+    $ch = curl_init('https://api.resend.com/emails');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $cfg['api_key'],
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ]);
+
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false) {
+        throw new RuntimeException('Falha ao enviar e-mail pelo Resend: ' . $error);
+    }
+    if ($status < 200 || $status >= 300) {
+        $data = json_decode($raw, true);
+        $message = is_array($data) ? (string)($data['message'] ?? 'erro não informado') : 'erro não informado';
+        throw new RuntimeException('Resend HTTP ' . $status . ': ' . $message);
+    }
+}
+
+function process_quote_reminders(PDO $pdo): array
+{
+    ensure_opportunity_tracking_schema($pdo);
+
+    $openai = integration_get($pdo, 'openai');
+    $resend = resend_settings($pdo);
+
+    if (empty($openai['is_active']) || secret_decrypt($openai['access_token'] ?? '') === '') {
+        return ['sent' => 0, 'skipped' => 0, 'errors' => ['ChatGPT / OpenAI não está ativo.']];
+    }
+    if (!$resend['active'] || $resend['api_key'] === '' || !filter_var($resend['from_email'], FILTER_VALIDATE_EMAIL)) {
+        return ['sent' => 0, 'skipped' => 0, 'errors' => ['Resend não está configurado/ativo.']];
+    }
+
+    $sql = "SELECT o.*,
+                   seller.name seller_name,seller.email seller_email,
+                   support.name support_name,support.email support_email
+            FROM opportunities o
+            LEFT JOIN users seller ON seller.id=o.seller_user_id
+            LEFT JOIN users support ON support.id=o.support_user_id
+            WHERE o.status='Aberta'
+              AND o.quote_required=1
+              AND o.quote_completed_at IS NULL
+              AND COALESCE(o.quote_required_at,o.created_at) <= (NOW() - INTERVAL 1 DAY)
+              AND (o.quote_reminder_last_sent_at IS NULL OR o.quote_reminder_last_sent_at <= (NOW() - INTERVAL 1 DAY))
+            ORDER BY COALESCE(o.quote_required_at,o.created_at) ASC
+            LIMIT 100";
+    $items = $pdo->query($sql)->fetchAll();
+
+    $sent = 0;
+    $skipped = 0;
+    $errors = [];
+
+    foreach ($items as $opportunity) {
+        try {
+            $recipients = array_values(array_unique(array_filter([
+                $opportunity['seller_email'] ?? null,
+                $opportunity['support_email'] ?? null,
+            ], static fn($v) => is_string($v) && filter_var($v, FILTER_VALIDATE_EMAIL))));
+
+            if (!$recipients) {
+                $skipped++;
+                $errors[] = $opportunity['number'] . ': vendedor/suporte sem e-mail válido.';
+                continue;
+            }
+
+            $notesQ = $pdo->prepare(
+                'SELECT n.note,n.created_at,u.name author_name
+                 FROM opportunity_notes n
+                 JOIN users u ON u.id=n.user_id
+                 WHERE n.opportunity_id=?
+                 ORDER BY n.id DESC
+                 LIMIT 5'
+            );
+            $notesQ->execute([(int)$opportunity['id']]);
+            $notes = $notesQ->fetchAll();
+
+            $email = openai_build_quote_reminder_email($pdo, $opportunity, $notes);
+            resend_send_email($pdo, $recipients, (string)$email['subject'], (string)$email['text']);
+
+            $pdo->prepare('UPDATE opportunities SET quote_reminder_last_sent_at=NOW() WHERE id=?')
+                ->execute([(int)$opportunity['id']]);
+
+            $pdo->prepare(
+                'INSERT INTO audit_logs (user_id,action,entity_type,entity_id,context_json)
+                 VALUES (NULL,"quote_reminder_email","opportunity",?,?)'
+            )->execute([
+                (int)$opportunity['id'],
+                json_encode(['to'=>$recipients], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]);
+
+            $sent++;
+        } catch (Throwable $e) {
+            $errors[] = $opportunity['number'] . ': ' . $e->getMessage();
+        }
+    }
+
+    return ['sent'=>$sent,'skipped'=>$skipped,'errors'=>$errors];
+}
+
 function openai_extract_erp_quote(PDO $pdo, string $tmpPath, string $filename): array
 {
     $config = integration_get($pdo, 'openai');
