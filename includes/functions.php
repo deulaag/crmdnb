@@ -932,8 +932,9 @@ function openai_read_salesforce_report(PDO $pdo, array $file): array
             'stage' => ['type' => 'string'],
             'owner' => ['type' => 'string'],
             'commission' => ['type' => 'number'],
+            'loss_reason' => ['type' => 'string'],
         ],
-        'required' => ['deal_id','name','client','amount','stage','owner','commission'],
+        'required' => ['deal_id','name','client','amount','stage','owner','commission','loss_reason'],
     ];
 
     $schema = [
@@ -960,6 +961,7 @@ Para cada oportunidade retorne:
 - stage: fase/Stage exatamente como aparece.
 - owner: proprietário/vendedor.
 - commission: comissão DNB, apenas se o relatório trouxer esse valor; caso contrário 0.
+- loss_reason: motivo da perda somente se a oportunidade estiver perdida e o relatório trouxer esse motivo; caso contrário deixe vazio.
 
 Ignore totais, cabeçalhos repetidos, linhas vazias, subtotais e registros que não representem uma oportunidade.
 PROMPT;
