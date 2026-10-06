@@ -107,7 +107,7 @@ function opportunity_insert(PDO $pdo, int $createdBy, array $data): int
         'INSERT INTO opportunities
         (number,opportunity_date,client_name,company_id,visit_id,seller_user_id,support_user_id,
          product_line_id,funnel_id,stage_id,item_type,amount,status,quote_required,quote_required_at,source,notes,rd_deal_id,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?, ?,?,?,?,?)'
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?,?,?,?,?)'
     );
 
     $q->execute([
