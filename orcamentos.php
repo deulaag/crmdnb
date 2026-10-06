@@ -458,8 +458,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $file = $_FILES['salesforce_file'] ?? null;
             if (!is_array($file)) throw new RuntimeException('Selecione o relatório Salesforce.');
 
-            $rows = rows_to_assoc(spreadsheet_rows_from_upload($file));
-            if (!$rows) throw new RuntimeException('O relatório não contém linhas para sincronizar.');
+            $items = openai_read_salesforce_report($pdo, $file);
+            if (!$items) throw new RuntimeException('A IA não identificou oportunidades no relatório.');
 
             $lineId = product_line_id_from_text($pdo, 'Compressores IR (agenciamento)');
             if (!$lineId) throw new RuntimeException('A linha Compressores IR (agenciamento) não está configurada.');
@@ -469,14 +469,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $updated = 0;
             $skipped = 0;
 
-            foreach ($rows as $row) {
-                $dealId = pick_assoc_value($row, ['Opportunity ID','ID','Opportunity Id']);
-                $dealName = pick_assoc_value($row, ['Opportunity Name','Opportunity','Nome da oportunidade','Nome']);
-                $client = pick_assoc_value($row, ['Account','Conta','Account Name','Cliente']);
-                $amountText = pick_assoc_value($row, ['Amount','Valor','Total']);
-                $stageText = pick_assoc_value($row, ['Stage','Fase','Stage Name']);
-                $owner = pick_assoc_value($row, ['Owner','Proprietário','Proprietario','Owner Name']);
-                $commissionText = pick_assoc_value($row, ['Comissão','Comissao','Commission','Comissão DNB','Comissao DNB']);
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    $skipped++;
+                    continue;
+                }
+
+                $dealId = trim((string)($item['deal_id'] ?? ''));
+                $dealName = trim((string)($item['name'] ?? ''));
+                $client = trim((string)($item['client'] ?? ''));
+                $stageText = trim((string)($item['stage'] ?? ''));
+                $owner = trim((string)($item['owner'] ?? ''));
+                $amount = max(0, (float)($item['amount'] ?? 0));
+                $commission = max(0, (float)($item['commission'] ?? 0));
 
                 if ($client === '' || ($dealId === '' && $dealName === '')) {
                     $skipped++;
@@ -486,8 +491,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $status = salesforce_status($stageText);
                 $stageId = salesforce_stage_match($pdo, $funnelId, $stageText) ?: $firstStageId;
                 $seller = find_user_id_by_name($pdo, $owner);
-                $amount = crm_number_value($amountText);
-                $commission = crm_number_value($commissionText);
 
                 $existing = null;
                 if ($dealId !== '') {
@@ -505,7 +508,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $q = $pdo->prepare(
                         'UPDATE opportunities SET
                          client_name=?,seller_user_id=?,product_line_id=?,funnel_id=?,stage_id=?,item_type=?,
-                         amount=?,dnb_commission_estimated=?,status=?,source="salesforce",rd_deal_id=?,updated_at=CURRENT_TIMESTAMP
+                         amount=?,dnb_commission_estimated=?,status=?,source="salesforce_ai",rd_deal_id=?,updated_at=CURRENT_TIMESTAMP
                          WHERE id=?'
                     );
                     $q->execute([
@@ -521,7 +524,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'INSERT INTO opportunities
                         (number,opportunity_date,client_name,seller_user_id,product_line_id,funnel_id,stage_id,item_type,
                          amount,dnb_commission_estimated,status,source,rd_deal_id,created_by)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,"salesforce",?,?)'
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,"salesforce_ai",?,?)'
                     );
                     $q->execute([
                         $number,date('Y-m-d'),$client,$seller,$lineId,$funnelId,$stageId,$line['item_type'],
@@ -531,10 +534,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            audit($pdo, (int)$user['id'], 'sync_salesforce', 'opportunity', null, [
+            audit($pdo, (int)$user['id'], 'sync_salesforce_ai', 'opportunity', null, [
                 'created'=>$created,'updated'=>$updated,'skipped'=>$skipped,
             ]);
-            flash('success', 'Salesforce sincronizado: ' . $created . ' nova(s), ' . $updated . ' atualizada(s), ' . $skipped . ' ignorada(s).');
+            flash('success', 'Agente leu o relatório Salesforce: ' . $created . ' nova(s), ' . $updated . ' atualizada(s), ' . $skipped . ' ignorada(s).');
 
         } elseif ($action === 'delete') {
             $id = (int)($_POST['id'] ?? 0);
