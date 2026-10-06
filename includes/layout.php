@@ -46,7 +46,7 @@ function page_header(string $title,string $active=''):void
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Michroma&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/app.css?v=10">
+    <link rel="stylesheet" href="assets/css/app.css?v=11">
 </head>
 <body
     class="source-body"
@@ -156,6 +156,25 @@ function page_header(string $title,string $active=''):void
         </section>
     </div>
 
+    <div class="ai-cmd-backdrop" data-ai-cmd-modal hidden aria-hidden="true">
+        <section class="ai-cmd-modal" role="dialog" aria-modal="true" aria-labelledby="ai-cmd-title" aria-describedby="ai-cmd-description">
+            <div class="ai-cmd-head">
+                <div>
+                    <span class="ai-cmd-kicker">AGENTE DE IA · CMD</span>
+                    <h2 id="ai-cmd-title" data-ai-cmd-title>Processando documento</h2>
+                    <p id="ai-cmd-description">Acompanhe a leitura enquanto o servidor e o agente processam o arquivo. Não feche esta página.</p>
+                </div>
+                <span class="ai-cmd-state"><i></i> PROCESSANDO</span>
+            </div>
+            <div class="ai-cmd-progress" aria-hidden="true"><span></span></div>
+            <div class="ai-cmd-files" data-ai-cmd-files></div>
+            <div class="ai-cmd-terminal" data-ai-cmd-terminal role="log" aria-live="polite" aria-relevant="additions"></div>
+            <div class="ai-cmd-foot">
+                <span>O modal será encerrado automaticamente quando o processamento terminar ou a página retornar o resultado.</span>
+            </div>
+        </section>
+    </div>
+
     <div class="session-modal-backdrop" data-session-modal hidden>
         <section class="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-modal-title" aria-describedby="session-modal-description">
             <span class="eyebrow">SEGURANÇA DA SESSÃO</span>
@@ -177,6 +196,7 @@ function page_footer():void
 ?>
     </main>
     <script src="assets/js/ui.js?v=1"></script>
+    <script src="assets/js/ai-cmd.js?v=1"></script>
     <script src="assets/js/app.js?v=6"></script>
 </body>
 </html>
