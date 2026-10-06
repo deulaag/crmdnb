@@ -89,7 +89,8 @@ function visitas_update_agenda(PDO $pdo, int $visitId, array $data, int $created
     $clientPrefix = strtolower(substr($client, 0, 12));
 
     if ($clientPrefix !== '') {
-        $q = $pdo->query("SELECT id, client_name, event_date FROM agenda WHERE status IN ('agendado','confirmado') ORDER BY id DESC");
+        $q = $pdo->prepare("SELECT id, client_name, event_date FROM agenda WHERE status IN ('agendado','confirmado') AND (visit_id IS NULL OR visit_id<>?) ORDER BY id DESC");
+        $q->execute([$visitId]);
         foreach ($q->fetchAll() as $agenda) {
             $agendaClient = strtolower((string)$agenda['client_name']);
             $days = abs((strtotime((string)$agenda['event_date']) - strtotime($visitDate)) / 86400);
