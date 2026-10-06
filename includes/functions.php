@@ -1345,6 +1345,57 @@ function ensure_opportunity_visit_schema(PDO $pdo): void
     $done = true;
 }
 
+function ensure_opportunity_tracking_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+
+    $database = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+    if ($database === '') {
+        throw new RuntimeException('Banco de dados não selecionado.');
+    }
+
+    $q = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME="opportunities"');
+    $q->execute([$database]);
+    $existing = array_flip(array_map('strval', $q->fetchAll(PDO::FETCH_COLUMN)));
+
+    $columns = [
+        'loss_reason' => 'TEXT NULL AFTER status',
+        'loss_recorded_at' => 'DATETIME NULL AFTER loss_reason',
+        'quote_required' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER loss_recorded_at',
+        'quote_required_at' => 'DATETIME NULL AFTER quote_required',
+        'quote_completed_at' => 'DATETIME NULL AFTER quote_required_at',
+        'quote_reference' => 'VARCHAR(120) NULL AFTER quote_completed_at',
+        'quote_reminder_last_sent_at' => 'DATETIME NULL AFTER quote_reference',
+    ];
+
+    foreach ($columns as $name => $definition) {
+        if (!isset($existing[$name])) {
+            $pdo->exec('ALTER TABLE opportunities ADD COLUMN ' . $name . ' ' . $definition);
+        }
+    }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS opportunity_notes (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            opportunity_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            note TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_opportunity_notes_opp_created (opportunity_id, created_at),
+            CONSTRAINT fk_opportunity_note_opp FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE,
+            CONSTRAINT fk_opportunity_note_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    $done = true;
+}
+
+function opportunity_reminder_token(): string
+{
+    return hash_hmac('sha256', 'dnb-crm-opportunity-reminders', app_key_bytes());
+}
+
 function company_upsert_from_customer_data(PDO $pdo, array $data, ?int $ownerUserId = null, ?array $rawLookup = null): int
 {
     ensure_company_cnpja_schema($pdo);
