@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/layout.php';
 $user = require_auth();
 $pdo = db();
 ensure_opportunity_visit_schema($pdo);
+ensure_opportunity_tracking_schema($pdo);
 
 function opportunity_line_context(PDO $pdo, int $lineId): array
 {
@@ -105,8 +106,8 @@ function opportunity_insert(PDO $pdo, int $createdBy, array $data): int
     $q = $pdo->prepare(
         'INSERT INTO opportunities
         (number,opportunity_date,client_name,company_id,visit_id,seller_user_id,support_user_id,
-         product_line_id,funnel_id,stage_id,item_type,amount,status,source,notes,rd_deal_id,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?,?,?)'
+         product_line_id,funnel_id,stage_id,item_type,amount,status,quote_required,quote_required_at,source,notes,rd_deal_id,created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?, ?,?,?,?,?)'
     );
 
     $q->execute([
@@ -122,6 +123,8 @@ function opportunity_insert(PDO $pdo, int $createdBy, array $data): int
         $stageId,
         $line['item_type'],
         $amount,
+        !empty($data['visit_id']) ? 1 : 0,
+        !empty($data['visit_id']) ? date('Y-m-d H:i:s') : null,
         trim((string)($data['source'] ?? 'manual')) ?: 'manual',
         trim((string)($data['notes'] ?? '')) ?: null,
         trim((string)($data['rd_deal_id'] ?? '')) ?: null,
