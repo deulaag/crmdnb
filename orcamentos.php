@@ -1045,7 +1045,7 @@ page_header('Orçamentos','orcamentos');
     <?php if (!$openaiReady): ?>
         <div class="info-panel"><strong>IA necessária.</strong><p>Configure ChatGPT / OpenAI em Configurações para habilitar a leitura dos PDFs do ERP.</p></div>
     <?php endif; ?>
-    <form method="post" enctype="multipart/form-data" data-upload-form>
+    <form method="post" enctype="multipart/form-data" data-upload-form data-ai-cmd data-ai-cmd-context="orcamento-erp" data-ai-cmd-label="Leitura de orçamento ERP">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="import_erp_pdf">
         <div class="pdf-upload-row">
@@ -1068,7 +1068,7 @@ page_header('Orçamentos','orcamentos');
     <?php if (!$openaiReady): ?>
         <div class="info-panel"><strong>IA necessária.</strong><p>Configure ChatGPT / OpenAI em Configurações para habilitar a leitura do relatório Salesforce.</p></div>
     <?php endif; ?>
-    <form method="post" enctype="multipart/form-data" data-upload-form>
+    <form method="post" enctype="multipart/form-data" data-upload-form data-ai-cmd data-ai-cmd-context="salesforce" data-ai-cmd-label="Leitura de relatório Salesforce">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="sync_salesforce">
         <div class="pdf-upload-row">
