@@ -417,9 +417,9 @@ Regras:
 - setor: Setor.
 - oportunidade: comentário da seção 6, resumido em até 300 caracteres.
 - equipamentos: modelos/marcas de equipamentos ou máquinas citados, separados por vírgula.
-- agendar: se houver solicitação, promessa ou necessidade de NOVA visita/retorno, resuma o objetivo em até 120 caracteres; caso contrário deixe vazio.
-- data_sugerida: YYYY-MM-DD somente quando o documento indicar um prazo/data para essa nova visita; caso contrário deixe vazio.
-Nunca invente dados.
+- agendar: ESTE CAMPO É OBRIGATÓRIO. Sempre gere uma recomendação objetiva de retorno/nova visita em até 120 caracteres, baseada somente no conteúdo do relatório. Se o documento trouxer uma solicitação, promessa ou necessidade explícita, use-a. Se não trouxer, proponha o próximo passo comercial/técnico coerente com as oportunidades, equipamentos e observações realmente encontrados no relatório, sem criar fatos novos.
+- data_sugerida: ESTE CAMPO É OBRIGATÓRIO. Se o documento indicar prazo/data de retorno, use essa data em YYYY-MM-DD. Se não indicar, use como regra do CRM a data da visita + 60 dias.
+Nunca invente fatos do cliente. A recomendação de retorno pode ser inferida a partir do conteúdo real do relatório e a data padrão pode seguir a regra +60 dias do CRM.
 PROMPT;
 
     $schema = [
@@ -506,6 +506,25 @@ PROMPT;
     foreach (['os','data','cliente','vendedor','contato','fone','setor','oportunidade','equipamentos','agendar','data_sugerida'] as $key) {
         $data[$key] = trim((string) ($data[$key] ?? ''));
     }
+
+    $baseDate = valid_date_string($data['data'] ?? '')
+        ? new DateTimeImmutable((string)$data['data'])
+        : new DateTimeImmutable('today');
+
+    if ($data['agendar'] === '') {
+        if ($data['oportunidade'] !== '') {
+            $data['agendar'] = 'Retornar ao cliente para acompanhar a oportunidade identificada na visita.';
+        } elseif ($data['equipamentos'] !== '') {
+            $data['agendar'] = 'Realizar nova visita para acompanhar os equipamentos citados no relatório.';
+        } else {
+            $data['agendar'] = 'Realizar retorno comercial para acompanhar os pontos registrados na visita.';
+        }
+    }
+
+    if (!valid_date_string($data['data_sugerida'] ?? '')) {
+        $data['data_sugerida'] = $baseDate->modify('+60 days')->format('Y-m-d');
+    }
+
     return $data;
 }
 
