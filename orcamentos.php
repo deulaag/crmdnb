@@ -482,6 +482,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $owner = trim((string)($item['owner'] ?? ''));
                 $amount = max(0, (float)($item['amount'] ?? 0));
                 $commission = max(0, (float)($item['commission'] ?? 0));
+                $lossReason = trim((string)($item['loss_reason'] ?? ''));
+                if ($status === 'Perdida' && $lossReason === '') {
+                    $lossReason = 'Motivo não informado no relatório Salesforce.';
+                }
 
                 if ($client === '' || ($dealId === '' && $dealName === '')) {
                     $skipped++;
@@ -508,12 +512,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $q = $pdo->prepare(
                         'UPDATE opportunities SET
                          client_name=?,seller_user_id=?,product_line_id=?,funnel_id=?,stage_id=?,item_type=?,
-                         amount=?,dnb_commission_estimated=?,status=?,source="salesforce_ai",rd_deal_id=?,updated_at=CURRENT_TIMESTAMP
+                         amount=?,dnb_commission_estimated=?,status=?,loss_reason=?,loss_recorded_at=?,
+                         source="salesforce_ai",rd_deal_id=?,updated_at=CURRENT_TIMESTAMP
                          WHERE id=?'
                     );
                     $q->execute([
                         $client,$seller,$lineId,$funnelId,$stageId,$line['item_type'],$amount,$commission,
-                        $status,$dealId ?: ($existing['rd_deal_id'] ?? null),(int)$existing['id'],
+                        $status,$status === 'Perdida' ? $lossReason : null,$status === 'Perdida' ? date('Y-m-d H:i:s') : null,
+                        $dealId ?: ($existing['rd_deal_id'] ?? null),(int)$existing['id'],
                     ]);
                     $updated++;
                 } else {
@@ -523,12 +529,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $q = $pdo->prepare(
                         'INSERT INTO opportunities
                         (number,opportunity_date,client_name,seller_user_id,product_line_id,funnel_id,stage_id,item_type,
-                         amount,dnb_commission_estimated,status,source,rd_deal_id,created_by)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,"salesforce_ai",?,?)'
+                         amount,dnb_commission_estimated,status,loss_reason,loss_recorded_at,source,rd_deal_id,created_by)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,"salesforce_ai",?,?)'
                     );
                     $q->execute([
                         $number,date('Y-m-d'),$client,$seller,$lineId,$funnelId,$stageId,$line['item_type'],
-                        $amount,$commission,$status,$dealId ?: null,(int)$user['id'],
+                        $amount,$commission,$status,
+                        $status === 'Perdida' ? $lossReason : null,
+                        $status === 'Perdida' ? date('Y-m-d H:i:s') : null,
+                        $dealId ?: null,(int)$user['id'],
                     ]);
                     $created++;
                 }
