@@ -1,7 +1,7 @@
 <?php
 $root = dirname(__DIR__);
 $required = [
-    'install.php','login.php','painel.php','orcamentos.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
+    'install.php','login.php','painel.php','orcamentos.php','oportunidade.php','opportunity_reminders.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
     'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/dnb-logo.png','config/database.example.php'
 ];
@@ -113,6 +113,46 @@ if (str_contains($orders, 'name="dnb_commission"')) {
 $configPage = file_get_contents($root . '/configuracoes.php');
 if (!str_contains($configPage, 'Políticas por pessoa (parâmetros editáveis)')) {
     fwrite(STDERR, "Políticas por pessoa ausentes da página de Configurações.\n");
+    exit(1);
+}
+
+$opportunityPage = file_get_contents($root . '/oportunidade.php');
+foreach ([
+    'Realizar orçamento',
+    'Anotações do andamento do cliente',
+    'Motivo da perda',
+    'opportunity_notes',
+    'quote_completed_at'
+] as $needle) {
+    if (!str_contains($opportunityPage, $needle)) {
+        fwrite(STDERR, "Acompanhamento da oportunidade incompleto: {$needle}\n");
+        exit(1);
+    }
+}
+
+$functions = file_get_contents($root . '/includes/functions.php');
+foreach ([
+    'openai_read_salesforce_report',
+    'openai_build_quote_reminder_email',
+    'resend_send_email',
+    'process_quote_reminders'
+] as $needle) {
+    if (!str_contains($functions, 'function ' . $needle)) {
+        fwrite(STDERR, "Automação/agente ausente: {$needle}\n");
+        exit(1);
+    }
+}
+
+$configPage = file_get_contents($root . '/configuracoes.php');
+foreach (['Resend · E-mail','Lembretes de orçamento originado de visita'] as $needle) {
+    if (!str_contains($configPage, $needle)) {
+        fwrite(STDERR, "Configuração de lembretes ausente: {$needle}\n");
+        exit(1);
+    }
+}
+
+if (!str_contains($quotes, 'ChatGPT / OpenAI') || !str_contains($quotes, 'Sincronizar relatório com IA')) {
+    fwrite(STDERR, "Agente OpenAI não está visível nos importadores de Orçamentos.\n");
     exit(1);
 }
 
