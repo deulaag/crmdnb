@@ -1049,7 +1049,7 @@ page_header('Orçamentos','orcamentos');
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="import_erp_pdf">
         <div class="pdf-upload-row">
-            <input type="file" name="erp_pdfs[]" accept="application/pdf,.pdf" multiple class="plain-file-input" <?= !$openaiReady ? 'disabled' : '' ?>>
+            <input type="file" name="erp_pdfs[]" accept="application/pdf,.pdf" multiple required class="plain-file-input" <?= !$openaiReady ? 'disabled' : '' ?>>
             <button class="btn btn-primary" type="submit" data-upload-button data-loading-label="Lendo orçamentos..." <?= !$openaiReady ? 'disabled' : '' ?>>Importar PDFs</button>
         </div>
         <div class="upload-selected" data-upload-selected>Nenhum PDF selecionado.</div>
