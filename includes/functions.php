@@ -1739,6 +1739,311 @@ function opportunity_reminder_token(): string
     return hash_hmac('sha256', 'dnb-crm-opportunity-reminders', app_key_bytes());
 }
 
+function ensure_commercial_automation_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+
+    $database = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+    if ($database === '') {
+        throw new RuntimeException('Banco de dados não selecionado.');
+    }
+
+    $q = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME="agenda"');
+    $q->execute([$database]);
+    $existing = array_flip(array_map('strval', $q->fetchAll(PDO::FETCH_COLUMN)));
+
+    $columns = [
+        'event_type' => 'ENUM("compromisso","followup","visita_retorno") NOT NULL DEFAULT "compromisso" AFTER status',
+        'template_key' => 'VARCHAR(80) NULL AFTER event_type',
+        'reminder_sent_at' => 'DATETIME NULL AFTER template_key',
+        'auto_generated' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER reminder_sent_at',
+    ];
+
+    foreach ($columns as $name => $definition) {
+        if (!isset($existing[$name])) {
+            $pdo->exec('ALTER TABLE agenda ADD COLUMN ' . $name . ' ' . $definition);
+        }
+    }
+
+    try {
+        $pdo->exec('CREATE INDEX idx_agenda_type_date ON agenda (event_type,event_date)');
+    } catch (Throwable $ignored) {
+    }
+    try {
+        $pdo->exec('CREATE INDEX idx_agenda_reminder ON agenda (reminder_sent_at)');
+    } catch (Throwable $ignored) {
+    }
+
+    $done = true;
+}
+
+function commercial_automation_defaults(): array
+{
+    return [
+        'followup_days' => 3,
+        'return_days' => 60,
+        'templates' => [
+            'followup_relacionamento' => [
+                'label' => 'Follow-up · relacionamento',
+                'subject' => '[DNB CRM] Follow-up com {cliente} hoje',
+                'body' => "Olá {nome},\n\nHoje é o follow-up programado da visita realizada em {visita_data} ao cliente {cliente}. Faça um contato para entender o andamento, registrar o retorno no CRM e definir o próximo passo.\n\nContato: {contato}\nOS: {os}\n\nDNB CRM",
+            ],
+            'followup_oportunidade' => [
+                'label' => 'Follow-up · oportunidade',
+                'subject' => '[DNB CRM] Oportunidade identificada · {cliente}',
+                'body' => "Olá {nome},\n\nHá um follow-up programado para hoje referente à oportunidade identificada na visita ao cliente {cliente}. Verifique a evolução da demanda e registre o andamento no CRM.\n\nOportunidade: {oportunidade}\nOS: {os}\nContato: {contato}\n\nDNB CRM",
+            ],
+            'followup_tecnico' => [
+                'label' => 'Follow-up · técnico',
+                'subject' => '[DNB CRM] Follow-up técnico · {cliente}',
+                'body' => "Olá {nome},\n\nHoje é o follow-up técnico programado após a visita ao cliente {cliente}. Confirme a situação dos equipamentos e registre no CRM qualquer necessidade de proposta, serviço ou nova visita.\n\nEquipamentos: {equipamentos}\nOS: {os}\nContato: {contato}\n\nDNB CRM",
+            ],
+            'visita_relacionamento' => [
+                'label' => 'Cronograma · relacionamento',
+                'subject' => '[DNB CRM] Próxima visita programada · {cliente}',
+                'body' => "Olá {nome},\n\nA próxima visita comercial ao cliente {cliente} está programada para {data}. Use o cronograma do CRM para confirmar o compromisso e preparar o objetivo da visita.\n\nContato: {contato}\nVisita anterior: {visita_data}\n\nDNB CRM",
+            ],
+            'visita_oportunidade' => [
+                'label' => 'Cronograma · oportunidade',
+                'subject' => '[DNB CRM] Retorno comercial programado · {cliente}',
+                'body' => "Olá {nome},\n\nO retorno presencial ao cliente {cliente} está programado para {data}. A visita anterior registrou uma oportunidade; revise o histórico antes do contato e atualize o CRM após a visita.\n\nOportunidade: {oportunidade}\nOS anterior: {os}\n\nDNB CRM",
+            ],
+            'visita_tecnica' => [
+                'label' => 'Cronograma · técnico',
+                'subject' => '[DNB CRM] Visita técnica de retorno · {cliente}',
+                'body' => "Olá {nome},\n\nA visita de retorno ao cliente {cliente} está programada para {data}. Revise os equipamentos citados na visita anterior e confirme o compromisso no Cronograma Comercial.\n\nEquipamentos: {equipamentos}\nOS anterior: {os}\n\nDNB CRM",
+            ],
+        ],
+    ];
+}
+
+function commercial_automation_settings(PDO $pdo): array
+{
+    $defaults = commercial_automation_defaults();
+    $cfg = integration_get($pdo, 'commercial_automation');
+    $extra = json_decode((string)($cfg['extra_json'] ?? '{}'), true);
+    $extra = is_array($extra) ? $extra : [];
+
+    $templates = $defaults['templates'];
+    if (is_array($extra['templates'] ?? null)) {
+        foreach ($templates as $key => $defaultTemplate) {
+            if (!is_array($extra['templates'][$key] ?? null)) continue;
+            $saved = $extra['templates'][$key];
+            $templates[$key]['subject'] = trim((string)($saved['subject'] ?? '')) ?: $defaultTemplate['subject'];
+            $templates[$key]['body'] = trim((string)($saved['body'] ?? '')) ?: $defaultTemplate['body'];
+        }
+    }
+
+    return [
+        'followup_days' => 3,
+        'return_days' => 60,
+        'templates' => $templates,
+    ];
+}
+
+function commercial_template_key(array $visit, string $eventType): string
+{
+    $prefix = $eventType === 'visita_retorno' ? 'visita' : 'followup';
+
+    if (trim((string)($visit['opportunity_text'] ?? $visit['oportunidade'] ?? '')) !== '') {
+        return $prefix . '_oportunidade';
+    }
+    if (trim((string)($visit['equipment'] ?? $visit['equipamentos'] ?? '')) !== '') {
+        return $prefix . '_tecnico';
+    }
+    return $prefix . '_relacionamento';
+}
+
+function commercial_render_template(string $text, array $vars): string
+{
+    $replace = [];
+    foreach ($vars as $key => $value) {
+        $replace['{' . $key . '}'] = (string)$value;
+    }
+    return strtr($text, $replace);
+}
+
+function schedule_visit_commercial_automation(PDO $pdo, int $visitId, array $data, int $createdBy): array
+{
+    ensure_commercial_automation_schema($pdo);
+
+    $visitDate = valid_date_string($data['data'] ?? '')
+        ? new DateTimeImmutable((string)$data['data'])
+        : new DateTimeImmutable('today');
+
+    $client = trim((string)($data['cliente'] ?? ''));
+    if ($client === '') {
+        throw new RuntimeException('Cliente ausente; não foi possível criar o cronograma automático.');
+    }
+
+    $sellerId = ($data['seller_user_id'] ?? '') !== '' && $data['seller_user_id'] !== null
+        ? (int)$data['seller_user_id']
+        : null;
+
+    $contact = trim(implode(' · ', array_filter([
+        trim((string)($data['contato'] ?? '')),
+        trim((string)($data['fone'] ?? '')),
+    ])));
+
+    $settings = commercial_automation_settings($pdo);
+    $followupDate = $visitDate->modify('+' . (int)$settings['followup_days'] . ' days')->format('Y-m-d');
+    $returnDate = $visitDate->modify('+' . (int)$settings['return_days'] . ' days')->format('Y-m-d');
+
+    $visitShape = [
+        'opportunity_text' => trim((string)($data['oportunidade'] ?? '')),
+        'equipment' => trim((string)($data['equipamentos'] ?? '')),
+    ];
+
+    $plans = [
+        [
+            'type' => 'followup',
+            'date' => $followupDate,
+            'template' => commercial_template_key($visitShape, 'followup'),
+            'objective' => $visitShape['opportunity_text'] !== ''
+                ? 'Follow-up da oportunidade identificada na visita'
+                : ($visitShape['equipment'] !== '' ? 'Follow-up técnico pós-visita' : 'Follow-up comercial pós-visita'),
+            'source' => 'auto-followup-3d',
+        ],
+        [
+            'type' => 'visita_retorno',
+            'date' => $returnDate,
+            'template' => commercial_template_key($visitShape, 'visita_retorno'),
+            'objective' => $visitShape['opportunity_text'] !== ''
+                ? 'Visita de retorno para acompanhamento da oportunidade'
+                : ($visitShape['equipment'] !== '' ? 'Visita técnica de retorno' : 'Visita comercial de relacionamento'),
+            'source' => 'auto-retorno-60d',
+        ],
+    ];
+
+    $created = [];
+    foreach ($plans as $plan) {
+        $check = $pdo->prepare('SELECT id FROM agenda WHERE visit_id=? AND event_type=? AND source=? LIMIT 1');
+        $check->execute([$visitId,$plan['type'],$plan['source']]);
+        $existingId = (int)($check->fetchColumn() ?: 0);
+
+        if ($existingId > 0) {
+            $created[$plan['type']] = ['id'=>$existingId,'date'=>$plan['date'],'created'=>false];
+            continue;
+        }
+
+        $q = $pdo->prepare(
+            'INSERT INTO agenda
+             (event_date,event_time,client_name,user_id,contact_name,objective,status,event_type,template_key,reminder_sent_at,auto_generated,source,visit_id,created_by)
+             VALUES (?,NULL,?,?,?,?, "agendado",?,?,NULL,1,?,?,?)'
+        );
+        $q->execute([
+            $plan['date'],
+            $client,
+            $sellerId,
+            $contact ?: null,
+            $plan['objective'],
+            $plan['type'],
+            $plan['template'],
+            $plan['source'],
+            $visitId,
+            $createdBy,
+        ]);
+
+        $created[$plan['type']] = [
+            'id' => (int)$pdo->lastInsertId(),
+            'date' => $plan['date'],
+            'created' => true,
+        ];
+    }
+
+    return $created;
+}
+
+function process_commercial_agenda_reminders(PDO $pdo): array
+{
+    ensure_commercial_automation_schema($pdo);
+    $settings = commercial_automation_settings($pdo);
+    $resend = resend_settings($pdo);
+
+    if (!$resend['active'] || $resend['api_key'] === '' || !filter_var($resend['from_email'], FILTER_VALIDATE_EMAIL)) {
+        return ['sent'=>0,'skipped'=>0,'errors'=>['Resend não está configurado/ativo.']];
+    }
+
+    $sql = "SELECT a.*,
+                   u.name user_name,u.email user_email,
+                   v.os_number,v.visit_date,v.opportunity_text,v.equipment
+            FROM agenda a
+            LEFT JOIN users u ON u.id=a.user_id
+            LEFT JOIN visits v ON v.id=a.visit_id
+            WHERE a.event_type IN ('followup','visita_retorno')
+              AND a.auto_generated=1
+              AND a.status IN ('sugerido','agendado','confirmado')
+              AND a.reminder_sent_at IS NULL
+              AND a.event_date <= CURDATE()
+            ORDER BY a.event_date ASC,a.id ASC
+            LIMIT 200";
+    $items = $pdo->query($sql)->fetchAll();
+
+    $sent = 0;
+    $skipped = 0;
+    $errors = [];
+
+    foreach ($items as $item) {
+        try {
+            $email = trim((string)($item['user_email'] ?? ''));
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $skipped++;
+                $errors[] = $item['client_name'] . ': responsável sem e-mail válido.';
+                continue;
+            }
+
+            $templateKey = trim((string)($item['template_key'] ?? ''));
+            $template = $settings['templates'][$templateKey] ?? null;
+            if (!is_array($template)) {
+                $fallbackKey = $item['event_type'] === 'visita_retorno'
+                    ? commercial_template_key($item, 'visita_retorno')
+                    : commercial_template_key($item, 'followup');
+                $template = $settings['templates'][$fallbackKey] ?? null;
+            }
+            if (!is_array($template)) {
+                throw new RuntimeException('Modelo de e-mail não encontrado.');
+            }
+
+            $vars = [
+                'nome' => trim((string)($item['user_name'] ?? 'colaborador')),
+                'cliente' => trim((string)($item['client_name'] ?? '')),
+                'data' => valid_date_string((string)$item['event_date']) ? date('d/m/Y', strtotime((string)$item['event_date'])) : (string)$item['event_date'],
+                'visita_data' => valid_date_string((string)($item['visit_date'] ?? '')) ? date('d/m/Y', strtotime((string)$item['visit_date'])) : '—',
+                'contato' => trim((string)($item['contact_name'] ?? '')) ?: '—',
+                'os' => trim((string)($item['os_number'] ?? '')) ?: '—',
+                'oportunidade' => trim((string)($item['opportunity_text'] ?? '')) ?: '—',
+                'equipamentos' => trim((string)($item['equipment'] ?? '')) ?: '—',
+                'objetivo' => trim((string)($item['objective'] ?? '')),
+            ];
+
+            $subject = commercial_render_template((string)$template['subject'], $vars);
+            $body = commercial_render_template((string)$template['body'], $vars);
+
+            resend_send_email($pdo, [$email], $subject, $body);
+
+            $pdo->prepare('UPDATE agenda SET reminder_sent_at=NOW() WHERE id=?')->execute([(int)$item['id']]);
+            $pdo->prepare(
+                'INSERT INTO audit_logs (user_id,action,entity_type,entity_id,context_json)
+                 VALUES (NULL,"commercial_agenda_reminder","agenda",?,?)'
+            )->execute([
+                (int)$item['id'],
+                json_encode([
+                    'event_type'=>$item['event_type'],
+                    'to'=>$email,
+                    'template_key'=>$templateKey,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]);
+
+            $sent++;
+        } catch (Throwable $e) {
+            $errors[] = (string)($item['client_name'] ?? 'Agenda') . ': ' . $e->getMessage();
+        }
+    }
+
+    return ['sent'=>$sent,'skipped'=>$skipped,'errors'=>$errors];
+}
+
 function company_upsert_from_customer_data(PDO $pdo, array $data, ?int $ownerUserId = null, ?array $rawLookup = null): int
 {
     ensure_company_cnpja_schema($pdo);
