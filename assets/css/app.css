@@ -1818,3 +1818,37 @@ td small{font-size:11px;line-height:1.35}
   }
   .commercial-timeline-head{flex-direction:column}
 }
+
+
+/* Cadência programada */
+.cadence-list{display:grid;gap:10px}
+.cadence-item{
+  display:grid;
+  grid-template-columns:72px minmax(0,1fr) auto;
+  gap:13px;
+  align-items:center;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#fff;
+}
+.cadence-date{
+  display:grid;
+  justify-items:center;
+  gap:2px;
+  padding:8px;
+  border-radius:9px;
+  background:#F5F8FC;
+}
+.cadence-date strong{color:var(--dnb-navy);font-size:18px}
+.cadence-date span{color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:900}
+.cadence-copy{min-width:0}
+.cadence-copy h4{margin:5px 0 0;color:var(--dnb-navy);font-size:14px}
+.cadence-copy p{margin:5px 0;color:#405166;font-size:12px}
+.cadence-copy small{color:var(--muted);font-size:10px}
+
+@media(max-width:700px){
+  .cadence-item{grid-template-columns:1fr}
+  .cadence-date{width:70px;justify-items:start}
+  .cadence-item>.table-action{justify-self:start}
+}
