@@ -469,7 +469,7 @@ page_header('Visitas','visitas');
         <input type="hidden" name="action" value="extract_pdf">
 
         <div class="pdf-upload-row">
-            <input type="file" name="visit_pdfs[]" accept="application/pdf,.pdf" multiple class="plain-file-input" data-pdf-input <?= !$openaiReady ? 'disabled' : '' ?>>
+            <input type="file" name="visit_pdfs[]" accept="application/pdf,.pdf" multiple required class="plain-file-input" data-pdf-input <?= !$openaiReady ? 'disabled' : '' ?>>
             <button
                 class="btn btn-primary"
                 type="submit"
