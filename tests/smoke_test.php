@@ -3,7 +3,7 @@ $root = dirname(__DIR__);
 $required = [
     'install.php','login.php','painel.php','orcamentos.php','oportunidade.php','opportunity_reminders.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
     'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
-    'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/dnb-logo.png','config/database.example.php'
+    'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/js/ai-cmd.js','assets/dnb-logo.png','config/database.example.php'
 ];
 
 foreach ($required as $file) {
@@ -189,6 +189,43 @@ $job = file_get_contents($root . '/opportunity_reminders.php');
 if (!str_contains($job, 'process_commercial_agenda_reminders')) {
     fwrite(STDERR, "Job diário não processa os lembretes do cronograma.\n");
     exit(1);
+}
+
+$visits = file_get_contents($root . '/visitas.php');
+foreach ([
+    'data-ai-cmd-context="visitas"',
+    'Retorno / nova visita sugerida',
+    'Data sugerida para retorno',
+    'required'
+] as $needle) {
+    if (!str_contains($visits, $needle)) {
+        fwrite(STDERR, "Extração de Visitas sem CMD/campos obrigatórios: {$needle}\n");
+        exit(1);
+    }
+}
+
+$quotes = file_get_contents($root . '/orcamentos.php');
+foreach (['data-ai-cmd-context="orcamento-erp"','data-ai-cmd-context="salesforce"'] as $needle) {
+    if (!str_contains($quotes, $needle)) {
+        fwrite(STDERR, "Extração de Orçamentos sem CMD: {$needle}\n");
+        exit(1);
+    }
+}
+
+$layout = file_get_contents($root . '/includes/layout.php');
+foreach (['data-ai-cmd-modal','assets/js/ai-cmd.js'] as $needle) {
+    if (!str_contains($layout, $needle)) {
+        fwrite(STDERR, "Modal CMD global ausente: {$needle}\n");
+        exit(1);
+    }
+}
+
+$functions = file_get_contents($root . '/includes/functions.php');
+foreach (['Retornar ao cliente para acompanhar','+60 days'] as $needle) {
+    if (!str_contains($functions, $needle)) {
+        fwrite(STDERR, "Fallback obrigatório de retorno da IA ausente: {$needle}\n");
+        exit(1);
+    }
 }
 
 echo "Smoke test OK\n";
