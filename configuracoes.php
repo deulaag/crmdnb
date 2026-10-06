@@ -7,13 +7,22 @@ $user = require_admin();
 $pdo = db();
 ensure_commission_policy_schema($pdo);
 
-$allowedProviders = ['rd_crm','rd_marketing','openai','cnpja','turnstile','security'];
+$allowedProviders = ['rd_crm','rd_marketing','openai','resend','cnpja','turnstile','security'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
 
     try {
         $action = (string)($_POST['action'] ?? 'integration');
+
+        if ($action === 'run_quote_reminders') {
+            $result = process_quote_reminders($pdo);
+            $message = (int)$result['sent'] . ' lembrete(s) enviado(s)';
+            if (!empty($result['skipped'])) $message .= ' · ' . (int)$result['skipped'] . ' ignorado(s)';
+            if (!empty($result['errors'])) $message .= ' · ' . implode(' | ', array_slice($result['errors'], 0, 3));
+            flash(!empty($result['errors']) && !(int)$result['sent'] ? 'warning' : 'success', $message . '.');
+            redirect('configuracoes.php#lembretes-orcamento');
+        }
 
         if ($action === 'commission_policy') {
             $targetUserId = (int)($_POST['user_id'] ?? 0);
@@ -114,6 +123,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $extra['model'] = trim((string)($_POST['model'] ?? ''));
         }
 
+        if ($provider === 'resend') {
+            $extra['from_name'] = trim((string)($_POST['from_name'] ?? 'DNB CRM'));
+        }
+
         if ($provider === 'cnpja') {
             $strategy = strtoupper(trim((string)($_POST['strategy'] ?? 'ONLINE')));
             if (!in_array($strategy, ['ONLINE','CACHE_IF_FRESH','CACHE_IF_ERROR','CACHE'], true)) {
@@ -172,6 +185,7 @@ $providers = [
     'rd_crm' => ['RD Station CRM', 'OAuth para negociações, empresas, contatos e usuários.'],
     'rd_marketing' => ['RD Station Marketing', 'Base de leads, conversões e contexto de marketing.'],
     'openai' => ['ChatGPT / OpenAI', 'Assistência de IA acionada somente pelo backend PHP.'],
+    'resend' => ['Resend · E-mail', 'Envio dos lembretes automáticos das pendências de orçamento.'],
     'cnpja' => ['CNPJá · Receita Federal', 'Consulta CNPJ para preencher automaticamente os dados cadastrais do cliente.'],
     'turnstile' => ['Cloudflare Turnstile', 'Proteção anti-bot do login, validada no backend antes da autenticação.'],
     'security' => ['Sessão e Inatividade', 'Tempo de sessão, aviso prévio e renovação segura de acesso.'],
@@ -305,6 +319,12 @@ page_header('Configurações','configuracoes');
                 <label><span>API Key</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'API Key' ?>"></label>
                 <label><span>Modelo</span><input name="model" value="<?= e($extra['model'] ?? '') ?>" placeholder="gpt-5.6-sol"></label>
 
+            <?php elseif ($key === 'resend'): ?>
+                <label><span>API Key do Resend</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 're_...' ?>"></label>
+                <label><span>E-mail remetente verificado</span><input name="client_id" type="email" value="<?= e($cfg['client_id'] ?? '') ?>" placeholder="crm@seudominio.com.br"></label>
+                <label><span>Nome do remetente</span><input name="from_name" value="<?= e($extra['from_name'] ?? 'DNB CRM') ?>" placeholder="DNB CRM"></label>
+                <div class="install-note">O vendedor e o suporte recebem o mesmo lembrete diário enquanto a pendência <strong>Realizar orçamento</strong> estiver aberta.</div>
+
             <?php elseif ($key === 'cnpja'): ?>
                 <label><span>Chave de API CNPJá</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'cole a chave de API' ?>"></label>
 
@@ -372,6 +392,38 @@ page_header('Configurações','configuracoes');
         </form>
     </div>
 <?php endforeach; ?>
+</div>
+
+<div class="card" id="lembretes-orcamento">
+    <div class="card-title">
+        <div>
+            <span class="tag">AUTOMAÇÃO</span>
+            <h3>Lembretes de orçamento originado de visita</h3>
+            <p>Após 24 horas sem concluir o orçamento, o agente gera um e-mail e envia ao vendedor e ao suporte. Enquanto a pendência continuar aberta, o lembrete é repetido no máximo uma vez por dia.</p>
+        </div>
+    </div>
+
+    <?php
+        $openAiCfgReminder = integration_get($pdo, 'openai');
+        $resendCfgReminder = resend_settings($pdo);
+        $openAiReminderReady = !empty($openAiCfgReminder['is_active']) && secret_decrypt($openAiCfgReminder['access_token'] ?? '') !== '';
+        $resendReminderReady = $resendCfgReminder['active'] && $resendCfgReminder['api_key'] !== '' && filter_var($resendCfgReminder['from_email'], FILTER_VALIDATE_EMAIL);
+        $cronToken = opportunity_reminder_token();
+    ?>
+    <div class="automation-status-grid">
+        <div class="automation-status <?= $openAiReminderReady ? 'ready' : 'missing' ?>"><strong>ChatGPT / OpenAI</strong><span><?= $openAiReminderReady ? 'ativo' : 'configuração pendente' ?></span></div>
+        <div class="automation-status <?= $resendReminderReady ? 'ready' : 'missing' ?>"><strong>Resend</strong><span><?= $resendReminderReady ? 'ativo' : 'configuração pendente' ?></span></div>
+    </div>
+
+    <div class="install-note">
+        Agendamento diário do servidor: <code>opportunity_reminders.php?token=<?= e($cronToken) ?></code>. Configure o Cron do cPanel para chamar esse endpoint uma vez por dia. O endpoint também impede repetição antes de completar 24 horas do último envio.
+    </div>
+
+    <form method="post" data-no-draft>
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="run_quote_reminders">
+        <button class="btn btn-secondary" type="submit" <?= (!$openAiReminderReady || !$resendReminderReady) ? 'disabled' : '' ?>>Executar lembretes agora</button>
+    </form>
 </div>
 
 <div class="card" id="politicas-pessoa">
