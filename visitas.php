@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/layout.php';
 $user = require_auth();
 $pdo = db();
 ensure_opportunity_visit_schema($pdo);
+ensure_commercial_automation_schema($pdo);
 $openai = integration_get($pdo, 'openai');
 $openaiExtra = json_decode((string)($openai['extra_json'] ?? '{}'), true) ?: [];
 $openaiModel = trim((string)($openaiExtra['model'] ?? '')) ?: 'gpt-5.6-sol';
@@ -173,6 +174,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
             $items = array_is_list($decoded) ? $decoded : [$decoded];
             $count = 0;
+            $automationCount = 0;
+            $withoutResponsible = 0;
 
             foreach ($items as $item) {
                 if (!is_array($item)) continue;
@@ -189,15 +192,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'seller_user_id' => $sellerId,
                     'tipo' => str_starts_with($typeRaw, 'prosp') ? 'prospeccao' : 'visita',
                     'contato' => trim((string)($item['contato'] ?? '')),
+                    'fone' => trim((string)($item['fone'] ?? $item['telefone'] ?? '')),
                     'setor' => trim((string)($item['setor'] ?? '')),
+                    'equipamentos' => trim((string)($item['equipamentos'] ?? $item['equipamento'] ?? '')),
                     'oportunidade' => trim((string)($item['oportunidade'] ?? $item['comentario'] ?? '')),
                 ], 'json');
 
-                audit($pdo, (int)$user['id'], 'import_json', 'visit', $visitId);
+                $plan = schedule_visit_commercial_automation($pdo, $visitId, [
+                    'data' => valid_date_string($item['data'] ?? '') ? $item['data'] : date('Y-m-d'),
+                    'cliente' => $client,
+                    'seller_user_id' => $sellerId,
+                    'contato' => trim((string)($item['contato'] ?? '')),
+                    'fone' => trim((string)($item['fone'] ?? $item['telefone'] ?? '')),
+                    'equipamentos' => trim((string)($item['equipamentos'] ?? $item['equipamento'] ?? '')),
+                    'oportunidade' => trim((string)($item['oportunidade'] ?? $item['comentario'] ?? '')),
+                ], (int)$user['id']);
+
+                if (!empty($plan['followup']['created']) || !empty($plan['visita_retorno']['created'])) {
+                    $automationCount++;
+                }
+                if (!$sellerId) {
+                    $withoutResponsible++;
+                }
+
+                audit($pdo, (int)$user['id'], 'import_json', 'visit', $visitId, [
+                    'followup_date' => $plan['followup']['date'] ?? null,
+                    'return_date' => $plan['visita_retorno']['date'] ?? null,
+                ]);
                 $count++;
             }
 
-            flash('success', $count . ' visita(s) importada(s).');
+            $message = $count . ' visita(s) importada(s). '
+                . $automationCount . ' com follow-up em 3 dias e próxima visita em 60 dias adicionados ao Cronograma Comercial.';
+            if ($withoutResponsible > 0) {
+                $message .= ' ' . $withoutResponsible . ' visita(s) ficaram sem responsável identificado; o e-mail automático só será enviado após definir o colaborador.';
+            }
+            flash($withoutResponsible > 0 ? 'warning' : 'success', $message);
         }
 
         if ($action === 'extract_pdf') {
@@ -334,12 +364,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $visitId = visitas_insert($pdo, (int)$user['id'], $data, 'ia-pdf');
+                $plan = schedule_visit_commercial_automation($pdo, $visitId, $data, (int)$user['id']);
                 $scheduled = visitas_update_agenda($pdo, $visitId, $data, (int)$user['id']);
+
+                if (empty($data['seller_user_id'])) {
+                    $warnings[] = ($original['arquivo'] ?? 'PDF') . ': responsável não identificado; o follow-up e o retorno foram criados, mas o e-mail automático aguarda a definição do colaborador.';
+                }
 
                 audit($pdo, (int)$user['id'], 'import_extracted_pdf', 'visit', $visitId, [
                     'file' => $original['arquivo'] ?? '',
                     'os' => $data['os'],
-                    'scheduled' => $scheduled,
+                    'ai_suggested_agenda' => $scheduled,
+                    'followup_date' => $plan['followup']['date'] ?? null,
+                    'return_date' => $plan['visita_retorno']['date'] ?? null,
                 ]);
 
                 unset($storedDrafts[$draftId]);
@@ -347,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $_SESSION['visit_pdf_drafts'] = $storedDrafts;
-            $message = $imported . ' visita(s) importada(s).';
+            $message = $imported . ' visita(s) importada(s). Cada visita recebeu follow-up automático para 3 dias e próxima visita no Cronograma Comercial para 60 dias.';
             if ($warnings) $message .= ' ' . implode(' | ', $warnings);
             flash($warnings && $imported === 0 ? 'danger' : ($warnings ? 'warning' : 'success'), $message);
         }
@@ -407,7 +444,7 @@ page_header('Visitas','visitas');
     </div>
 
     <div class="source-help">
-        Anexe as OS Simplificadas exportadas do iliot (app.iliot.tech) — o agente extrai nº da OS, data do check-in, cliente, vendedor, contato, setor e o comentário de oportunidades. Aceita vários PDFs de uma vez. Cada OS importada conta para a meta de visitas do vendedor.
+        Anexe as OS Simplificadas exportadas do iliot (app.iliot.tech) — o agente extrai nº da OS, data do check-in, cliente, vendedor, contato, setor e o comentário de oportunidades. Aceita vários PDFs de uma vez. Ao importar, o CRM cria automaticamente um follow-up para 3 dias e a próxima visita comercial para 60 dias no Cronograma.
     </div>
 
     <?php if ($openaiReady): ?>
