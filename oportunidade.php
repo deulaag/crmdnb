@@ -94,6 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', 'Pendência de orçamento concluída. Os lembretes diários foram encerrados.');
 
         } elseif ($action === 'status_won') {
+            if ((int)$opportunity['quote_required'] === 1 && empty($opportunity['quote_completed_at'])) {
+                throw new RuntimeException('Conclua primeiro a pendência "Realizar orçamento" antes de marcar a oportunidade como Ganha.');
+            }
+
             $pdo->prepare(
                 'UPDATE opportunities
                  SET status="Ganha",loss_reason=NULL,loss_recorded_at=NULL,updated_at=CURRENT_TIMESTAMP
