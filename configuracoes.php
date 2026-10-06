@@ -15,6 +15,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = (string)($_POST['action'] ?? 'integration');
 
+        if ($action === 'save_commercial_templates') {
+            $defaults = commercial_automation_defaults();
+            $posted = $_POST['templates'] ?? [];
+            if (!is_array($posted)) {
+                throw new RuntimeException('Modelos de e-mail inválidos.');
+            }
+
+            $templates = [];
+            foreach ($defaults['templates'] as $key => $defaultTemplate) {
+                $subject = trim((string)($posted[$key]['subject'] ?? $defaultTemplate['subject']));
+                $body = trim((string)($posted[$key]['body'] ?? $defaultTemplate['body']));
+
+                if ($subject === '' || $body === '') {
+                    throw new RuntimeException('Assunto e mensagem não podem ficar vazios.');
+                }
+                if (mb_strlen($subject) > 190 || mb_strlen($body) > 5000) {
+                    throw new RuntimeException('Um dos modelos ultrapassa o tamanho permitido.');
+                }
+
+                $templates[$key] = [
+                    'subject' => $subject,
+                    'body' => $body,
+                ];
+            }
+
+            integration_upsert($pdo, 'commercial_automation', [
+                'is_active' => true,
+                'extra' => [
+                    'followup_days' => 3,
+                    'return_days' => 60,
+                    'templates' => $templates,
+                ],
+            ], (int)$user['id']);
+
+            audit($pdo, (int)$user['id'], 'configure', 'commercial_automation', null, [
+                'followup_days' => 3,
+                'return_days' => 60,
+            ]);
+            flash('success', 'Modelos automáticos de follow-up e cronograma atualizados.');
+            redirect('configuracoes.php#automacao-pos-visita');
+        }
+
+        if ($action === 'run_commercial_reminders') {
+            $result = process_commercial_agenda_reminders($pdo);
+            $message = (int)$result['sent'] . ' aviso(s) de follow-up/cronograma enviado(s)';
+            if (!empty($result['skipped'])) $message .= ' · ' . (int)$result['skipped'] . ' ignorado(s)';
+            if (!empty($result['errors'])) $message .= ' · ' . implode(' | ', array_slice($result['errors'], 0, 3));
+            flash(!empty($result['errors']) && !(int)$result['sent'] ? 'warning' : 'success', $message . '.');
+            redirect('configuracoes.php#automacao-pos-visita');
+        }
+
         if ($action === 'run_quote_reminders') {
             $result = process_quote_reminders($pdo);
             $message = (int)$result['sent'] . ' lembrete(s) enviado(s)';
@@ -56,7 +107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($action === 'branding') {
-            $branding = branding_settings($pdo);
+            $commercialAutomation = commercial_automation_settings($pdo);
+$branding = branding_settings($pdo);
             $changed = false;
 
             if (isset($_POST['remove_portal_logo'])) {
@@ -185,7 +237,7 @@ $providers = [
     'rd_crm' => ['RD Station CRM', 'OAuth para negociações, empresas, contatos e usuários.'],
     'rd_marketing' => ['RD Station Marketing', 'Base de leads, conversões e contexto de marketing.'],
     'openai' => ['ChatGPT / OpenAI', 'Assistência de IA acionada somente pelo backend PHP.'],
-    'resend' => ['Resend · E-mail', 'Envio dos lembretes automáticos das pendências de orçamento.'],
+    'resend' => ['Resend · E-mail', 'Envio automático de pendências de orçamento, follow-ups e lembretes do Cronograma Comercial.'],
     'cnpja' => ['CNPJá · Receita Federal', 'Consulta CNPJ para preencher automaticamente os dados cadastrais do cliente.'],
     'turnstile' => ['Cloudflare Turnstile', 'Proteção anti-bot do login, validada no backend antes da autenticação.'],
     'security' => ['Sessão e Inatividade', 'Tempo de sessão, aviso prévio e renovação segura de acesso.'],
@@ -323,7 +375,7 @@ page_header('Configurações','configuracoes');
                 <label><span>API Key do Resend</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 're_...' ?>"></label>
                 <label><span>E-mail remetente verificado</span><input name="client_id" type="email" value="<?= e($cfg['client_id'] ?? '') ?>" placeholder="crm@seudominio.com.br"></label>
                 <label><span>Nome do remetente</span><input name="from_name" value="<?= e($extra['from_name'] ?? 'DNB CRM') ?>" placeholder="DNB CRM"></label>
-                <div class="install-note">O vendedor e o suporte recebem o mesmo lembrete diário enquanto a pendência <strong>Realizar orçamento</strong> estiver aberta.</div>
+                <div class="install-note">O Resend atende as automações do CRM: pendência <strong>Realizar orçamento</strong>, follow-up pós-visita em 3 dias e próxima visita comercial em 60 dias.</div>
 
             <?php elseif ($key === 'cnpja'): ?>
                 <label><span>Chave de API CNPJá</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salva' : 'cole a chave de API' ?>"></label>
@@ -424,6 +476,97 @@ page_header('Configurações','configuracoes');
         <input type="hidden" name="action" value="run_quote_reminders">
         <button class="btn btn-secondary" type="submit" <?= (!$openAiReminderReady || !$resendReminderReady) ? 'disabled' : '' ?>>Executar lembretes agora</button>
     </form>
+</div>
+
+<div class="card" id="automacao-pos-visita">
+    <div class="card-title">
+        <div>
+            <span class="tag">AUTOMAÇÃO PÓS-VISITA</span>
+            <h3>Follow-up em 3 dias · próxima visita em 60 dias</h3>
+            <p>Toda visita importada cria automaticamente dois compromissos no Cronograma Comercial: follow-up para +3 dias e visita de retorno para +60 dias. O Resend notifica o colaborador responsável na data programada.</p>
+        </div>
+    </div>
+
+    <div class="automation-status-grid">
+        <div class="automation-status ready"><strong>Follow-up</strong><span>+3 dias</span></div>
+        <div class="automation-status ready"><strong>Próxima visita</strong><span>+60 dias</span></div>
+    </div>
+
+    <div class="install-note">
+        O CRM possui três modelos padrão para follow-up e três para cronograma. A escolha automática considera o conteúdo da visita: <strong>relacionamento</strong>, <strong>oportunidade</strong> ou <strong>contexto técnico/equipamentos</strong>. Variáveis disponíveis: <code>{nome}</code>, <code>{cliente}</code>, <code>{data}</code>, <code>{visita_data}</code>, <code>{contato}</code>, <code>{os}</code>, <code>{oportunidade}</code>, <code>{equipamentos}</code> e <code>{objetivo}</code>.
+    </div>
+
+    <form method="post" class="commercial-template-form" data-no-draft>
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="save_commercial_templates">
+
+        <div class="template-groups">
+            <section class="template-group">
+                <div class="template-group-head">
+                    <span class="tag">FOLLOW-UP · +3 DIAS</span>
+                    <h4>3 modelos padrão de follow-up</h4>
+                </div>
+
+                <?php foreach (['followup_relacionamento','followup_oportunidade','followup_tecnico'] as $templateKey):
+                    $template = $commercialAutomation['templates'][$templateKey];
+                ?>
+                    <details class="template-editor">
+                        <summary><?= e($template['label']) ?></summary>
+                        <div class="template-editor-body">
+                            <label>
+                                <span>Assunto</span>
+                                <input name="templates[<?= e($templateKey) ?>][subject]" value="<?= e($template['subject']) ?>" required>
+                            </label>
+                            <label>
+                                <span>Mensagem</span>
+                                <textarea name="templates[<?= e($templateKey) ?>][body]" rows="7" required><?= e($template['body']) ?></textarea>
+                            </label>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </section>
+
+            <section class="template-group">
+                <div class="template-group-head">
+                    <span class="tag">CRONOGRAMA · +60 DIAS</span>
+                    <h4>3 modelos padrão de próxima visita</h4>
+                </div>
+
+                <?php foreach (['visita_relacionamento','visita_oportunidade','visita_tecnica'] as $templateKey):
+                    $template = $commercialAutomation['templates'][$templateKey];
+                ?>
+                    <details class="template-editor">
+                        <summary><?= e($template['label']) ?></summary>
+                        <div class="template-editor-body">
+                            <label>
+                                <span>Assunto</span>
+                                <input name="templates[<?= e($templateKey) ?>][subject]" value="<?= e($template['subject']) ?>" required>
+                            </label>
+                            <label>
+                                <span>Mensagem</span>
+                                <textarea name="templates[<?= e($templateKey) ?>][body]" rows="7" required><?= e($template['body']) ?></textarea>
+                            </label>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </section>
+        </div>
+
+        <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Salvar os 6 modelos</button>
+        </div>
+    </form>
+
+    <div class="commercial-automation-actions">
+        <div class="install-note">
+            O mesmo Cron diário já usado para <strong>opportunity_reminders.php</strong> também processa os follow-ups e as próximas visitas. Portanto, um único agendamento no cPanel cuida das três automações.
+        </div>
+        <form method="post" data-no-draft>
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="run_commercial_reminders">
+            <button class="btn btn-secondary" type="submit" <?= !$resendReminderReady ? 'disabled' : '' ?>>Executar avisos pós-visita agora</button>
+        </form>
+    </div>
 </div>
 
 <div class="card" id="politicas-pessoa">
