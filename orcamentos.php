@@ -767,6 +767,8 @@ $cnpjaConfig = integration_get($pdo, 'cnpja');
 $cnpjaReady = !empty($cnpjaConfig['is_active']) && secret_decrypt($cnpjaConfig['access_token'] ?? '') !== '';
 $openaiConfig = integration_get($pdo, 'openai');
 $openaiReady = !empty($openaiConfig['is_active']) && secret_decrypt($openaiConfig['access_token'] ?? '') !== '';
+$openaiExtra = json_decode((string)($openaiConfig['extra_json'] ?? '{}'), true) ?: [];
+$openaiModel = trim((string)($openaiExtra['model'] ?? '')) ?: 'gpt-5.6-sol';
 
 page_header('Orçamentos','orcamentos');
 ?>
@@ -1015,6 +1017,10 @@ page_header('Orçamentos','orcamentos');
     <div class="card-title">
         <div><span class="tag">IMPORTAR ORÇAMENTO DO ERP (PDF)</span></div>
     </div>
+    <div class="ai-integration-line <?= $openaiReady ? 'ready' : 'missing' ?>">
+        <strong>ChatGPT / OpenAI <?= $openaiReady ? 'ativo' : 'inativo' ?></strong>
+        <span><?= $openaiReady ? e($openaiModel) . ' · agente lendo o PDF' : 'configure a integração para liberar a leitura' ?></span>
+    </div>
     <p class="source-help">Anexe o PDF do orçamento emitido pelo ERP — o agente lê o documento e extrai nº, data, cliente, vendedor, valor e linha automaticamente. Aceita vários arquivos de uma vez. Revise os dados importados na tabela antes de usar.</p>
     <?php if (!$openaiReady): ?>
         <div class="info-panel"><strong>IA necessária.</strong><p>Configure ChatGPT / OpenAI em Configurações para habilitar a leitura dos PDFs do ERP.</p></div>
@@ -1034,13 +1040,20 @@ page_header('Orçamentos','orcamentos');
     <div class="card-title">
         <div><span class="tag">SINCRONIZAR RELATÓRIO SEMANAL SALESFORCE (AGENCIADOS IR)</span></div>
     </div>
-    <p class="source-help">Exporte o relatório de oportunidades do Salesforce (CSV ou Excel) e anexe aqui. Oportunidades já sincronizadas são atualizadas — nunca duplicadas. Novas entram no funil de Equipamentos como Compressores IR (agenciamento), com a fase mapeada para a etapa do funil. Colunas reconhecidas: Opportunity Name/ID, Account/Conta, Amount/Valor, Stage/Fase, Owner/Proprietário, Comissão.</p>
-    <form method="post" enctype="multipart/form-data">
+    <div class="ai-integration-line <?= $openaiReady ? 'ready' : 'missing' ?>">
+        <strong>ChatGPT / OpenAI <?= $openaiReady ? 'ativo' : 'inativo' ?></strong>
+        <span><?= $openaiReady ? e($openaiModel) . ' · agente lendo e normalizando o relatório' : 'configure a integração para liberar a sincronização' ?></span>
+    </div>
+    <p class="source-help">Anexe o relatório semanal do Salesforce em CSV, XLSX ou PDF. O agente lê o arquivo, identifica as oportunidades e normaliza ID, cliente, valor, fase, proprietário e comissão DNB. Oportunidades já sincronizadas são atualizadas — nunca duplicadas.</p>
+    <?php if (!$openaiReady): ?>
+        <div class="info-panel"><strong>IA necessária.</strong><p>Configure ChatGPT / OpenAI em Configurações para habilitar a leitura do relatório Salesforce.</p></div>
+    <?php endif; ?>
+    <form method="post" enctype="multipart/form-data" data-upload-form>
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="sync_salesforce">
         <div class="pdf-upload-row">
-            <input type="file" name="salesforce_file" accept=".csv,.xlsx" class="plain-file-input" required>
-            <button class="btn btn-secondary" type="submit">Sincronizar relatório</button>
+            <input type="file" name="salesforce_file" accept=".csv,.xlsx,application/pdf,.pdf" class="plain-file-input" required <?= !$openaiReady ? 'disabled' : '' ?>>
+            <button class="btn btn-secondary" type="submit" data-upload-button data-loading-label="Agente lendo relatório..." <?= !$openaiReady ? 'disabled' : '' ?>>Sincronizar relatório com IA</button>
         </div>
     </form>
 </div>
