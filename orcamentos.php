@@ -579,9 +579,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'status') {
             $id = (int)($_POST['id'] ?? 0);
             $status = (string)($_POST['status'] ?? '');
-            if (!in_array($status, ['Aberta','Ganha','Perdida'], true)) throw new RuntimeException('Status inválido.');
+            if (!in_array($status, ['Aberta','Ganha'], true)) {
+                throw new RuntimeException('Para registrar uma perda, abra a oportunidade e informe o motivo da perda.');
+            }
 
-            $pdo->prepare('UPDATE opportunities SET status=? WHERE id=?')->execute([$status,$id]);
+            $pdo->prepare('UPDATE opportunities SET status=?,loss_reason=NULL,loss_recorded_at=NULL WHERE id=?')->execute([$status,$id]);
             audit($pdo, (int)$user['id'], 'update_status', 'opportunity', $id, ['status'=>$status]);
             flash('success', 'Status atualizado.');
         }
@@ -1081,11 +1083,16 @@ page_header('Orçamentos','orcamentos');
                 <?php foreach($rows as $row): ?>
                     <tr>
                         <td><?= e($row['opportunity_date']) ?></td>
-                        <td class="mono"><?= e($row['number']) ?></td>
+                        <td class="mono"><a class="opportunity-link" href="oportunidade.php?id=<?= (int)$row['id'] ?>"><?= e($row['number']) ?></a></td>
                         <td>
-                            <strong><?= e($row['client_name']) ?></strong>
+                            <a class="opportunity-client-link" href="oportunidade.php?id=<?= (int)$row['id'] ?>"><strong><?= e($row['client_name']) ?></strong></a>
                             <?php if($row['company_cnpj']): ?><small><?= e(format_cnpj($row['company_cnpj'])) ?></small><?php endif; ?>
-                            <?php if((int)($row['visit_id'] ?? 0)>0): ?><small>Origem: visita</small><?php endif; ?>
+                            <?php if((int)($row['visit_id'] ?? 0)>0): ?>
+                                <small>Origem: visita</small>
+                                <?php if ((int)($row['quote_required'] ?? 0) === 1 && empty($row['quote_completed_at'])): ?>
+                                    <span class="pending-inline">Pendente: realizar orçamento</span>
+                                <?php endif; ?>
+                            <?php endif; ?>
                         </td>
                         <td><?= e($row['seller_name'] ?: '—') ?></td>
                         <td><?= e($row['line_name']) ?><small><?= e($row['funnel_label']) ?></small></td>
@@ -1107,6 +1114,10 @@ page_header('Orçamentos','orcamentos');
                         <td><span class="status status-<?= strtolower(e($row['status'])) ?>"><?= e($row['status']) ?></span></td>
                         <td>
                             <div class="opportunity-actions">
+                                <a class="table-action" href="oportunidade.php?id=<?= (int)$row['id'] ?>">Abrir</a>
+                                <?php if ((int)($row['quote_required'] ?? 0) === 1 && empty($row['quote_completed_at'])): ?>
+                                    <a class="table-action pending" href="oportunidade.php?id=<?= (int)$row['id'] ?>">Realizar orçamento</a>
+                                <?php endif; ?>
                                 <a class="table-action" href="orcamentos.php?edit=<?= (int)$row['id'] ?>#opportunity-form">Editar</a>
 
                                 <?php if($row['status'] === 'Aberta'): ?>
@@ -1114,10 +1125,7 @@ page_header('Orçamentos','orcamentos');
                                         <?= csrf_field() ?><input type="hidden" name="action" value="status"><input type="hidden" name="id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="status" value="Ganha">
                                         <button class="table-action success" type="submit">Ganha</button>
                                     </form>
-                                    <form method="post">
-                                        <?= csrf_field() ?><input type="hidden" name="action" value="status"><input type="hidden" name="id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="status" value="Perdida">
-                                        <button class="table-action warning" type="submit">Perdida</button>
-                                    </form>
+                                    <a class="table-action warning" href="oportunidade.php?id=<?= (int)$row['id'] ?>#resultado">Perdida</a>
                                 <?php endif; ?>
 
                                 <form method="post" data-confirm="Excluir definitivamente a oportunidade <?= e($row['number']) ?>? Esta ação não poderá ser desfeita." data-confirm-action="Excluir">
