@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS opportunities (
  amount DECIMAL(15,2) NOT NULL DEFAULT 0,
  dnb_commission_estimated DECIMAL(15,2) NOT NULL DEFAULT 0,
  status ENUM('Aberta','Ganha','Perdida') NOT NULL DEFAULT 'Aberta',
+ loss_reason TEXT NULL,
+ loss_recorded_at DATETIME NULL,
+ quote_required TINYINT(1) NOT NULL DEFAULT 0,
+ quote_required_at DATETIME NULL,
+ quote_completed_at DATETIME NULL,
+ quote_reference VARCHAR(120) NULL,
+ quote_reminder_last_sent_at DATETIME NULL,
  source VARCHAR(50) NOT NULL DEFAULT 'manual',
  notes TEXT NULL,
  rd_deal_id VARCHAR(120) NULL,
@@ -90,6 +97,18 @@ CREATE TABLE IF NOT EXISTS opportunities (
  CONSTRAINT fk_opp_funnel FOREIGN KEY (funnel_id) REFERENCES funnels(id),
  CONSTRAINT fk_opp_stage FOREIGN KEY (stage_id) REFERENCES funnel_stages(id),
  CONSTRAINT fk_opp_creator FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+<<<'SQL'
+CREATE TABLE IF NOT EXISTS opportunity_notes (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ opportunity_id BIGINT UNSIGNED NOT NULL,
+ user_id INT UNSIGNED NOT NULL,
+ note TEXT NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ INDEX idx_opportunity_notes_opp_created (opportunity_id, created_at),
+ CONSTRAINT fk_opportunity_note_opp FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE,
+ CONSTRAINT fk_opportunity_note_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL,
 <<<'SQL'
