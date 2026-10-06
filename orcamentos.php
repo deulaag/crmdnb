@@ -268,13 +268,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $q = $pdo->prepare(
                     'INSERT INTO opportunities
                     (number,opportunity_date,client_name,company_id,visit_id,seller_user_id,support_user_id,
-                     product_line_id,funnel_id,stage_id,item_type,amount,status,source,notes,created_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?,?)'
+                     product_line_id,funnel_id,stage_id,item_type,amount,status,quote_required,quote_required_at,source,notes,created_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"Aberta",?,?,?,?,?)'
                 );
                 $q->execute([
                     $number,$date,$client,$companyId,$visitId ?: null,$seller,$support,
                     $lineId,$funnelId,$stageId,$line['item_type'],$amount,
-                    $visitId > 0 ? 'visita' : 'manual',$notes ?: null,(int)$user['id'],
+                    $visitId > 0 ? 1 : 0,
+                    $visitId > 0 ? date('Y-m-d H:i:s') : null,
+                    $visitId > 0 ? 'visita' : 'manual',
+                    $notes ?: null,
+                    (int)$user['id'],
                 ]);
 
                 $id = (int)$pdo->lastInsertId();
@@ -287,9 +291,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'visit_id' => $visitId ?: null,
                 ]);
                 flash('success', $visitId > 0
-                    ? 'Visita transformada na oportunidade ' . $number . '.'
+                    ? 'Visita transformada na oportunidade ' . $number . '. A pendência "Realizar orçamento" foi criada.'
                     : 'Oportunidade ' . $number . ' registrada.'
                 );
+
+                if ($visitId > 0) {
+                    redirect('oportunidade.php?id=' . $id);
+                }
             } else {
                 $q = $pdo->prepare(
                     'UPDATE opportunities SET
@@ -342,8 +350,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->prepare("UPDATE visits SET lead_status='promovida' WHERE id=?")->execute([$visitId]);
             audit($pdo, (int)$user['id'], 'promote_visit', 'visit', $visitId, ['opportunity_id'=>$newId]);
-            flash('success', 'Lead promovido ao funil. Confirme a linha sugerida e preencha o valor da oportunidade.');
-            redirect('orcamentos.php?edit=' . $newId . '#opportunity-form');
+            flash('success', 'Lead promovido ao funil. A pendência "Realizar orçamento" foi criada.');
+            redirect('oportunidade.php?id=' . $newId);
 
         } elseif ($action === 'discard_visit') {
             $visitId = (int)($_POST['visit_id'] ?? 0);
