@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS companies (
  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
  INDEX idx_company_name (name),
  INDEX idx_company_cnpj (cnpj),
+ INDEX idx_company_rd_crm (rd_crm_id),
  CONSTRAINT fk_company_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL,
@@ -49,11 +50,13 @@ CREATE TABLE IF NOT EXISTS contacts (
  email VARCHAR(190) NULL,
  phone VARCHAR(60) NULL,
  job_title VARCHAR(120) NULL,
+ source VARCHAR(50) NOT NULL DEFAULT 'manual',
  rd_crm_id VARCHAR(120) NULL,
  rd_marketing_uuid VARCHAR(120) NULL,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
  INDEX idx_contact_email (email),
+ INDEX idx_contact_rd_crm (rd_crm_id),
  CONSTRAINT fk_contact_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL,

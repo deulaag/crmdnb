@@ -2,7 +2,7 @@
 $root = dirname(__DIR__);
 $required = [
     'install.php','login.php','painel.php','orcamentos.php','oportunidade.php','opportunity_reminders.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
-    'cadencia.php','comissoes.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
+    'cadencia.php','comissoes.php','clientes.php','empresas.php','rd_crm_oauth.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
     'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/js/ai-cmd.js','assets/dnb-logo.png','config/database.example.php'
 ];
 
@@ -226,6 +226,39 @@ foreach (['Retornar ao cliente para acompanhar','+60 days'] as $needle) {
         fwrite(STDERR, "Fallback obrigatório de retorno da IA ausente: {$needle}\n");
         exit(1);
     }
+}
+
+$oauth = file_get_contents($root . '/rd_crm_oauth.php');
+foreach (['require_admin()','rd_crm_oauth_state','hash_equals','accounts.rdstation.com/oauth/authorize'] as $needle) {
+    if (!str_contains($oauth, $needle)) {
+        fwrite(STDERR, "Callback OAuth da RD Station sem requisito: {$needle}\n");
+        exit(1);
+    }
+}
+
+$functions = file_get_contents($root . '/includes/functions.php');
+foreach (['function rd_crm_sync','api.rd.services/oauth2/token','api.rd.services/crm/v2/',"'grant_type' => 'refresh_token'"] as $needle) {
+    if (!str_contains($functions, $needle)) {
+        fwrite(STDERR, "Integração RD Station CRM incompleta: {$needle}\n");
+        exit(1);
+    }
+}
+
+$configPage = file_get_contents($root . '/configuracoes.php');
+foreach (['rd_crm_callback_url()','rd_crm_oauth.php?action=connect','rd_crm_sync'] as $needle) {
+    if (!str_contains($configPage, $needle)) {
+        fwrite(STDERR, "Configuração RD Station CRM sem: {$needle}\n");
+        exit(1);
+    }
+}
+
+$layout = file_get_contents($root . '/includes/layout.php');
+$posVisitas = strpos($layout, "'visitas' =>");
+$posClientes = strpos($layout, "'clientes' =>");
+$posEmpresas = strpos($layout, "'empresas' =>");
+if ($posVisitas === false || $posClientes === false || $posEmpresas === false || !($posVisitas < $posClientes && $posClientes < $posEmpresas)) {
+    fwrite(STDERR, "Menu deve ter Clientes e Empresas logo após Visitas.\n");
+    exit(1);
 }
 
 echo "Smoke test OK\n";

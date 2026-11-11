@@ -15,6 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = (string)($_POST['action'] ?? 'integration');
 
+        if ($action === 'rd_crm_sync') {
+            $stats = rd_crm_sync($pdo, (int)$user['id']);
+            audit($pdo, (int)$user['id'], 'sync', 'integration', null, ['provider' => 'rd_crm']);
+            flash($stats['status'] === 'success' ? 'success' : 'warning', 'RD Station sincronizada. ' . rd_crm_sync_summary_text($stats));
+            redirect('configuracoes.php#rd_crm');
+        }
+
         if ($action === 'save_commercial_templates') {
             $defaults = commercial_automation_defaults();
             $posted = $_POST['templates'] ?? [];
@@ -171,6 +178,10 @@ $branding = branding_settings($pdo);
 
         $extra = [];
 
+        if ($provider === 'rd_crm') {
+            $extra = json_decode((string)($current['extra_json'] ?? '{}'), true) ?: [];
+        }
+
         if ($provider === 'openai') {
             $extra['model'] = trim((string)($_POST['model'] ?? ''));
         }
@@ -247,6 +258,8 @@ $configs = [];
 foreach (array_keys($providers) as $provider) {
     $configs[$provider] = integration_get($pdo, $provider);
 }
+
+$rdLastSync = rd_crm_last_sync($pdo);
 
 $branding = branding_settings($pdo);
 $portalLogoUrl = branding_logo_url($pdo, 'portal');
@@ -347,7 +360,7 @@ page_header('Configurações','configuracoes');
     $extra = json_decode((string)($cfg['extra_json'] ?? '{}'), true) ?: [];
     $active = $key === 'security' || !empty($cfg['is_active']);
 ?>
-    <div class="card integration-card">
+    <div class="card integration-card" id="<?= e($key) ?>">
         <div class="card-title">
             <div>
                 <span class="tag"><?= e(strtoupper($key)) ?></span>
@@ -361,7 +374,38 @@ page_header('Configurações','configuracoes');
             <?= csrf_field() ?>
             <input type="hidden" name="provider" value="<?= e($key) ?>">
 
-            <?php if (in_array($key, ['rd_crm','rd_marketing'], true)): ?>
+            <?php if ($key === 'rd_crm'): ?>
+                <?php
+                    $rdCallbackUrl = rd_crm_callback_url();
+                    $rdConnected = !empty($cfg['refresh_token']);
+                    $rdExpiresAt = (int)($extra['token_expires_at'] ?? 0);
+                ?>
+                <label>
+                    <span>URL de Callback · cole no App da RD Station</span>
+                    <input type="text" readonly value="<?= e($rdCallbackUrl) ?>">
+                </label>
+                <button class="btn btn-ghost" type="button" data-copy-value="<?= e($rdCallbackUrl) ?>">Copiar URL de Callback</button>
+                <label><span>Client ID</span><input name="client_id" value="<?= e($cfg['client_id'] ?? '') ?>"></label>
+                <label><span>Client Secret</span><input name="client_secret" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['client_secret']) ? '•••••••• salvo' : 'informe o segredo' ?>"></label>
+                <div class="install-note">
+                    <?php if ($rdConnected): ?>
+                        <strong>Conectado via OAuth.</strong>
+                        <?= $rdExpiresAt ? 'Token renovado automaticamente · expira ' . e(date('d/m/Y H:i', $rdExpiresAt)) . '.' : '' ?>
+                    <?php else: ?>
+                        1) Cadastre a URL de Callback acima no App da RD Station · 2) salve Client ID e Secret · 3) clique em <strong>Conectar com RD Station</strong>.
+                    <?php endif; ?>
+                    <?php if ($rdLastSync): ?>
+                        <br>Última sincronização: <?= e(date('d/m/Y H:i', strtotime((string)$rdLastSync['started_at']))) ?> ·
+                        <?= e($rdLastSync['status']) ?>
+                        <?php $rdSummary = json_decode((string)($rdLastSync['summary'] ?? ''), true); ?>
+                        <?= is_array($rdSummary) ? '· ' . e(rd_crm_sync_summary_text($rdSummary)) : '' ?>
+                    <?php endif; ?>
+                </div>
+                <?php if (!empty($cfg['client_id']) && !empty($cfg['client_secret'])): ?>
+                    <a class="btn btn-secondary" href="rd_crm_oauth.php?action=connect"><?= $rdConnected ? 'Reconectar com RD Station' : 'Conectar com RD Station' ?></a>
+                <?php endif; ?>
+
+            <?php elseif ($key === 'rd_marketing'): ?>
                 <label><span>Client ID</span><input name="client_id" value="<?= e($cfg['client_id'] ?? '') ?>"></label>
                 <label><span>Client Secret</span><input name="client_secret" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['client_secret']) ? '•••••••• salvo' : 'informe o segredo' ?>"></label>
                 <label><span>Access Token</span><input name="access_token" type="password" autocomplete="new-password" placeholder="<?= !empty($cfg['access_token']) ? '•••••••• salvo' : 'opcional / OAuth' ?>"></label>
@@ -442,6 +486,14 @@ page_header('Configurações','configuracoes');
 
             <button class="btn btn-primary" type="submit">Salvar configuração</button>
         </form>
+
+        <?php if ($key === 'rd_crm' && !empty($cfg['refresh_token'])): ?>
+            <form method="post" class="stack-form" data-no-draft>
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="rd_crm_sync">
+                <button class="btn btn-secondary" type="submit">Sincronizar agora · Empresas e Clientes</button>
+            </form>
+        <?php endif; ?>
     </div>
 <?php endforeach; ?>
 </div>

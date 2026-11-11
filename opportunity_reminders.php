@@ -25,10 +25,23 @@ try {
     $quoteResult = process_quote_reminders($pdo);
     $commercialResult = process_commercial_agenda_reminders($pdo);
 
+    $rdCrmResult = ['skipped' => true];
+    try {
+        $rdCfg = rd_crm_settings($pdo);
+        $rdLast = rd_crm_last_sync($pdo);
+        $rdDue = !$rdLast || strtotime((string)$rdLast['started_at']) < time() - 6 * 3600;
+        if ($rdCfg['active'] && $rdCfg['refresh_token'] !== '' && $rdDue) {
+            $rdCrmResult = rd_crm_sync($pdo, null);
+        }
+    } catch (Throwable $rdError) {
+        $rdCrmResult = ['ok' => false, 'message' => $rdError->getMessage()];
+    }
+
     $payload = [
         'ok' => true,
         'quote_reminders' => $quoteResult,
         'commercial_agenda_reminders' => $commercialResult,
+        'rd_crm_sync' => $rdCrmResult,
         'sent_total' => (int)($quoteResult['sent'] ?? 0) + (int)($commercialResult['sent'] ?? 0),
     ];
 

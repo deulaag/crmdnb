@@ -358,3 +358,13 @@
     return response;
   };
 })();
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-copy-value]');
+  if (!button || !navigator.clipboard) return;
+  const label = button.textContent;
+  navigator.clipboard.writeText(button.dataset.copyValue || '').then(() => {
+    button.textContent = 'Copiado!';
+    window.setTimeout(() => { button.textContent = label; }, 2000);
+  });
+});

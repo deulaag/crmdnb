@@ -26,6 +26,8 @@ function page_header(string $title,string $active=''):void
         'orcamentos' => ['Orçamentos','orcamentos.php'],
         'pedidos' => ['Pedidos','pedidos.php'],
         'visitas' => ['Visitas','visitas.php'],
+        'clientes' => ['Clientes','clientes.php'],
+        'empresas' => ['Empresas','empresas.php'],
         'cronograma' => ['Cronograma','cronograma.php'],
         'cadencia' => ['Cadência · Agente','cadencia.php'],
         'comissoes' => ['Comissões','comissoes.php'],
@@ -197,7 +199,7 @@ function page_footer():void
     </main>
     <script src="assets/js/ui.js?v=1"></script>
     <script src="assets/js/ai-cmd.js?v=1"></script>
-    <script src="assets/js/app.js?v=6"></script>
+    <script src="assets/js/app.js?v=7"></script>
 </body>
 </html>
 <?php
