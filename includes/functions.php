@@ -2156,14 +2156,55 @@ function app_base_url(): string
     return ($https ? 'https' : 'http') . '://' . $host . $dir;
 }
 
-function rd_crm_callback_url(): string
+function rd_provider_meta(string $provider): array
 {
-    return app_base_url() . '/rd_crm_oauth.php';
+    return match ($provider) {
+        'rd_crm' => [
+            'label' => 'RD Station CRM',
+            'callback' => 'rd_crm_oauth.php',
+            'authorize_url' => 'https://accounts.rdstation.com/oauth/authorize',
+            'authorize_params' => ['response_type' => 'code'],
+            'token_url' => 'https://api.rd.services/oauth2/token',
+            'token_format' => 'form',
+            'default_expires_in' => 7200,
+        ],
+        'rd_marketing' => [
+            'label' => 'RD Station Marketing',
+            'callback' => 'rd_marketing_oauth.php',
+            'authorize_url' => 'https://api.rd.services/auth/dialog',
+            'authorize_params' => [],
+            'token_url' => 'https://api.rd.services/auth/token',
+            'token_format' => 'json',
+            'default_expires_in' => 86400,
+        ],
+        default => throw new RuntimeException('Integração RD Station inválida.'),
+    };
 }
 
-function rd_crm_settings(PDO $pdo): array
+function rd_callback_url(string $provider): string
 {
-    $cfg = integration_get($pdo, 'rd_crm');
+    return app_base_url() . '/' . rd_provider_meta($provider)['callback'];
+}
+
+function rd_crm_callback_url(): string
+{
+    return rd_callback_url('rd_crm');
+}
+
+function rd_authorize_url(PDO $pdo, string $provider, string $state): string
+{
+    $meta = rd_provider_meta($provider);
+    $cfg = rd_settings($pdo, $provider);
+    return $meta['authorize_url'] . '?' . http_build_query($meta['authorize_params'] + [
+        'client_id' => $cfg['client_id'],
+        'redirect_uri' => rd_callback_url($provider),
+        'state' => $state,
+    ]);
+}
+
+function rd_settings(PDO $pdo, string $provider): array
+{
+    $cfg = integration_get($pdo, $provider);
     $extra = json_decode((string) ($cfg['extra_json'] ?? '{}'), true) ?: [];
     return [
         'active' => !empty($cfg['is_active']),
@@ -2172,19 +2213,23 @@ function rd_crm_settings(PDO $pdo): array
         'access_token' => secret_decrypt($cfg['access_token'] ?? ''),
         'refresh_token' => secret_decrypt($cfg['refresh_token'] ?? ''),
         'extra' => $extra,
-        'updated_by' => (int) ($cfg['updated_by'] ?? 0),
     ];
 }
 
-function rd_crm_save_tokens(PDO $pdo, array $tokens, ?int $userId = null): void
+function rd_crm_settings(PDO $pdo): array
 {
-    $cfg = rd_crm_settings($pdo);
+    return rd_settings($pdo, 'rd_crm');
+}
+
+function rd_save_tokens(PDO $pdo, string $provider, array $tokens, ?int $userId = null): void
+{
+    $cfg = rd_settings($pdo, $provider);
     $access = trim((string) ($tokens['access_token'] ?? ''));
     if ($access === '') {
-        throw new RuntimeException('A RD Station não retornou access_token.');
+        throw new RuntimeException('A ' . rd_provider_meta($provider)['label'] . ' não retornou access_token.');
     }
     $refresh = trim((string) ($tokens['refresh_token'] ?? '')) ?: $cfg['refresh_token'];
-    $expiresIn = max(60, (int) ($tokens['expires_in'] ?? 7200));
+    $expiresIn = max(60, (int) ($tokens['expires_in'] ?? rd_provider_meta($provider)['default_expires_in']));
 
     $extra = $cfg['extra'];
     $extra['token_expires_at'] = time() + $expiresIn;
@@ -2194,25 +2239,32 @@ function rd_crm_save_tokens(PDO $pdo, array $tokens, ?int $userId = null): void
         'UPDATE integration_settings
             SET access_token = ?, refresh_token = ?, extra_json = ?, is_active = 1,
                 updated_by = COALESCE(?, updated_by), updated_at = CURRENT_TIMESTAMP
-          WHERE provider = "rd_crm"'
+          WHERE provider = ?'
     )->execute([
         secret_encrypt($access),
         secret_encrypt($refresh),
         json_encode($extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         $userId,
+        $provider,
     ]);
 }
 
-function rd_crm_token_request(array $fields): array
+function rd_token_request(string $provider, array $fields): array
 {
-    $ch = curl_init('https://api.rd.services/oauth2/token');
+    $meta = rd_provider_meta($provider);
+    $isJson = $meta['token_format'] === 'json';
+
+    $ch = curl_init($meta['token_url']);
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => 30,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
-        CURLOPT_POSTFIELDS => http_build_query($fields),
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: ' . ($isJson ? 'application/json' : 'application/x-www-form-urlencoded'),
+            'Accept: application/json',
+        ],
+        CURLOPT_POSTFIELDS => $isJson ? json_encode($fields, JSON_UNESCAPED_SLASHES) : http_build_query($fields),
     ]);
     $raw = curl_exec($ch);
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -2220,66 +2272,70 @@ function rd_crm_token_request(array $fields): array
     curl_close($ch);
 
     if ($raw === false) {
-        throw new RuntimeException('Falha ao contatar a RD Station: ' . $error);
+        throw new RuntimeException('Falha ao contatar a ' . $meta['label'] . ': ' . $error);
     }
     $data = json_decode((string) $raw, true);
     if ($status < 200 || $status >= 300 || !is_array($data)) {
         $message = is_array($data)
-            ? (string) ($data['error_description'] ?? $data['error'] ?? ($data['errors'][0]['detail'] ?? 'erro não informado'))
+            ? (string) ($data['error_description'] ?? $data['error'] ?? ($data['errors'][0]['detail'] ?? $data['errors']['error_message'] ?? 'erro não informado'))
             : 'resposta inválida';
-        throw new RuntimeException('RD Station OAuth HTTP ' . $status . ': ' . $message);
+        throw new RuntimeException($meta['label'] . ' OAuth HTTP ' . $status . ': ' . $message);
     }
     return $data;
 }
 
-function rd_crm_exchange_code(PDO $pdo, string $code, int $userId): void
+function rd_exchange_code(PDO $pdo, string $provider, string $code, int $userId): void
 {
-    $cfg = rd_crm_settings($pdo);
+    $cfg = rd_settings($pdo, $provider);
     if ($cfg['client_id'] === '' || $cfg['client_secret'] === '') {
-        throw new RuntimeException('Salve o Client ID e o Client Secret da RD Station CRM antes de conectar.');
+        throw new RuntimeException('Salve o Client ID e o Client Secret da ' . rd_provider_meta($provider)['label'] . ' antes de conectar.');
     }
-    $tokens = rd_crm_token_request([
+    $fields = [
         'client_id' => $cfg['client_id'],
         'client_secret' => $cfg['client_secret'],
         'code' => $code,
-        'redirect_uri' => rd_crm_callback_url(),
-        'grant_type' => 'authorization_code',
-    ]);
-    rd_crm_save_tokens($pdo, $tokens, $userId);
+    ];
+    if ($provider === 'rd_crm') {
+        $fields += ['redirect_uri' => rd_callback_url($provider), 'grant_type' => 'authorization_code'];
+    }
+    rd_save_tokens($pdo, $provider, rd_token_request($provider, $fields), $userId);
 }
 
-function rd_crm_access_token(PDO $pdo, bool $forceRefresh = false): string
+function rd_access_token(PDO $pdo, string $provider, bool $forceRefresh = false): string
 {
-    $cfg = rd_crm_settings($pdo);
+    $cfg = rd_settings($pdo, $provider);
     $expiresAt = (int) ($cfg['extra']['token_expires_at'] ?? 0);
 
     if (!$forceRefresh && $cfg['access_token'] !== '' && $expiresAt > time() + 300) {
         return $cfg['access_token'];
     }
     if ($cfg['refresh_token'] === '' || $cfg['client_id'] === '' || $cfg['client_secret'] === '') {
-        throw new RuntimeException('A RD Station CRM não está conectada. Em Configurações, clique em “Conectar com RD Station”.');
+        throw new RuntimeException('A ' . rd_provider_meta($provider)['label'] . ' não está conectada. Em Configurações, clique em “Conectar com RD Station”.');
     }
 
-    $tokens = rd_crm_token_request([
+    $fields = [
         'client_id' => $cfg['client_id'],
         'client_secret' => $cfg['client_secret'],
         'refresh_token' => $cfg['refresh_token'],
-        'grant_type' => 'refresh_token',
-    ]);
-    rd_crm_save_tokens($pdo, $tokens);
+    ];
+    if ($provider === 'rd_crm') {
+        $fields['grant_type'] = 'refresh_token';
+    }
+    $tokens = rd_token_request($provider, $fields);
+    rd_save_tokens($pdo, $provider, $tokens);
     return (string) $tokens['access_token'];
 }
 
-function rd_crm_request(PDO $pdo, string $path, array $query = []): array
+function rd_api_get(PDO $pdo, string $provider, string $url, array $query = []): array
 {
-    $url = 'https://api.rd.services/crm/v2/' . ltrim($path, '/');
     if ($query) {
         $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query);
     }
+    $label = rd_provider_meta($provider)['label'];
 
     $refreshed = false;
     for ($attempt = 1; $attempt <= 4; $attempt++) {
-        $token = rd_crm_access_token($pdo, false);
+        $token = rd_access_token($pdo, $provider);
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -2293,10 +2349,10 @@ function rd_crm_request(PDO $pdo, string $path, array $query = []): array
         curl_close($ch);
 
         if ($raw === false) {
-            throw new RuntimeException('Falha ao consultar a RD Station: ' . $error);
+            throw new RuntimeException('Falha ao consultar a ' . $label . ': ' . $error);
         }
         if ($status === 401 && !$refreshed) {
-            rd_crm_access_token($pdo, true);
+            rd_access_token($pdo, $provider, true);
             $refreshed = true;
             continue;
         }
@@ -2307,13 +2363,30 @@ function rd_crm_request(PDO $pdo, string $path, array $query = []): array
 
         $data = json_decode((string) $raw, true);
         if ($status < 200 || $status >= 300 || !is_array($data)) {
-            $message = is_array($data) ? (string) ($data['errors'][0]['detail'] ?? $data['message'] ?? 'erro não informado') : 'resposta inválida';
-            throw new RuntimeException('RD Station CRM HTTP ' . $status . ' em ' . $path . ': ' . $message);
+            $message = is_array($data)
+                ? (string) ($data['errors'][0]['detail'] ?? $data['errors'][0]['error_message'] ?? $data['errors']['error_message'] ?? $data['message'] ?? 'erro não informado')
+                : 'resposta inválida';
+            throw new RuntimeException($label . ' HTTP ' . $status . ': ' . $message);
         }
         return $data;
     }
 
-    throw new RuntimeException('A RD Station limitou as requisições (HTTP 429). Tente novamente em alguns minutos.');
+    throw new RuntimeException('A ' . $label . ' limitou as requisições (HTTP 429). Tente novamente em alguns minutos.');
+}
+
+function rd_crm_access_token(PDO $pdo, bool $forceRefresh = false): string
+{
+    return rd_access_token($pdo, 'rd_crm', $forceRefresh);
+}
+
+function rd_crm_request(PDO $pdo, string $path, array $query = []): array
+{
+    return rd_api_get($pdo, 'rd_crm', 'https://api.rd.services/crm/v2/' . ltrim($path, '/'), $query);
+}
+
+function rd_marketing_request(PDO $pdo, string $path, array $query = []): array
+{
+    return rd_api_get($pdo, 'rd_marketing', 'https://api.rd.services/platform/' . ltrim($path, '/'), $query);
 }
 
 function rd_crm_fetch_all(PDO $pdo, string $resource, callable $onItem): int
@@ -2506,8 +2579,7 @@ function rd_crm_upsert_contact(PDO $pdo, array $contact): string
 
 function rd_crm_last_sync(PDO $pdo): ?array
 {
-    $row = $pdo->query('SELECT * FROM sync_runs WHERE provider = "rd_crm" ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
-    return $row ?: null;
+    return rd_last_sync($pdo, 'rd_crm');
 }
 
 function rd_crm_sync(PDO $pdo, ?int $userId = null): array
@@ -2568,14 +2640,200 @@ function rd_crm_sync(PDO $pdo, ?int $userId = null): array
 
 function rd_crm_sync_summary_text(array $stats): string
 {
-    $c = $stats['companies'] ?? [];
+    $parts = [];
+    if (isset($stats['companies'])) {
+        $c = $stats['companies'];
+        $parts[] = sprintf('Empresas: %d novas, %d atualizadas', (int) ($c['created'] ?? 0), (int) ($c['updated'] ?? 0));
+    }
     $p = $stats['contacts'] ?? [];
-    return sprintf(
-        'Empresas: %d novas, %d atualizadas · Clientes: %d novos, %d atualizados%s',
-        (int) ($c['created'] ?? 0), (int) ($c['updated'] ?? 0),
-        (int) ($p['created'] ?? 0), (int) ($p['updated'] ?? 0),
-        !empty($stats['errors']) ? ' · ' . count($stats['errors']) . ' aviso(s)' : ''
-    );
+    $parts[] = sprintf('Clientes: %d novos, %d atualizados', (int) ($p['created'] ?? 0), (int) ($p['updated'] ?? 0));
+    if (!empty($stats['errors'])) {
+        $parts[] = count($stats['errors']) . ' aviso(s)';
+    }
+    return implode(' · ', $parts);
+}
+
+function rd_last_sync(PDO $pdo, string $provider): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM sync_runs WHERE provider = ? ORDER BY id DESC LIMIT 1');
+    $stmt->execute([$provider]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function rd_marketing_segmentations(PDO $pdo): array
+{
+    $all = [];
+    for ($page = 1; $page <= 50; $page++) {
+        $data = rd_marketing_request($pdo, 'segmentations', ['page' => $page, 'page_size' => 125]);
+        $items = is_array($data['segmentations'] ?? null) ? $data['segmentations'] : (array_is_list($data) ? $data : []);
+        foreach ($items as $item) {
+            if (is_array($item) && isset($item['id'])) {
+                $all[] = $item;
+            }
+        }
+        if (count($items) < 125) {
+            break;
+        }
+    }
+    return $all;
+}
+
+function rd_marketing_segmentation_id(PDO $pdo): string
+{
+    $cfg = rd_settings($pdo, 'rd_marketing');
+    $configured = trim((string) ($cfg['extra']['segmentation_id'] ?? ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
+    $segmentations = rd_marketing_segmentations($pdo);
+    foreach ($segmentations as $seg) {
+        $name = normalized_name((string) ($seg['name'] ?? ''));
+        if (str_contains($name, 'todos os contatos')) {
+            return (string) $seg['id'];
+        }
+    }
+    foreach ($segmentations as $seg) {
+        if (!empty($seg['standard'])) {
+            return (string) $seg['id'];
+        }
+    }
+    throw new RuntimeException('Não encontrei a segmentação “Todos os contatos da base de Leads” na RD Station Marketing. Informe o ID da segmentação em Configurações.');
+}
+
+function rd_marketing_upsert_contact(PDO $pdo, array $lead): string
+{
+    $uuid = trim((string) ($lead['uuid'] ?? ''));
+    $email = trim((string) ($lead['email'] ?? ''));
+    $email = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) ? strtolower(mb_substr($email, 0, 190)) : null;
+    $name = rd_cut((string) ($lead['name'] ?? ''), 160) ?? $email;
+    if ($uuid === '' || $name === null) {
+        return 'skipped';
+    }
+
+    $values = [
+        'name' => $name,
+        'email' => $email,
+        'phone' => rd_cut((string) ($lead['phone'] ?? $lead['mobile_phone'] ?? $lead['personal_phone'] ?? ''), 60),
+        'job_title' => rd_cut((string) ($lead['job_title'] ?? ''), 120),
+        'uuid' => $uuid,
+    ];
+
+    $stmt = $pdo->prepare('SELECT id FROM contacts WHERE rd_marketing_uuid = ? LIMIT 1');
+    $stmt->execute([$uuid]);
+    $id = (int) ($stmt->fetchColumn() ?: 0);
+    if ($id === 0 && $email !== null) {
+        $stmt = $pdo->prepare('SELECT id FROM contacts WHERE rd_marketing_uuid IS NULL AND email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $id = (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    if ($id > 0) {
+        $pdo->prepare(
+            'UPDATE contacts SET name = COALESCE(NULLIF(name, ""), :name), email = COALESCE(email, :email),
+                phone = COALESCE(phone, :phone), job_title = COALESCE(job_title, :job_title), rd_marketing_uuid = :uuid
+             WHERE id = :id'
+        )->execute($values + ['id' => $id]);
+        return 'updated';
+    }
+
+    $pdo->prepare(
+        'INSERT INTO contacts (name, email, phone, job_title, source, rd_marketing_uuid)
+         VALUES (:name, :email, :phone, :job_title, "rd_marketing", :uuid)'
+    )->execute($values);
+    return 'created';
+}
+
+function rd_marketing_sync(PDO $pdo, ?int $userId = null): array
+{
+    ensure_rd_crm_schema($pdo);
+    $cfg = rd_settings($pdo, 'rd_marketing');
+    if (!$cfg['active']) {
+        throw new RuntimeException('Ative a integração RD Station Marketing em Configurações antes de sincronizar.');
+    }
+    rd_access_token($pdo, 'rd_marketing');
+
+    @set_time_limit(0);
+    $pdo->prepare('INSERT INTO sync_runs (provider, direction, status, started_at, created_by) VALUES ("rd_marketing", "import", "running", NOW(), ?)')
+        ->execute([$userId]);
+    $runId = (int) $pdo->lastInsertId();
+
+    $stats = [
+        'contacts' => ['created' => 0, 'updated' => 0, 'skipped' => 0],
+        'errors' => [],
+    ];
+
+    try {
+        $segmentationId = rd_marketing_segmentation_id($pdo);
+        $size = 125;
+        for ($page = 1; $page <= 10000; $page++) {
+            $data = rd_marketing_request($pdo, 'segmentations/' . rawurlencode($segmentationId) . '/contacts', ['page' => $page, 'page_size' => $size]);
+            $items = is_array($data['contacts'] ?? null) ? $data['contacts'] : (array_is_list($data) ? $data : []);
+            foreach ($items as $lead) {
+                if (!is_array($lead)) {
+                    continue;
+                }
+                try {
+                    $stats['contacts'][rd_marketing_upsert_contact($pdo, $lead)]++;
+                } catch (Throwable $e) {
+                    $stats['contacts']['skipped']++;
+                    if (count($stats['errors']) < 20) {
+                        $stats['errors'][] = 'Lead ' . ($lead['email'] ?? $lead['uuid'] ?? '?') . ': ' . $e->getMessage();
+                    }
+                }
+            }
+            if (count($items) < $size) {
+                break;
+            }
+        }
+        $status = $stats['errors'] ? 'partial' : 'success';
+    } catch (Throwable $e) {
+        $status = 'failed';
+        $stats['errors'][] = $e->getMessage();
+    }
+
+    $pdo->prepare('UPDATE sync_runs SET status = ?, summary = ?, finished_at = NOW() WHERE id = ?')
+        ->execute([$status, json_encode($stats, JSON_UNESCAPED_UNICODE), $runId]);
+
+    if ($status === 'failed') {
+        throw new RuntimeException('Sincronização RD Station Marketing falhou: ' . end($stats['errors']));
+    }
+    return $stats + ['status' => $status];
+}
+
+function rd_sync(PDO $pdo, string $provider, ?int $userId = null): array
+{
+    return match ($provider) {
+        'rd_crm' => rd_crm_sync($pdo, $userId),
+        'rd_marketing' => rd_marketing_sync($pdo, $userId),
+        default => throw new RuntimeException('Integração RD Station inválida.'),
+    };
+}
+
+function rd_sync_all(PDO $pdo, ?int $userId = null): array
+{
+    $results = [];
+    $messages = [];
+    $failed = false;
+    foreach (['rd_crm', 'rd_marketing'] as $provider) {
+        $cfg = rd_settings($pdo, $provider);
+        if (!$cfg['active'] || $cfg['refresh_token'] === '') {
+            continue;
+        }
+        try {
+            $results[$provider] = rd_sync($pdo, $provider, $userId);
+            $messages[] = rd_provider_meta($provider)['label'] . ': ' . rd_crm_sync_summary_text($results[$provider]);
+            $failed = $failed || $results[$provider]['status'] !== 'success';
+        } catch (Throwable $e) {
+            $failed = true;
+            $messages[] = $e->getMessage();
+        }
+    }
+    if (!$results && !$messages) {
+        throw new RuntimeException('Nenhuma integração RD Station está conectada. Conecte em Configurações.');
+    }
+    return ['status' => $failed ? 'partial' : 'success', 'message' => implode(' · ', $messages), 'results' => $results];
 }
 
 function audit(PDO $pdo, int $userId, string $action, string $entity, ?int $entityId = null, array $context = []): void

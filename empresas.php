@@ -14,9 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$isAdmin || ($_POST['action'] ?? '') !== 'rd_crm_sync') {
             throw new RuntimeException('Ação não permitida.');
         }
-        $stats = rd_crm_sync($pdo, (int)$user['id']);
-        audit($pdo, (int)$user['id'], 'sync', 'integration', null, ['provider' => 'rd_crm']);
-        flash($stats['status'] === 'success' ? 'success' : 'warning', 'RD Station sincronizada. ' . rd_crm_sync_summary_text($stats));
+        $result = rd_sync_all($pdo, (int)$user['id']);
+        audit($pdo, (int)$user['id'], 'sync', 'integration', null, ['provider' => array_keys($result['results'])]);
+        flash($result['status'] === 'success' ? 'success' : 'warning', 'RD Station sincronizada. ' . $result['message']);
     } catch (Throwable $e) {
         flash('danger', $e->getMessage());
     }
@@ -26,7 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 function empresas_source_label(string $source): string
 {
     return match ($source) {
-        'rd_crm' => 'RD Station',
+        'rd_crm' => 'RD Station CRM',
+        'rd_marketing' => 'RD Marketing',
         'cnpja' => 'CNPJá',
         default => 'Manual',
     };

@@ -13,9 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$isAdmin || ($_POST['action'] ?? '') !== 'rd_crm_sync') {
             throw new RuntimeException('Ação não permitida.');
         }
-        $stats = rd_crm_sync($pdo, (int)$user['id']);
-        audit($pdo, (int)$user['id'], 'sync', 'integration', null, ['provider' => 'rd_crm']);
-        flash($stats['status'] === 'success' ? 'success' : 'warning', 'RD Station sincronizada. ' . rd_crm_sync_summary_text($stats));
+        $result = rd_sync_all($pdo, (int)$user['id']);
+        audit($pdo, (int)$user['id'], 'sync', 'integration', null, ['provider' => array_keys($result['results'])]);
+        flash($result['status'] === 'success' ? 'success' : 'warning', 'RD Station sincronizada. ' . $result['message']);
     } catch (Throwable $e) {
         flash('danger', $e->getMessage());
     }
@@ -68,7 +68,8 @@ if ($companyFilter > 0) {
 function clientes_source_label(string $source): string
 {
     return match ($source) {
-        'rd_crm' => 'RD Station',
+        'rd_crm' => 'RD Station CRM',
+        'rd_marketing' => 'RD Marketing',
         'cnpja' => 'CNPJá',
         default => 'Manual',
     };
@@ -90,7 +91,7 @@ page_header('Clientes', 'clientes');
     <div>
         <span class="eyebrow">CADASTRO</span>
         <h2>Clientes</h2>
-        <p>Contatos importados da RD Station CRM e cadastrados no CRM.</p>
+        <p>Contatos importados da RD Station CRM, leads da RD Station Marketing e cadastros do CRM.</p>
     </div>
     <?php if ($isAdmin): ?>
         <form method="post" data-no-draft>
@@ -116,7 +117,7 @@ page_header('Clientes', 'clientes');
     </div>
 
     <?php if (!$rows): ?>
-        <?php empty_state('Nenhum cliente', $q !== '' ? 'Nenhum cliente encontrado para a busca.' : 'Conecte a RD Station CRM em Configurações e sincronize para importar os clientes.'); ?>
+        <?php empty_state('Nenhum cliente', $q !== '' ? 'Nenhum cliente encontrado para a busca.' : 'Conecte a RD Station CRM ou Marketing em Configurações e sincronize para importar os clientes.'); ?>
     <?php else: ?>
         <div class="table-wrap">
             <table>
@@ -142,7 +143,7 @@ page_header('Clientes', 'clientes');
                         <td><?= e($row['job_title'] ?: '—') ?></td>
                         <td><?= $row['email'] ? '<a class="link-btn" href="mailto:' . e($row['email']) . '">' . e($row['email']) . '</a>' : '—' ?></td>
                         <td><?= e($row['phone'] ?: '—') ?></td>
-                        <td><span class="status <?= ($row['source'] ?? '') === 'rd_crm' ? 'status-aberta' : 'status-ganha' ?>"><?= e(clientes_source_label((string)($row['source'] ?? 'manual'))) ?></span></td>
+                        <td><span class="status <?= str_starts_with((string)($row['source'] ?? ''), 'rd_') ? 'status-aberta' : 'status-ganha' ?>"><?= e(clientes_source_label((string)($row['source'] ?? 'manual'))) ?></span></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

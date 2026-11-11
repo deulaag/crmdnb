@@ -2,7 +2,7 @@
 $root = dirname(__DIR__);
 $required = [
     'install.php','login.php','painel.php','orcamentos.php','oportunidade.php','opportunity_reminders.php','pedidos.php','visitas.php','cronograma.php','cnpja_lookup.php','branding_asset.php',
-    'cadencia.php','comissoes.php','clientes.php','empresas.php','rd_crm_oauth.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
+    'cadencia.php','comissoes.php','clientes.php','empresas.php','rd_crm_oauth.php','rd_marketing_oauth.php','includes/rd_oauth_flow.php','configuracoes.php','usuarios.php','includes/bootstrap.php','includes/auth.php',
     'includes/layout.php','includes/security.php','session_refresh.php','assets/css/app.css','assets/js/app.js','assets/js/auth.js','assets/js/ui.js','assets/js/ai-cmd.js','assets/dnb-logo.png','config/database.example.php'
 ];
 
@@ -228,8 +228,17 @@ foreach (['Retornar ao cliente para acompanhar','+60 days'] as $needle) {
     }
 }
 
-$oauth = file_get_contents($root . '/rd_crm_oauth.php');
-foreach (['require_admin()','rd_crm_oauth_state','hash_equals','accounts.rdstation.com/oauth/authorize'] as $needle) {
+foreach (['rd_crm_oauth.php' => "'rd_crm'", 'rd_marketing_oauth.php' => "'rd_marketing'"] as $callbackFile => $providerNeedle) {
+    $callback = file_get_contents($root . '/' . $callbackFile);
+    if (!str_contains($callback, $providerNeedle) || !str_contains($callback, 'includes/rd_oauth_flow.php')) {
+        fwrite(STDERR, "Callback OAuth inválido: {$callbackFile}
+");
+        exit(1);
+    }
+}
+
+$oauth = file_get_contents($root . '/includes/rd_oauth_flow.php');
+foreach (['require_admin()','random_bytes','hash_equals','rd_exchange_code'] as $needle) {
     if (!str_contains($oauth, $needle)) {
         fwrite(STDERR, "Callback OAuth da RD Station sem requisito: {$needle}\n");
         exit(1);
@@ -237,7 +246,7 @@ foreach (['require_admin()','rd_crm_oauth_state','hash_equals','accounts.rdstati
 }
 
 $functions = file_get_contents($root . '/includes/functions.php');
-foreach (['function rd_crm_sync','api.rd.services/oauth2/token','api.rd.services/crm/v2/',"'grant_type' => 'refresh_token'"] as $needle) {
+foreach (['function rd_crm_sync','function rd_marketing_sync','accounts.rdstation.com/oauth/authorize','api.rd.services/oauth2/token','api.rd.services/auth/dialog','api.rd.services/auth/token','api.rd.services/crm/v2/','api.rd.services/platform/',"'grant_type'] = 'refresh_token'"] as $needle) {
     if (!str_contains($functions, $needle)) {
         fwrite(STDERR, "Integração RD Station CRM incompleta: {$needle}\n");
         exit(1);
@@ -245,7 +254,7 @@ foreach (['function rd_crm_sync','api.rd.services/oauth2/token','api.rd.services
 }
 
 $configPage = file_get_contents($root . '/configuracoes.php');
-foreach (['rd_crm_callback_url()','rd_crm_oauth.php?action=connect','rd_crm_sync'] as $needle) {
+foreach (["in_array(\$key, ['rd_crm','rd_marketing'], true)",'rd_callback_url($key)','?action=connect','rd_sync'] as $needle) {
     if (!str_contains($configPage, $needle)) {
         fwrite(STDERR, "Configuração RD Station CRM sem: {$needle}\n");
         exit(1);
