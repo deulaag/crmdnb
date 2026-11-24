@@ -19,6 +19,6 @@ jobs:
       - name: Validar sintaxe PHP
         run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
       - name: Validar JavaScript
-        run: node --check assets/js/app.js && node --check assets/js/auth.js && node --check assets/js/ui.js && node --check assets/js/ai-cmd.js
+        run: node --check assets/js/app.js && node --check assets/js/auth.js && node --check assets/js/ui.js && node --check assets/js/ai-cmd.js && node --check novocrm/assets/js/novocrm.js && node --check novocrm/assets/js/theme-init.js
       - name: Executar testes
         run: php tests/smoke_test.php
