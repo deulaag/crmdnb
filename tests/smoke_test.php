@@ -270,4 +270,53 @@ if ($posVisitas === false || $posClientes === false || $posEmpresas === false ||
     exit(1);
 }
 
+// --- NOVOCRM (/novocrm): estrutura e travas obrigatórias ---
+foreach ([
+    'novocrm/_app.php','novocrm/_layout.php','novocrm/login.php','novocrm/index.php','novocrm/painel.php',
+    'novocrm/acoes/busca.php','novocrm/migrations/run.php','novocrm/_lib.php','novocrm/clientes.php','novocrm/cliente.php','novocrm/acoes/cliente-salvar.php','novocrm/acoes/cnpj-consulta.php','novocrm/migrations/002_company_portfolio_status.sql','novocrm/migrations/001_opportunity_position.sql','novocrm/migrations/003_order_items.sql','novocrm/migrations/004_user_monthly_target.sql','novocrm/comissoes.php','novocrm/configuracoes.php','novocrm/partials/comissao.php','novocrm/acoes/meta-salvar.php','novocrm/pedidos.php','novocrm/pedido.php','novocrm/visitas.php','novocrm/acoes/pedido-salvar.php','novocrm/acoes/pedido-faturar.php','novocrm/acoes/visita-promover.php','novocrm/acoes/agenda-status.php','novocrm/oportunidades.php','novocrm/oportunidade.php','novocrm/partials/oportunidade.php','novocrm/acoes/oportunidade-etapa.php','novocrm/acoes/oportunidade-acao.php','novocrm/acoes/oportunidade-salvar.php','novocrm/assets/css/novocrm.css',
+    'novocrm/assets/js/novocrm.js','novocrm/assets/js/theme-init.js',
+    'novocrm/assets/vendor/htmx.min.js','novocrm/assets/vendor/Sortable.min.js',
+] as $file) {
+    if (!is_file($root . '/' . $file)) {
+        fwrite(STDERR, "Arquivo do NOVOCRM ausente: {$file}\n");
+        exit(1);
+    }
+}
+
+$ncApp = file_get_contents($root . '/novocrm/_app.php');
+foreach (['const NC_PUBLIC = false;', '../includes/auth.php', 'function nc_require_post', 'verify_csrf()'] as $needle) {
+    if (!str_contains($ncApp, $needle)) {
+        fwrite(STDERR, "NOVOCRM sem requisito de segurança: {$needle}\n");
+        exit(1);
+    }
+}
+
+$ncLogin = file_get_contents($root . '/novocrm/login.php');
+if (!str_contains($ncLogin, '/login.php?redirect_to=') || str_contains($ncLogin, 'password_verify')) {
+    fwrite(STDERR, "novocrm/login.php deve apenas redirecionar para o login da raiz.\n");
+    exit(1);
+}
+
+$ncJs = file_get_contents($root . '/novocrm/assets/js/novocrm.js');
+foreach (['htmx:configRequest', "'csrf_token'", 'htmx:responseError', '419'] as $needle) {
+    if (!str_contains($ncJs, $needle)) {
+        fwrite(STDERR, "NOVOCRM JS sem tratamento de CSRF/419: {$needle}\n");
+        exit(1);
+    }
+}
+
+$ncAll = '';
+$ncIt = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/novocrm', FilesystemIterator::SKIP_DOTS));
+foreach ($ncIt as $f) {
+    if ($f->isFile() && preg_match('/\.(php|js|css)$/', $f->getFilename()) && !str_contains($f->getPathname(), 'vendor')) {
+        $ncAll .= file_get_contents($f->getPathname());
+    }
+}
+foreach (['process_quote_reminders(', 'process_commercial_agenda_reminders('] as $forbidden) {
+    if (str_contains($ncAll, $forbidden)) {
+        fwrite(STDERR, "NOVOCRM não pode chamar automaticamente: {$forbidden}\n");
+        exit(1);
+    }
+}
+
 echo "Smoke test OK\n";
