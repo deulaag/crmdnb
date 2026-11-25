@@ -35,9 +35,9 @@ function nc_import_missing_setup(PDO $pdo): array
         }
     }
     foreach ([['companies', 'external_id'], ['companies', 'import_batch_id'], ['contacts', 'external_id'], ['contacts', 'import_batch_id'],
-        ['opportunities', 'external_ref'], ['opportunities', 'import_batch_id']] as [$t, $c]) {
+        ['opportunities', 'external_ref'], ['opportunities', 'import_batch_id'], ['companies', 'interest_lines'], ['contacts', 'first_name']] as [$t, $c]) {
         if (!nc_column_exists($pdo, $t, $c)) {
-            $missing[] = 'coluna ' . $t . '.' . $c . ' (migração 008)';
+            $missing[] = 'coluna ' . $t . '.' . $c . ' (migração 008 ou 010)';
         }
     }
     return $missing;
@@ -328,7 +328,7 @@ function nc_import_process_chunk(PDO $pdo, array $batch, int $limit = NC_IMPORT_
             continue;
         }
         $res = $type === 'contatos'
-            ? nc_import_classify_contact($pdo, $ctx, $values, null)
+            ? nc_import_classify_contact($pdo, $ctx, $values, null, $cfg)
             : nc_import_classify_opp($pdo, $ctx, $batch, $cfg, $values, null);
         $n = $res['norm'];
         $class = $res['class'];
@@ -452,7 +452,7 @@ function nc_import_reclassify(PDO $pdo, array &$ctx, array $batch, array $row, ?
         $res = ['class' => 'ignorar', 'reason' => 'Ignorada na revisão.', 'rule' => 'manual', 'company_id' => null, 'candidates' => [], 'norm' => $old];
     } else {
         $res = $type === 'contatos'
-            ? nc_import_classify_contact($pdo, $ctx, $values, $force)
+            ? nc_import_classify_contact($pdo, $ctx, $values, $force, $cfg)
             : nc_import_classify_opp($pdo, $ctx, $batch, $cfg, $values, $force);
     }
     $old = nc_import_decode($row['normalized_json']);
@@ -734,7 +734,9 @@ function nc_import_write_contact(PDO $pdo, array &$ctx, array &$reg, array $res,
             $companyId = $found;
             $fill = [];
             $have = $reg['data'][$found];
-            $want = ['cnpj' => $doc['kind'] === 'cnpj' ? $doc['digits'] : '', 'alias' => $co['alias'], 'city' => $co['city'], 'state' => $co['state'], 'external_id' => $co['ext']];
+            $want = ['cnpj' => $doc['kind'] === 'cnpj' ? $doc['digits'] : '', 'alias' => $co['alias'], 'city' => $co['city'], 'state' => $co['state'], 'external_id' => $co['ext'],
+                'phone' => $co['phone'], 'interest_lines' => $co['interest'], 'source_origin' => $co['origin'], 'import_note' => $co['review'],
+                'source_quote_count' => $co['quote_count'] !== null ? (string)$co['quote_count'] : '', 'source_last_quote_at' => $co['last_quote']];
             foreach ($want as $f => $v) {
                 if ($v !== '' && (string)($have[$f] ?? '') === '') {
                     $fill[$f] = $v;
@@ -754,18 +756,23 @@ function nc_import_write_contact(PDO $pdo, array &$ctx, array &$reg, array $res,
                     throw new RuntimeException('O CNPJ ' . format_cnpj($doc['digits']) . ' passou a existir durante a importação. Reabra a revisão.');
                 }
             }
-            $ownerId = $co['owner_email'] !== '' ? nc_import_find_user($ctx, $co['owner_email'], '') : null;
+            $ownerId = nc_import_owner_id($ctx, $co['owner_email']);
             $pdo->prepare(
-                "INSERT INTO companies (name, alias, cnpj, person_document, city, state, external_id, owner_user_id, source, import_batch_id, import_synced_at, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,'xlsx',?,NOW(),NOW())"
+                "INSERT INTO companies (name, alias, cnpj, person_document, city, state, phone, external_id, owner_user_id, interest_lines, source_quote_count,
+                 source_last_quote_at, source_origin, import_note, source, import_batch_id, import_synced_at, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'xlsx',?,NOW(),NOW())"
             )->execute([
                 $co['name'], $co['alias'] !== '' ? $co['alias'] : null, $doc['kind'] === 'cnpj' ? $doc['digits'] : null,
                 $doc['kind'] === 'cpf' ? $doc['digits'] : null, $co['city'] !== '' ? $co['city'] : null, $co['state'] !== '' ? $co['state'] : null,
-                $co['ext'] !== '' ? $co['ext'] : null, $ownerId, $batchId,
+                $co['phone'] !== '' ? $co['phone'] : null, $co['ext'] !== '' ? $co['ext'] : null, $ownerId,
+                $co['interest'] !== '' ? $co['interest'] : null, $co['quote_count'], $co['last_quote'] !== '' ? $co['last_quote'] : null,
+                $co['origin'] !== '' ? $co['origin'] : null, $co['review'] !== '' ? $co['review'] : null, $batchId,
             ]);
             $companyId = (int)$pdo->lastInsertId();
             $result['company_created'] = $companyId;
-            $reg['data'][$companyId] = ['cnpj' => $doc['kind'] === 'cnpj' ? $doc['digits'] : '', 'alias' => $co['alias'], 'city' => $co['city'], 'state' => $co['state'], 'external_id' => $co['ext']];
+            $reg['data'][$companyId] = ['cnpj' => $doc['kind'] === 'cnpj' ? $doc['digits'] : '', 'alias' => $co['alias'], 'city' => $co['city'], 'state' => $co['state'], 'external_id' => $co['ext'],
+                'phone' => $co['phone'], 'interest_lines' => $co['interest'], 'source_origin' => $co['origin'], 'import_note' => $co['review'],
+                'source_quote_count' => $co['quote_count'] !== null ? (string)$co['quote_count'] : '', 'source_last_quote_at' => $co['last_quote']];
             if ($co['ext'] !== '') {
                 $reg['ext'][strtolower($co['ext'])] = $companyId;
             }
@@ -779,7 +786,7 @@ function nc_import_write_contact(PDO $pdo, array &$ctx, array &$reg, array $res,
     $contactId = $t['contact_id'] ? (int)$t['contact_id'] : 0;
     if ($contactId > 0) {
         if ($t['contact_diff']) {
-            $map = ['name' => 'name', 'email' => 'email', 'phone' => 'phone', 'job_title' => 'job_title', 'external_id' => 'external_id', 'company_id' => 'company_id'];
+            $map = ['name' => 'name', 'email' => 'email', 'phone' => 'phone', 'job_title' => 'job_title', 'external_id' => 'external_id', 'company_id' => 'company_id', 'first_name' => 'first_name'];
             $set = [];
             foreach ($t['contact_diff'] as $field => [$before, $after]) {
                 $set[$map[$field]] = $field === 'company_id' ? $companyId : $after;
@@ -791,10 +798,10 @@ function nc_import_write_contact(PDO $pdo, array &$ctx, array &$reg, array $res,
         }
     } else {
         $pdo->prepare(
-            "INSERT INTO contacts (company_id, name, email, phone, job_title, source, external_id, import_batch_id, import_synced_at, created_by, updated_at)
-             VALUES (?,?,?,?,?,'xlsx',?,?,NOW(),?,NOW())"
+            "INSERT INTO contacts (company_id, name, first_name, email, phone, job_title, source, external_id, import_batch_id, import_synced_at, created_by, updated_at)
+             VALUES (?,?,?,?,?,?,'xlsx',?,?,NOW(),?,NOW())"
         )->execute([
-            $companyId ?: null, $c['name'], $c['email'] !== '' ? $c['email'] : null, $c['phone'] !== '' ? $c['phone'] : null,
+            $companyId ?: null, $c['name'], $c['first'] !== '' ? $c['first'] : null, $c['email'] !== '' ? $c['email'] : null, $c['phone'] !== '' ? $c['phone'] : null,
             $c['job'] !== '' ? $c['job'] : null, $c['ext'] !== '' ? $c['ext'] : null, $batchId, $userId,
         ]);
         $result['contact_created'] = (int)$pdo->lastInsertId();
@@ -912,7 +919,7 @@ function nc_import_confirm(PDO $pdo, array $batch, int $userId): array
         $force = nc_import_row_force($row);
         $values = nc_import_row_values(nc_import_decode($row['raw_json']), $cfg['mapping']);
         $res = $type === 'contatos'
-            ? nc_import_classify_contact($pdo, $ctx, $values, $force)
+            ? nc_import_classify_contact($pdo, $ctx, $values, $force, $cfg)
             : nc_import_classify_opp($pdo, $ctx, $batch, $cfg, $values, $force);
         $old = nc_import_decode($row['normalized_json']);
         $sameTarget = ($res['norm']['target']['contact_id'] ?? null) === ($old['target']['contact_id'] ?? null)

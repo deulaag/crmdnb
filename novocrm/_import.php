@@ -604,7 +604,9 @@ function nc_import_fields(string $type): array
     }
     return [
         'contact_name' => ['label' => 'Nome do contato', 'group' => 'Contato', 'required' => true,
-            'syn' => ['nome', 'nome do contato', 'contato', 'pessoa']],
+            'syn' => ['nome', 'nome do contato', 'nome completo', 'contato', 'pessoa']],
+        'contact_first_name' => ['label' => 'Primeiro nome', 'group' => 'Contato', 'required' => false,
+            'syn' => ['primeiro nome', 'first name']],
         'contact_email' => ['label' => 'E-mail do contato', 'group' => 'Contato', 'required' => 'email_ou_telefone',
             'syn' => ['email', 'e-mail', 'email do contato']],
         'contact_phone' => ['label' => 'Telefone do contato', 'group' => 'Contato', 'required' => 'email_ou_telefone',
@@ -617,6 +619,10 @@ function nc_import_fields(string $type): array
             'syn' => ['nome fantasia', 'fantasia', 'apelido']],
         'company_cnpj' => ['label' => 'CNPJ', 'group' => 'Empresa', 'required' => false,
             'syn' => ['cnpj', 'cnpj da empresa', 'documento', 'cnpj/cpf']],
+        'company_phone' => ['label' => 'Telefone da empresa (cadastro)', 'group' => 'Empresa', 'required' => false,
+            'syn' => ['telefone da empresa', 'telefone da empresa (cadastro)', 'telefone empresa', 'fone da empresa']],
+        'company_city_state' => ['label' => 'Cidade/UF (juntos)', 'group' => 'Empresa', 'required' => false,
+            'syn' => ['cidade/uf', 'cidade uf', 'cidade - uf', 'municipio/uf']],
         'company_city' => ['label' => 'Cidade', 'group' => 'Empresa', 'required' => false,
             'syn' => ['cidade', 'municipio']],
         'company_state' => ['label' => 'UF', 'group' => 'Empresa', 'required' => false,
@@ -625,8 +631,18 @@ function nc_import_fields(string $type): array
             'syn' => ['id da empresa', 'id empresa', 'codigo cliente', 'cod cliente', 'id rd']],
         'contact_external_id' => ['label' => 'ID do contato (origem)', 'group' => 'Contato', 'required' => false,
             'syn' => ['id do contato', 'id contato']],
-        'owner_email' => ['label' => 'Responsável (e-mail)', 'group' => 'Empresa', 'required' => false,
-            'syn' => ['responsavel', 'dono', 'vendedor', 'email do responsavel']],
+        'owner_email' => ['label' => 'Vendedor responsável (nome ou e-mail)', 'group' => 'Empresa', 'required' => false,
+            'syn' => ['vendedor responsavel', 'responsavel', 'dono', 'vendedor', 'email do responsavel']],
+        'company_interest' => ['label' => 'Linhas de interesse', 'group' => 'Origem', 'required' => false,
+            'syn' => ['linhas de interesse', 'linha de interesse', 'interesse']],
+        'company_quote_count' => ['label' => 'Qtde de orçamentos/propostas (na origem)', 'group' => 'Origem', 'required' => false,
+            'syn' => ['qtde de orcamentos/propostas', 'qtde de orcamentos propostas', 'qtde orcamentos', 'quantidade de orcamentos']],
+        'company_last_quote' => ['label' => 'Última em (data do último orçamento)', 'group' => 'Origem', 'required' => false,
+            'syn' => ['ultima em', 'ultima proposta', 'ultimo orcamento']],
+        'company_origin' => ['label' => 'Origem (documentos)', 'group' => 'Origem', 'required' => false,
+            'syn' => ['origem (documentos)', 'origem documentos', 'origem dos documentos', 'origem']],
+        'company_review' => ['label' => 'Conferir (observação da planilha)', 'group' => 'Origem', 'required' => false,
+            'syn' => ['conferir', 'conferencia', 'verificar']],
     ];
 }
 
