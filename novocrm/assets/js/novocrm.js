@@ -250,6 +250,25 @@
     else toast(fm, ft === 'success' ? 'success' : 'info');
   }
 
+  /* ---------- Central de Importação: recalcula os valores a mapear (sem expor o token CSRF na URL) ---------- */
+  function mapRefresh(form) {
+    var data = new FormData(form);
+    var params = new URLSearchParams();
+    data.forEach(function (value, key) {
+      if (key === 'csrf_token') return;
+      params.append(key, String(value));
+    });
+    window.location.href = form.getAttribute('data-nc-refresh-url') + '?' + params.toString();
+  }
+  document.addEventListener('change', function (e) {
+    var sel = e.target.closest && e.target.closest('select[data-nc-map]');
+    if (sel && sel.form) mapRefresh(sel.form);
+  });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-nc-map-refresh]');
+    if (btn && btn.form) { e.preventDefault(); mapRefresh(btn.form); }
+  });
+
   /* ---------- confirmação para ações destrutivas ---------- */
   // Elementos htmx com data-nc-confirm="mensagem": pedem confirmação em modal antes de enviar.
   document.addEventListener('htmx:confirm', function (e) {
@@ -653,6 +672,7 @@
     function restore(evt) {
       evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex] || null);
       recount();
+      refreshBoard(board);
     }
 
     var common = { group: 'deals', animation: 150, ghostClass: 'sortable-ghost', delay: 150, delayOnTouchOnly: true, fallbackTolerance: 4 };
@@ -666,6 +686,7 @@
           if (evt.from === evt.to && evt.oldIndex === evt.newIndex) return;
           var order = $$('.nc-deal-card', evt.to).map(function (c) { return c.getAttribute('data-id'); }).join(',');
           recount();
+          refreshBoard(board);
           post(moveUrl, { id: evt.item.getAttribute('data-id'), stage_id: evt.to.getAttribute('data-stage-id'), order: order })
             .then(function (r) {
               if (r.ok) return;
@@ -712,7 +733,159 @@
       });
     });
   }
+  /* Atualiza contagens, probabilidade da etapa e estado das setas ← → de todos os cards. */
+  function refreshBoard(board) {
+    var lists = $$('.nc-kanban-list', board);
+    $$('.nc-kanban-col', board).forEach(function (col) {
+      var cards = $$('.nc-deal-card', col);
+      var sum = cards.reduce(function (t, c) { return t + (parseFloat(c.getAttribute('data-amount')) || 0); }, 0);
+      $('[data-count]', col).textContent = String(cards.length);
+      $('[data-sum]', col).textContent = moneyShort(sum);
+    });
+    lists.forEach(function (list, i) {
+      var p = list.getAttribute('data-prob');
+      $$('.nc-deal-card', list).forEach(function (card) {
+        var slot = $('[data-prob-slot]', card);
+        if (slot) { slot.textContent = p ? p + '% de chance' : ''; slot.hidden = !p; }
+        var prev = $('[data-nc-move="prev"]', card);
+        var next = $('[data-nc-move="next"]', card);
+        if (prev) prev.disabled = i === 0;
+        if (next) next.disabled = i === lists.length - 1;
+      });
+    });
+  }
+
   initKanban();
+  $$('[data-nc-kanban]').forEach(refreshBoard);
+
+  /* ---------- kanban: setas ← → para mover de etapa (teclado e celular) ---------- */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-nc-move]');
+    if (!btn || btn.disabled) return;
+    var board = btn.closest('[data-nc-kanban]');
+    var card = btn.closest('.nc-deal-card');
+    if (!board || !card) return;
+    var lists = $$('.nc-kanban-list', board);
+    var from = card.parentNode;
+    var to = lists[lists.indexOf(from) + (btn.getAttribute('data-nc-move') === 'next' ? 1 : -1)];
+    if (!to) return;
+    var oldIndex = Array.prototype.indexOf.call(from.children, card);
+    to.insertBefore(card, to.firstChild);
+    var order = $$('.nc-deal-card', to).map(function (c) { return c.getAttribute('data-id'); }).join(',');
+    refreshBoard(board);
+    btn.focus();
+    post(board.getAttribute('data-move-url'), { id: card.getAttribute('data-id'), stage_id: to.getAttribute('data-stage-id'), order: order })
+      .then(function (r) {
+        if (r.ok) { toast('Movida para ' + (to.getAttribute('data-stage-name') || 'a etapa') + '.', 'success'); return; }
+        from.insertBefore(card, from.children[oldIndex] || null);
+        refreshBoard(board);
+        if (!r.handled) alertModal('Não foi possível mover', r.text || 'Tente novamente.', 'danger');
+      });
+  });
+
+  /* ---------- filtro local por texto (ex.: "Buscar representante...") ---------- */
+  // <input data-nc-filter="#lista"> esconde os [data-nc-filter-item] cujo data-nc-filter-text não contém o termo.
+  document.addEventListener('input', function (e) {
+    var input = e.target.closest && e.target.closest('[data-nc-filter]');
+    if (!input) return;
+    var scope = document.querySelector(input.getAttribute('data-nc-filter'));
+    if (!scope) return;
+    var term = input.value.trim().toLowerCase();
+    var shown = 0;
+    $$('[data-nc-filter-item]', scope).forEach(function (item) {
+      var hit = !term || (item.getAttribute('data-nc-filter-text') || item.textContent.toLowerCase()).indexOf(term) !== -1;
+      item.hidden = !hit;
+      if (hit) shown++;
+    });
+    var empty = scope.querySelector('[data-nc-filter-empty]');
+    if (empty) empty.hidden = shown > 0 || !term;
+  });
+
+  /* ---------- tooltip dos gráficos SVG (Evolução de Faturamento) ---------- */
+  // Cada zona de passagem do mouse (.nc-evo-hit) traz data-tip="Título|linha 1|linha 2".
+  (function initChartTips() {
+    var tip = null;
+    function ensureTip(wrap) {
+      if (!tip) { tip = document.createElement('div'); tip.className = 'nc-evo-tip'; tip.setAttribute('role', 'status'); }
+      if (tip.parentNode !== wrap) wrap.appendChild(tip);
+      return tip;
+    }
+    function show(hit) {
+      var wrap = hit.closest('.nc-evo-wrap');
+      if (!wrap) return;
+      var parts = (hit.getAttribute('data-tip') || '').split('|');
+      var t = ensureTip(wrap);
+      t.textContent = '';
+      parts.forEach(function (p, i) {
+        var node = document.createElement(i === 0 ? 'strong' : 'span');
+        node.textContent = p;
+        t.appendChild(node);
+        if (i > 0 && i < parts.length - 1) t.appendChild(document.createElement('br'));
+      });
+      var box = wrap.getBoundingClientRect();
+      var r = hit.getBoundingClientRect();
+      var x = r.left - box.left + r.width / 2;
+      t.style.left = Math.min(Math.max(x, 70), Math.max(70, box.width - 70)) + 'px';
+      t.style.top = Math.max(r.top - box.top + 12, 30) + 'px';
+      t.hidden = false;
+      $$('.nc-evo-hit.is-active', wrap).forEach(function (n) { n.classList.remove('is-active'); });
+      hit.classList.add('is-active');
+    }
+    function hide(wrap) {
+      if (tip) tip.hidden = true;
+      if (wrap) $$('.nc-evo-hit.is-active', wrap).forEach(function (n) { n.classList.remove('is-active'); });
+    }
+    document.addEventListener('pointerover', function (e) {
+      var hit = e.target.closest && e.target.closest('.nc-evo-hit');
+      if (hit) show(hit);
+    });
+    document.addEventListener('pointerout', function (e) {
+      var hit = e.target.closest && e.target.closest('.nc-evo-hit');
+      if (hit && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.nc-evo-hit'))) hide(hit.closest('.nc-evo-wrap'));
+    });
+  })();
+
+  /* ---------- seletor de empresa com autocomplete ---------- */
+  // Só o ID escolhido (campo oculto) é enviado: o texto digitado serve apenas para buscar.
+  document.addEventListener('click', function (e) {
+    var item = e.target.closest && e.target.closest('.nc-picker-item');
+    if (item) {
+      var picker = item.closest('[data-nc-picker]');
+      if (!picker) return;
+      picker.querySelector('[data-nc-picker-value]').value = item.getAttribute('data-id') || '';
+      picker.querySelector('[data-nc-picker-label]').textContent = item.getAttribute('data-label') || '';
+      picker.querySelector('[data-nc-picker-chosen]').hidden = false;
+      picker.querySelector('[data-nc-picker-search]').hidden = true;
+      picker.querySelector('.nc-picker-list').innerHTML = '';
+      picker.querySelector('[data-nc-picker-input]').value = '';
+      return;
+    }
+    var clear = e.target.closest && e.target.closest('[data-nc-picker-clear]');
+    if (clear) {
+      var p = clear.closest('[data-nc-picker]');
+      if (!p) return;
+      p.querySelector('[data-nc-picker-value]').value = '';
+      p.querySelector('[data-nc-picker-chosen]').hidden = true;
+      p.querySelector('[data-nc-picker-search]').hidden = false;
+      p.querySelector('[data-nc-picker-input]').focus();
+    }
+  });
+  // Enter no campo de busca escolhe a primeira sugestão (e não envia o formulário).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !e.target.closest || !e.target.closest('[data-nc-picker-input]')) return;
+    e.preventDefault();
+    var first = e.target.closest('[data-nc-picker]').querySelector('.nc-picker-item');
+    if (first) first.click();
+  });
+
+  /* ---------- "selecionar todos" em tabelas com caixas de seleção ---------- */
+  document.addEventListener('change', function (e) {
+    var all = e.target.closest && e.target.closest('[data-nc-check-all]');
+    if (!all) return;
+    var scope = document.querySelector(all.getAttribute('data-nc-check-all'));
+    if (!scope) return;
+    $$('input[type="checkbox"][name="ids[]"]', scope).forEach(function (c) { c.checked = all.checked; });
+  });
 
   /* ---------- API pública (usada pelas telas das próximas fases) ---------- */
   window.NC = {

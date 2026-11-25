@@ -302,6 +302,14 @@ function nc_deal_card(array $o): void
             <?php if ($pending): ?><?= nc_badge('Orçamento pendente', 'warning') ?><?php endif; ?>
             <small class="nc-muted"><?= $days < 1 ? 'Atualizada hoje' : 'Parada há ' . $days . ' dia' . ($days > 1 ? 's' : '') ?></small>
         </div>
+        <div class="nc-deal-tools">
+            <?php $prob = isset($o['probability']) && $o['probability'] !== null ? (int)$o['probability'] : null; ?>
+            <span class="nc-deal-prob" data-prob-slot title="Probabilidade da etapa"<?= $prob === null ? ' hidden' : '' ?>><?= $prob !== null ? $prob . '% de chance' : '' ?></span>
+            <span class="nc-deal-arrows">
+                <button type="button" class="nc-icon-btn nc-icon-btn-sm" data-nc-move="prev" aria-label="Mover para a etapa anterior" title="Etapa anterior"><?= nc_icon('arrow-left', 16) ?></button>
+                <button type="button" class="nc-icon-btn nc-icon-btn-sm" data-nc-move="next" aria-label="Mover para a próxima etapa" title="Próxima etapa"><?= nc_icon('arrow-right', 16) ?></button>
+            </span>
+        </div>
     </article>
     <?php
 }

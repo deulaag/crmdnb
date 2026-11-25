@@ -45,7 +45,7 @@ try {
     $id = (int)$pdo->lastInsertId();
     audit($pdo, (int)$user['id'], 'create', 'agenda', $id, ['event_type' => $eventType]);
     flash('success', 'Compromisso adicionado ao Cronograma Comercial.');
-    nc_hx_redirect(nc_url('visitas.php'));
+    nc_hx_redirect(nc_url(($v['volta'] ?? '') === 'cadencia' ? 'cadencia.php' : 'visitas.php'));
 } catch (Throwable $e) {
     http_response_code(422);
     header('Content-Type: text/html; charset=utf-8');

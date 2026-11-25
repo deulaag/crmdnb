@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/_app.php';
+require_once __DIR__ . '/partials/kpi.php';
 
 /**
  * Abre a página: <head>, sidebar, barra superior e <main>.
@@ -71,9 +72,6 @@ function nc_header(string $title, string $active = '', array $crumbs = []): void
                            title="<?= e($item['label']) ?>">
                             <?= nc_icon($item['icon']) ?>
                             <span class="nc-nav-label"><?= e($item['label']) ?></span>
-                            <?php if (!$item['native']): ?>
-                                <span class="nc-nav-tag" title="Abre a versão clássica">versão clássica</span>
-                            <?php endif; ?>
                         </a>
                     </li>
                 <?php endforeach; ?>
@@ -88,9 +86,6 @@ function nc_header(string $title, string $active = '', array $crumbs = []): void
                     <small><?= e(ucfirst((string)($user['role'] ?? ''))) ?></small>
                 </span>
             </div>
-            <a class="nc-nav-item nc-nav-small" href="/painel.php" title="Voltar ao CRM clássico">
-                <?= nc_icon('home') ?><span class="nc-nav-label">CRM clássico</span>
-            </a>
             <a class="nc-nav-item nc-nav-small" href="/logout.php" title="Sair">
                 <?= nc_icon('logout') ?><span class="nc-nav-label">Sair</span>
             </a>
@@ -134,13 +129,14 @@ function nc_header(string $title, string $active = '', array $crumbs = []): void
 }
 
 /** Cabeçalho de página: contexto pequeno, título grande e botão primário opcional. */
-function nc_page_header(string $context, string $title, string $actionHtml = ''): void
+function nc_page_header(string $context, string $title, string $actionHtml = '', string $subtitle = ''): void
 {
     ?>
     <div class="nc-page-header">
         <div>
             <?php if ($context !== ''): ?><p class="nc-page-context"><?= e($context) ?></p><?php endif; ?>
             <h1 class="nc-page-title"><?= e($title) ?></h1>
+            <?php if ($subtitle !== ''): ?><p class="nc-page-sub"><?= e($subtitle) ?></p><?php endif; ?>
         </div>
         <?php if ($actionHtml !== ''): ?><div class="nc-page-actions"><?= $actionHtml /* HTML já escapado pelo chamador */ ?></div><?php endif; ?>
     </div>

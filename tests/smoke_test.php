@@ -276,6 +276,22 @@ foreach ([
     'novocrm/acoes/busca.php','novocrm/migrations/run.php','novocrm/_lib.php','novocrm/clientes.php','novocrm/cliente.php','novocrm/acoes/cliente-salvar.php','novocrm/acoes/cnpj-consulta.php','novocrm/migrations/002_company_portfolio_status.sql','novocrm/migrations/001_opportunity_position.sql','novocrm/migrations/003_order_items.sql','novocrm/migrations/004_user_monthly_target.sql','novocrm/comissoes.php','novocrm/configuracoes.php','novocrm/partials/comissao.php','novocrm/acoes/meta-salvar.php','novocrm/pedidos.php','novocrm/pedido.php','novocrm/visitas.php','novocrm/acoes/pedido-salvar.php','novocrm/acoes/pedido-faturar.php','novocrm/acoes/visita-promover.php','novocrm/acoes/agenda-status.php','novocrm/oportunidades.php','novocrm/oportunidade.php','novocrm/partials/oportunidade.php','novocrm/acoes/oportunidade-etapa.php','novocrm/acoes/oportunidade-acao.php','novocrm/acoes/oportunidade-salvar.php','novocrm/assets/css/novocrm.css',
     'novocrm/assets/js/novocrm.js','novocrm/assets/js/theme-init.js',
     'novocrm/assets/vendor/htmx.min.js','novocrm/assets/vendor/Sortable.min.js',
+    // V2: Equipe & Comissões, Cadência, metas, fechamento de comissões, probabilidade de etapa
+    'novocrm/equipe.php','novocrm/cadencia.php','novocrm/partials/icons.php','novocrm/partials/kpi.php','novocrm/partials/equipe.php',
+    'novocrm/migrations/004_sales_targets.sql','novocrm/migrations/004b_migrate_monthly_target.sql',
+    'novocrm/migrations/006_commission_closings.sql','novocrm/migrations/007_stage_probability.sql',
+    'novocrm/acoes/equipe-fechar.php','novocrm/acoes/equipe-pagar.php','novocrm/acoes/equipe-csv.php',
+    'novocrm/acoes/representante-form.php','novocrm/acoes/representante-salvar.php','novocrm/acoes/agenda-reagendar.php',
+    // V3: Clientes (Empresas, Contatos, Importações), mesclagem e migração de rastreio de importação
+    'novocrm/_empresas.php','novocrm/_empresas_merge.php','novocrm/partials/clientes-empresas.php','novocrm/partials/clientes-contatos.php',
+    'novocrm/partials/clientes-importacoes.php','novocrm/partials/contato.php','novocrm/partials/empresa-picker.php','novocrm/partials/empresa-mesclar.php',
+    'novocrm/acoes/empresa-busca.php','novocrm/acoes/contato-form.php','novocrm/acoes/contato-salvar.php',
+    'novocrm/acoes/contato-vincular-form.php','novocrm/acoes/contato-vincular.php',
+    'novocrm/acoes/empresa-mesclar-form.php','novocrm/acoes/empresa-mesclar.php',
+    'novocrm/migrations/008_import_tracking_columns.sql',
+    'novocrm/migrations/009_import_tables.sql','novocrm/importar.php','novocrm/_import.php','novocrm/_import_match.php','novocrm/_import_run.php','novocrm/partials/importar.php',
+    'novocrm/acoes/importar-enviar.php','novocrm/acoes/importar-mapear.php','novocrm/acoes/importar-processar.php','novocrm/acoes/importar-revisar-form.php',
+    'novocrm/acoes/importar-resolver.php','novocrm/acoes/importar-acao.php','novocrm/acoes/importar-csv.php','novocrm/acoes/importar-cnpja.php',
 ] as $file) {
     if (!is_file($root . '/' . $file)) {
         fwrite(STDERR, "Arquivo do NOVOCRM ausente: {$file}\n");
@@ -317,6 +333,93 @@ foreach (['process_quote_reminders(', 'process_commercial_agenda_reminders('] as
         fwrite(STDERR, "NOVOCRM não pode chamar automaticamente: {$forbidden}\n");
         exit(1);
     }
+}
+
+// V2: menu 100% nativo (sem selo "versão clássica" e sem itens apontando para a raiz) e comissoes.php redirecionando.
+$ncMenuSrc = file_get_contents($root . '/novocrm/_app.php') . file_get_contents($root . '/novocrm/_layout.php');
+foreach (['versão clássica', 'CRM clássico', "'native'"] as $forbidden) {
+    if (str_contains($ncMenuSrc, $forbidden)) {
+        fwrite(STDERR, "NOVOCRM: a sidebar não pode exibir/usar: {$forbidden}\n");
+        exit(1);
+    }
+}
+if (!preg_match("/function nc_menu\\(\\): array\\s*\\{(.*?)\\n\\}/s", $ncMenuSrc, $ncMenuBody) || preg_match("/'href'\\s*=>\\s*'\\//", $ncMenuBody[1])) {
+    fwrite(STDERR, "NOVOCRM: nenhum item da sidebar pode apontar para a raiz.\n");
+    exit(1);
+}
+$ncComissoes = file_get_contents($root . '/novocrm/comissoes.php');
+if (!str_contains($ncComissoes, 'equipe.php') || !str_contains($ncComissoes, '301')) {
+    fwrite(STDERR, "novocrm/comissoes.php deve redirecionar (301) para equipe.php.\n");
+    exit(1);
+}
+$ncCadencia = file_get_contents($root . '/novocrm/cadencia.php');
+if (str_contains($ncCadencia, "/cadencia.php'") && str_contains($ncCadencia, 'Location:')) {
+    fwrite(STDERR, "novocrm/cadencia.php é nativa e não pode redirecionar para a raiz.\n");
+    exit(1);
+}
+
+// V3: endpoints que gravam exigem POST + CSRF; mesclar é só admin; vincular em lote é admin/gestor.
+foreach (['contato-salvar','contato-vincular','empresa-mesclar'] as $ncAction) {
+    $src = file_get_contents($root . '/novocrm/acoes/' . $ncAction . '.php');
+    if (!str_contains($src, 'nc_require_post()')) {
+        fwrite(STDERR, "novocrm/acoes/{$ncAction}.php deve chamar nc_require_post() (POST + CSRF).\n");
+        exit(1);
+    }
+}
+foreach (['empresa-mesclar' => 'nc_is_admin(', 'empresa-mesclar-form' => 'nc_is_admin(', 'contato-vincular' => 'nc_is_manager(', 'contato-vincular-form' => 'nc_is_manager('] as $ncAction => $guard) {
+    if (!str_contains(file_get_contents($root . '/novocrm/acoes/' . $ncAction . '.php'), $guard)) {
+        fwrite(STDERR, "novocrm/acoes/{$ncAction}.php sem checagem de permissão ({$guard}).\n");
+        exit(1);
+    }
+}
+$ncRun = file_get_contents($root . '/novocrm/migrations/run.php');
+if (!str_contains($ncRun, 'create_index') || preg_match('/UNIQUE\s+INDEX/i', file_get_contents($root . '/novocrm/migrations/008_import_tracking_columns.sql'))) {
+    fwrite(STDERR, "NOVOCRM: a 008 só pode criar índices comuns (não únicos) pelo run.php.\n");
+    exit(1);
+}
+
+// V3 (Central de Importação): só admin/gestor, POST + CSRF nas ações que gravam e nenhuma chamada externa durante a importação.
+foreach (['importar-enviar','importar-mapear','importar-processar','importar-resolver','importar-acao','importar-cnpja'] as $ncAction) {
+    $src = file_get_contents($root . '/novocrm/acoes/' . $ncAction . '.php');
+    if (!str_contains($src, 'nc_require_post()') || !str_contains($src, 'nc_is_manager(')) {
+        fwrite(STDERR, "novocrm/acoes/{$ncAction}.php deve exigir nc_require_post() e nc_is_manager().\n");
+        exit(1);
+    }
+}
+foreach (['importar-csv','importar-revisar-form'] as $ncAction) {
+    if (!str_contains(file_get_contents($root . '/novocrm/acoes/' . $ncAction . '.php'), 'nc_is_manager(')) {
+        fwrite(STDERR, "novocrm/acoes/{$ncAction}.php deve exigir nc_is_manager().\n");
+        exit(1);
+    }
+}
+if (!str_contains(file_get_contents($root . '/novocrm/importar.php'), 'nc_is_manager(')) {
+    fwrite(STDERR, "novocrm/importar.php deve exigir nc_is_manager().\n");
+    exit(1);
+}
+$ncImport = '';
+foreach (['_import.php', '_import_match.php', 'importar.php', 'partials/importar.php', 'acoes/importar-enviar.php', 'acoes/importar-mapear.php', 'acoes/importar-processar.php', 'acoes/importar-resolver.php', 'acoes/importar-acao.php'] as $ncFile) {
+    $ncImport .= file_get_contents($root . '/novocrm/' . $ncFile);
+}
+foreach (['cnpja_lookup(', 'rd_sync_all(', 'rd_api_get(', 'rd_access_token(', 'rd_crm_access_token(', 'send_mail(', 'mail('] as $forbidden) {
+    if (str_contains($ncImport, $forbidden)) {
+        fwrite(STDERR, "A importação não pode chamar serviços externos ({$forbidden}); o CNPJá só roda na fila pós-confirmação (acoes/importar-cnpja.php).\n");
+        exit(1);
+    }
+}
+$ncRunSrc = file_get_contents($root . '/novocrm/_import_run.php');
+if (substr_count($ncRunSrc, 'cnpja_lookup(') !== 1 || !str_contains($ncRunSrc, 'function nc_import_cnpja_step')) {
+    fwrite(STDERR, "cnpja_lookup() só pode ser chamado em nc_import_cnpja_step().\n");
+    exit(1);
+}
+foreach (['LIMIT 1', ' LIKE '] as $forbidden) {
+    if (str_contains(file_get_contents($root . '/novocrm/_import_match.php'), $forbidden)) {
+        fwrite(STDERR, "O vínculo com a empresa não pode usar {$forbidden} (só regras determinísticas e únicas).\n");
+        exit(1);
+    }
+}
+if (!is_file($root . '/tests/novocrm_import_test.php') || !is_file($root . '/tests/fixtures/orcamentos.xlsx')) {
+    fwrite(STDERR, "Faltam tests/novocrm_import_test.php e as planilhas de exemplo em tests/fixtures.\n");
+    exit(1);
 }
 
 echo "Smoke test OK\n";

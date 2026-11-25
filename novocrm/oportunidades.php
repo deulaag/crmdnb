@@ -79,6 +79,7 @@ nc_header('Oportunidades', 'oportunidades');
 
 $newUrl = nc_url('acoes/oportunidade-form.php');
 $actions = '<details class="nc-menu"><summary class="nc-btn nc-btn-secondary">Importar</summary><div class="nc-menu-list">'
+    . (nc_is_manager($user) && is_file(__DIR__ . '/importar.php') ? '<a href="' . e(nc_url('importar.php?tipo=orcamentos')) . '">Planilha de orçamentos (XLSX/CSV)</a>' : '')
     . '<a href="/orcamentos.php">Cotador (JSON)</a><a href="/orcamentos.php">PDF do ERP</a><a href="/orcamentos.php">Relatório Salesforce</a>'
     . '<small>Abre a versão clássica</small></div></details>'
     . '<button type="button" class="nc-btn nc-btn-primary" hx-get="' . e($newUrl) . '" hx-target="#nc-drawer-body" hx-swap="innerHTML">+ Nova oportunidade</button>';
@@ -135,7 +136,8 @@ if ($openId > 0): ?>
 </form>
 
 <?php if ($view === 'kanban'):
-    $stagesQ = $pdo->prepare('SELECT id,name FROM funnel_stages WHERE funnel_id=? ORDER BY sort_order');
+    $hasProb = nc_column_exists($pdo, 'funnel_stages', 'probability');
+    $stagesQ = $pdo->prepare('SELECT id,name' . ($hasProb ? ',probability' : '') . ' FROM funnel_stages WHERE funnel_id=? ORDER BY sort_order');
     $stagesQ->execute([$funnelId]);
     $stages = $stagesQ->fetchAll();
 
@@ -161,16 +163,17 @@ if ($openId > 0): ?>
         <div class="nc-kanban" data-nc-kanban
              data-move-url="<?= e(nc_url('acoes/oportunidade-etapa.php')) ?>"
              data-action-url="<?= e(nc_url('acoes/oportunidade-acao.php')) ?>">
-            <?php foreach ($stages as $st):
-                $cards = $byStage[(int)$st['id']] ?? [];
+            <?php foreach ($stages as $stIdx => $st):
+                $prob = $hasProb && $st['probability'] !== null ? (int)$st['probability'] : null;
+                $cards = array_map(static fn($c) => $c + ['probability' => $prob], $byStage[(int)$st['id']] ?? []);
                 $sum = array_sum(array_map(static fn($c) => (float)$c['amount'], $cards)); ?>
                 <section class="nc-kanban-col" aria-label="Etapa <?= e((string)$st['name']) ?>">
                     <header class="nc-kanban-col-head">
-                        <h2><?= e((string)$st['name']) ?></h2>
+                        <h2><span class="nc-stage-n" aria-hidden="true"><?= str_pad((string)($stIdx + 1), 2, '0', STR_PAD_LEFT) ?></span> <?= e((string)$st['name']) ?></h2>
                         <span class="nc-tab-count" data-count><?= count($cards) ?></span>
                         <span class="nc-kanban-sum nc-num" data-sum><?= e(nc_money_short($sum)) ?></span>
                     </header>
-                    <div class="nc-kanban-list" data-stage-id="<?= (int)$st['id'] ?>">
+                    <div class="nc-kanban-list" data-stage-id="<?= (int)$st['id'] ?>" data-stage-name="<?= e((string)$st['name']) ?>"<?= $prob !== null ? ' data-prob="' . $prob . '"' : '' ?>>
                         <?php foreach ($cards as $c) { nc_deal_card($c); } ?>
                     </div>
                 </section>
@@ -187,7 +190,7 @@ if ($openId > 0): ?>
                 <div class="nc-zone-list" data-zone="lost"></div>
             </div>
         </div>
-        <p class="nc-help nc-kanban-help">Arraste os cards entre as colunas. Prefere teclado ou celular? Abra a oportunidade e use “Mover de etapa”.</p>
+        <p class="nc-help nc-kanban-help">Arraste os cards entre as colunas ou use as setas ← → de cada card (funciona com teclado e no celular).</p>
     <?php endif; ?>
 
 <?php else:

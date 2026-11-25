@@ -114,7 +114,7 @@ function nc_visita_form(PDO $pdo, array $v, string $error = ''): void
 function nc_agenda_defaults(): array
 {
     return ['event_date' => date('Y-m-d'), 'event_time' => '', 'client_name' => '', 'user_id' => '', 'contact_name' => '',
-        'objective' => '', 'status' => 'agendado', 'event_type' => 'compromisso'];
+        'objective' => '', 'status' => 'agendado', 'event_type' => 'compromisso', 'volta' => ''];
 }
 
 function nc_agenda_from_post(): array
@@ -140,8 +140,9 @@ function nc_agenda_form(PDO $pdo, array $v, string $error = ''): void
     $v = array_merge(nc_agenda_defaults(), $v);
     $users = nc_users($pdo);
     ?>
-    <div data-drawer-title="Novo compromisso">
+    <div data-drawer-title="<?= $v['event_type'] === 'followup' ? 'Novo follow-up' : 'Novo compromisso' ?>">
         <form class="nc-form" method="post" hx-post="<?= e(nc_url('acoes/agenda-salvar.php')) ?>" hx-target="#nc-drawer-body" hx-swap="innerHTML" hx-disabled-elt="find button[type=submit]">
+            <input type="hidden" name="volta" value="<?= e($v['volta']) ?>">
             <?php if ($error !== ''): ?><div class="nc-alert nc-alert-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
             <div class="nc-field-grid">
                 <div class="nc-field">
