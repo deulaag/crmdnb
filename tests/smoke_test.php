@@ -289,7 +289,7 @@ foreach ([
     'novocrm/acoes/contato-vincular-form.php','novocrm/acoes/contato-vincular.php',
     'novocrm/acoes/empresa-mesclar-form.php','novocrm/acoes/empresa-mesclar.php',
     'novocrm/migrations/008_import_tracking_columns.sql',
-    'novocrm/migrations/009_import_tables.sql','novocrm/importar.php','novocrm/_import.php','novocrm/_import_match.php','novocrm/_import_run.php','novocrm/partials/importar.php',
+    'novocrm/migrations/009_import_tables.sql','novocrm/migrations/010_import_extra_columns.sql','novocrm/importar.php','novocrm/_import.php','novocrm/_import_match.php','novocrm/_import_run.php','novocrm/partials/importar.php',
     'novocrm/acoes/importar-enviar.php','novocrm/acoes/importar-mapear.php','novocrm/acoes/importar-processar.php','novocrm/acoes/importar-revisar-form.php',
     'novocrm/acoes/importar-resolver.php','novocrm/acoes/importar-acao.php','novocrm/acoes/importar-csv.php','novocrm/acoes/importar-cnpja.php',
 ] as $file) {

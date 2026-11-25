@@ -160,6 +160,11 @@ function nc_cliente_ficha(array $co, array $d, bool $isAdmin): void
         'Endereço' => $address,
         'Cidade / UF' => $place,
         'CEP' => (string)($co['zip'] ?? ''),
+        'Linhas de interesse' => (string)($co['interest_lines'] ?? ''),
+        'Orçamentos na origem' => ($co['source_quote_count'] ?? '') !== '' && $co['source_quote_count'] !== null ? (string)$co['source_quote_count'] : '',
+        'Última em (origem)' => !empty($co['source_last_quote_at']) ? nc_date((string)$co['source_last_quote_at']) : '',
+        'Origem dos documentos' => (string)($co['source_origin'] ?? ''),
+        'Conferir (importação)' => (string)($co['import_note'] ?? ''),
     ];
     ?>
     <div class="nc-ficha" data-drawer-title="<?= e((string)$co['name']) ?>">

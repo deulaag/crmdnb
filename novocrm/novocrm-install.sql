@@ -228,6 +228,49 @@ SET @nc_sql = (SELECT IF(COUNT(*) = 0,
 PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
 
 
+-- 010 (v3) — campos extras da planilha de contatos
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `contacts` ADD COLUMN `first_name` VARCHAR(100) NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contacts' AND COLUMN_NAME = 'first_name');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `companies` ADD COLUMN `interest_lines` VARCHAR(500) NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'interest_lines');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `companies` ADD COLUMN `source_quote_count` INT UNSIGNED NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'source_quote_count');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `companies` ADD COLUMN `source_last_quote_at` DATE NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'source_last_quote_at');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `companies` ADD COLUMN `source_origin` VARCHAR(190) NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'source_origin');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
+SET @nc_sql = (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `companies` ADD COLUMN `import_note` VARCHAR(500) NULL',
+  'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'import_note');
+PREPARE nc_st FROM @nc_sql; EXECUTE nc_st; DEALLOCATE PREPARE nc_st;
+
 -- 009_import_tables: Central de Importação
 CREATE TABLE IF NOT EXISTS import_batches (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -294,4 +337,5 @@ INSERT IGNORE INTO nc_migrations (name) VALUES
   ('006_commission_closings.sql'),
   ('007_stage_probability.sql'),
   ('008_import_tracking_columns.sql'),
-  ('009_import_tables.sql');
+  ('009_import_tables.sql'),
+  ('010_import_extra_columns.sql');

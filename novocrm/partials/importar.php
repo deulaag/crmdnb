@@ -38,6 +38,8 @@ function nc_import_diff_label(string $field): string
         'owner_user_id' => 'Responsável', 'name' => 'Nome', 'email' => 'E-mail', 'phone' => 'Telefone', 'job_title' => 'Cargo', 'company_id' => 'Empresa',
         'opportunity_date' => 'Data', 'amount' => 'Valor', 'status' => 'Status', 'loss_reason' => 'Motivo da perda', 'stage_id' => 'Etapa',
         'seller_user_id' => 'Vendedor', 'product_line_id' => 'Linha de produto', 'quote_reference' => 'Referência',
+        'first_name' => 'Primeiro nome', 'interest_lines' => 'Linhas de interesse', 'source_quote_count' => 'Qtde de orçamentos (origem)',
+        'source_last_quote_at' => 'Última em (origem)', 'source_origin' => 'Origem dos documentos', 'import_note' => 'Conferir',
     ][$field] ?? $field;
 }
 
@@ -469,6 +471,17 @@ function nc_import_review_row(array $r, string $type, array $names, array $batch
                 <small><?= e(implode(' · ', array_filter([(string)($n['contact']['email'] ?? ''), (string)($n['contact']['phone'] ?? '')]))) ?></small><br>
                 <small class="nc-muted">Empresa na planilha: <?= e((string)($n['company']['name'] ?? '')) ?><?php
                     $doc = $n['company']['doc'] ?? []; if (($doc['kind'] ?? '') === 'cnpj'): ?> · <?= e(format_cnpj((string)$doc['digits'])) ?><?php elseif (($doc['raw'] ?? '') !== ''): ?> · <?= e((string)$doc['raw']) ?><?php endif; ?></small>
+                <?php $co = (array)($n['company'] ?? []);
+                $extra = array_filter([
+                    ($co['city'] ?? '') !== '' || ($co['state'] ?? '') !== '' ? trim(($co['city'] ?? '') . (($co['state'] ?? '') !== '' ? '/' . $co['state'] : '')) : '',
+                    ($co['phone'] ?? '') !== '' ? 'Tel. empresa ' . $co['phone'] : '',
+                    ($co['owner_email'] ?? '') !== '' ? 'Vendedor ' . $co['owner_email'] : '',
+                    ($co['interest'] ?? '') !== '' ? 'Interesse: ' . $co['interest'] : '',
+                    ($co['quote_count'] ?? null) !== null ? $co['quote_count'] . ' orçamento(s) na origem' : '',
+                    ($co['last_quote'] ?? '') !== '' ? 'Última ' . nc_date((string)$co['last_quote']) : '',
+                    ($co['origin'] ?? '') !== '' ? 'Origem: ' . $co['origin'] : '',
+                ]);
+                if ($extra): ?><br><small class="nc-muted"><?= e(implode(' · ', $extra)) ?></small><?php endif; ?>
             <?php endif; ?>
             <?php foreach ((array)($n['warnings'] ?? []) as $w): ?><br><small class="nc-warn">⚠ <?= e((string)$w) ?></small><?php endforeach; ?>
         </td>
@@ -514,7 +527,11 @@ function nc_import_diff_cell(array $n, array $r, string $class): void
         return;
     }
     echo '<ul class="nc-diff">';
+    $names = (array)($n['target']['labels'] ?? []);
     foreach ($diffs as $label => [$before, $after]) {
+        if (str_ends_with($label, 'Responsável') && isset($names['owner_user_id'])) {
+            $after = $names['owner_user_id'];
+        }
         echo '<li><strong>' . e($label) . ':</strong> <span class="nc-diff-old">' . e((string)$before !== '' ? (string)$before : '(vazio)') . '</span> → <span class="nc-diff-new">' . e((string)$after) . '</span></li>';
     }
     echo '</ul>';

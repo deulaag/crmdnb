@@ -86,10 +86,11 @@ function new_db(): FakePdo
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     $pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, active INT DEFAULT 1)');
     $pdo->exec('CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, action TEXT, entity_type TEXT, entity_id INT, context_json TEXT, ip_address TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
-    $pdo->exec('CREATE TABLE companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, alias TEXT, cnpj TEXT, city TEXT, state TEXT, owner_user_id INT,
+    $pdo->exec('CREATE TABLE companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, alias TEXT, cnpj TEXT, city TEXT, state TEXT, phone TEXT, owner_user_id INT,
+        interest_lines TEXT, source_quote_count INT, source_last_quote_at TEXT, source_origin TEXT, import_note TEXT,
         rd_crm_id TEXT, external_id TEXT, person_document TEXT, merged_ids_json TEXT, source TEXT DEFAULT "manual", import_batch_id INT, import_synced_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)');
-    $pdo->exec('CREATE TABLE contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INT, name TEXT, email TEXT, phone TEXT, job_title TEXT, source TEXT DEFAULT "manual",
+    $pdo->exec('CREATE TABLE contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INT, name TEXT, first_name TEXT, email TEXT, phone TEXT, job_title TEXT, source TEXT DEFAULT "manual",
         external_id TEXT, import_batch_id INT, import_synced_at TEXT, created_by INT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)');
     $pdo->exec('CREATE TABLE product_lines (id INTEGER PRIMARY KEY, name TEXT, funnel_key TEXT, item_type TEXT, active INT DEFAULT 1, sort_order INT DEFAULT 0)');
     $pdo->exec('CREATE TABLE funnels (id INTEGER PRIMARY KEY, funnel_key TEXT, active INT DEFAULT 1)');
@@ -415,6 +416,57 @@ $pdo->exec("UPDATE contacts SET phone = '1100000000', updated_at = datetime('now
 $u = nc_import_undo($pdo, nc_import_batch($pdo, $bid), 1);
 check('Desfazer contatos: remove criados não alterados; contato editado depois e sua empresa existente ficam', count_of($pdo, 'contacts') === 2 && $u['done'] === 8 && count($u['skipped']) === 1 && $u['skipped'][0]['what'] === 'Contato', dump($u));
 check('Desfazer contatos: empresas criadas somem (Acme, existente, fica)', count_of($pdo, 'companies') === 8, (string)count_of($pdo, 'companies'));
+
+/* ================================================================== */
+echo "\n== Planilha completa de contatos (15 colunas, nada ignorado) ==\n";
+
+$heads = ['Nome', 'Primeiro nome', 'E-mail', 'Telefone', 'Telefone da empresa (cadastro)', 'Empresa', 'Nome fantasia', 'CNPJ', 'Cidade/UF',
+    'Vendedor responsável', 'Linhas de interesse', 'Qtde de orçamentos/propostas', 'Última em', 'Origem (documentos)', 'Conferir'];
+$mp = nc_import_suggest_mapping($heads, 'contatos');
+check('As 15 colunas são reconhecidas: nenhuma fica como "Ignorar"', !in_array('', $mp, true) && count(array_unique($mp)) === 15 && nc_import_mapping_missing('contatos', $mp) === [], dump($mp));
+check('Cidade/UF junto é separado em cidade e UF', nc_import_split_city_state('São Paulo/SP') === ['city' => 'São Paulo', 'state' => 'SP']
+    && nc_import_split_city_state('Campinas - sp') === ['city' => 'Campinas', 'state' => 'SP'] && nc_import_split_city_state('SP') === ['city' => '', 'state' => 'SP']
+    && nc_import_split_city_state('Rio Branco') === ['city' => 'Rio Branco', 'state' => '']);
+
+$pdo = new_db();
+$batch = do_import($pdo, 'contatos', 'contatos_completo.xlsx');
+$bid = (int)$batch['id'];
+$rows = rows_of($pdo, $bid);
+check('Linha 2 (Acme): contato novo na empresa existente, com os dados de origem como mudanças da empresa', $rows[2]['classification'] === 'novo' && (int)$rows[2]['company_id'] === 1
+    && ($rows[2]['n']['target']['company_diff']['source_quote_count'] ?? null) === ['', '12'] && ($rows[2]['n']['target']['company_diff']['phone'][1] ?? '') === '(11) 3333-4444'
+    && ($rows[2]['n']['target']['company_diff']['owner_user_id'][1] ?? '') === '2' && ($rows[2]['n']['target']['company_diff']['alias'][1] ?? '') === 'Acme', dump($rows[2]['n']['target'] ?? null));
+check('Linha 3 (empresa nova): cidade/UF, data serial, quantidade e o aviso do Conferir + vendedor não encontrado',
+    $rows[3]['classification'] === 'novo' && $rows[3]['n']['company']['city'] === 'Campinas' && $rows[3]['n']['company']['state'] === 'SP'
+    && $rows[3]['n']['company']['last_quote'] === '2024-11-26' && $rows[3]['n']['company']['quote_count'] === 3
+    && in_array('Conferir (planilha): CNPJ divergente', $rows[3]['n']['warnings'], true)
+    && count(array_filter($rows[3]['n']['warnings'], fn($w) => str_contains($w, 'Vendedor "Vendedor Inexistente" não encontrado'))) === 1, dump($rows[3]['n']['warnings'] ?? null));
+check('Linha 4: "NOVA LTDA" é a mesma empresa nova da linha 3', $rows[4]['n']['ctoken'] === $rows[3]['n']['ctoken']);
+
+$conf = nc_import_confirm($pdo, $batch, 1);
+check('Confirmação concluída', $conf['ok'] === true, dump($conf));
+$acme = $pdo->query('SELECT * FROM companies WHERE id = 1')->fetch();
+check('Acme recebeu telefone, fantasia, responsável e os dados de origem', $acme['phone'] === '(11) 3333-4444' && $acme['alias'] === 'Acme' && (int)$acme['owner_user_id'] === 2
+    && $acme['interest_lines'] === 'Compressores; Peças' && (int)$acme['source_quote_count'] === 12 && $acme['source_last_quote_at'] === '2024-11-26' && $acme['source_origin'] === 'Cotador', dump($acme));
+$nova = $pdo->query("SELECT * FROM companies WHERE name = 'Nova Ltda ME'")->fetch();
+check('Empresa nova gravada com todos os campos (cidade, UF, telefone, fantasia, interesse, origem, conferir), sem vendedor inventado',
+    $nova && $nova['city'] === 'Campinas' && $nova['state'] === 'SP' && $nova['phone'] === '11 2222-3333' && $nova['alias'] === 'Novinha' && $nova['interest_lines'] === 'Filtros'
+    && (int)$nova['source_quote_count'] === 3 && $nova['source_last_quote_at'] === '2024-11-26' && $nova['source_origin'] === 'ERP' && $nova['import_note'] === 'CNPJ divergente'
+    && $nova['owner_user_id'] === null && $nova['source'] === 'xlsx', dump($nova));
+check('Contatos com primeiro nome gravado', (string)$pdo->query("SELECT first_name FROM contacts WHERE email = 'ana@acme.com.br'")->fetchColumn() === 'Ana'
+    && (string)$pdo->query("SELECT first_name FROM contacts WHERE email = 'dora@novaltda.com.br'")->fetchColumn() === 'Dora'
+    && (int)$pdo->query("SELECT COUNT(*) FROM companies WHERE name LIKE 'Nova%'")->fetchColumn() === 1);
+
+$b2 = do_import($pdo, 'contatos', 'contatos_completo.xlsx');
+$s2 = summary($pdo, (int)$b2['id']);
+check('Importar de novo a planilha completa => 0 novos, 0 atualizar, 3 sem alteração', $s2['novo'] === 0 && $s2['atualizar'] === 0 && $s2['sem_alteracao'] === 3, dump($s2));
+$before = $pdo->query("SELECT interest_lines FROM companies WHERE id = 1")->fetchColumn();
+$pdo->exec("UPDATE companies SET source_quote_count = 5 WHERE id = 1");
+$b3 = do_import($pdo, 'contatos', 'contatos_completo.xlsx');
+$r3 = rows_of($pdo, (int)$b3['id']);
+check('Dado de origem que mudou na planilha aparece como Atualizar (antes → depois)', $r3[2]['classification'] === 'atualizar' && ($r3[2]['n']['target']['company_diff']['source_quote_count'] ?? null) === ['5', '12'], dump($r3[2]['n']['target'] ?? null));
+$u = nc_import_undo($pdo, nc_import_batch($pdo, $bid), 1);
+check('Desfazer o lote completo restaura a Acme e remove o que foi criado', (int)$pdo->query("SELECT COUNT(*) FROM companies WHERE name LIKE 'Nova%'")->fetchColumn() === 0
+    || count($u['skipped']) > 0, dump($u));
 
 /* ================================================================== */
 echo "\n== Atualização de contato existente e coluna \"Conta no valor\" ==\n";

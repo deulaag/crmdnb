@@ -132,6 +132,21 @@ CONT_ROWS = [
 ]
 
 
+# Planilha completa de contatos: as 15 colunas do relatório de clientes (nenhuma precisa ser ignorada)
+COMP_HEADER = ['Nome', 'Primeiro nome', 'E-mail', 'Telefone', 'Telefone da empresa (cadastro)', 'Empresa', 'Nome fantasia', 'CNPJ', 'Cidade/UF',
+               'Vendedor responsável', 'Linhas de interesse', 'Qtde de orçamentos/propostas', 'Última em', 'Origem (documentos)', 'Conferir']
+COMP_ROWS = [
+    # Empresa existente (Acme, pelo CNPJ): contato novo e dados de origem preenchidos na empresa
+    ['Ana Souza', 'Ana', 'ana@acme.com.br', '(11) 99999-0001', '(11) 3333-4444', 'ACME IND. E COM. LTDA', 'Acme', '11.222.333/0001-81', 'São Paulo/SP',
+     'Vendedor Um', 'Compressores; Peças', 12, '26/11/2024', 'Cotador', None],
+    # Empresa nova: cidade/UF separada, data serial, vendedor que não existe e marcação "Conferir"
+    ['Carlos Dias', 'Carlos', 'carlos@novaltda.com.br', '11 98888-0002', '11 2222-3333', 'Nova Ltda ME', 'Novinha', None, 'Campinas - SP',
+     'Vendedor Inexistente', 'Filtros', 3, 45622, 'ERP', 'CNPJ divergente'],
+    # Segundo contato da mesma empresa nova (não duplica a empresa)
+    ['Dora Lima', 'Dora', 'dora@novaltda.com.br', None, None, 'NOVA LTDA', None, None, None, None, None, None, None, None, None],
+]
+
+
 # ---------------------------------------------------------------- Orçamentos
 ORC_HEADER = ['Número', 'Data', 'Cliente', 'CNPJ', 'ID da empresa', 'E-mail do contato', 'Valor', 'Status', 'Linha', 'Vendedor', 'Motivo da perda']
 SERIAL_2024_11_26 = 45622
@@ -183,6 +198,7 @@ def main():
         {'name': 'Contatos', 'rows': numbered(CONT_HEADER, CONT_ROWS, gaps=(5, 9))},
         {'name': 'Outra aba', 'rows': [(1, ['a', 'b'])]},
     ])
+    write_xlsx(os.path.join(HERE, 'contatos_completo.xlsx'), [{'name': 'Clientes', 'rows': numbered(COMP_HEADER, COMP_ROWS)}])
     write_xlsx(os.path.join(HERE, 'orcamentos.xlsx'), [{'name': 'Propostas', 'rows': numbered(ORC_HEADER, ORC_ROWS)}])
     write_xlsx(os.path.join(HERE, 'orcamentos_ok.xlsx'), [{'name': 'Propostas', 'rows': numbered(ORC_HEADER, ORC_OK_ROWS)}])
     # inlineStr e planilha em base 1904

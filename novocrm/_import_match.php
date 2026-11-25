@@ -46,7 +46,7 @@ function nc_import_similarity(string $a, string $b): float
 function nc_import_context(PDO $pdo): array
 {
     $cols = ['id', 'name', 'alias', 'cnpj', 'city', 'state', 'owner_user_id', 'rd_crm_id'];
-    foreach (['external_id', 'person_document', 'merged_ids_json'] as $c) {
+    foreach (['external_id', 'person_document', 'merged_ids_json', 'phone', 'interest_lines', 'source_quote_count', 'source_last_quote_at', 'source_origin', 'import_note'] as $c) {
         if (nc_column_exists($pdo, 'companies', $c)) {
             $cols[] = $c;
         }
@@ -93,6 +93,9 @@ function nc_import_context(PDO $pdo): array
             'city' => (string)($r['city'] ?? ''), 'state' => (string)($r['state'] ?? ''),
             'owner' => (int)($r['owner_user_id'] ?? 0), 'external_id' => (string)($r['external_id'] ?? ''),
             'person_document' => (string)($r['person_document'] ?? ''), 'keys' => $keys,
+            'phone' => (string)($r['phone'] ?? ''), 'interest_lines' => (string)($r['interest_lines'] ?? ''),
+            'source_quote_count' => (string)($r['source_quote_count'] ?? ''), 'source_last_quote_at' => substr((string)($r['source_last_quote_at'] ?? ''), 0, 10),
+            'source_origin' => (string)($r['source_origin'] ?? ''), 'import_note' => (string)($r['import_note'] ?? ''),
         ];
         foreach ($extIds as $x) {
             $add($ctx['byExt'], strtolower(trim($x)), $id);
@@ -125,6 +128,7 @@ function nc_import_users(PDO $pdo): array
 {
     $byEmail = [];
     $byName = [];
+    $names = [];
     $hasEmail = nc_column_exists($pdo, 'users', 'email');
     $rows = $pdo->query('SELECT id, name' . ($hasEmail ? ', email' : '') . ' FROM users WHERE active = 1')->fetchAll();
     foreach ($rows as $u) {
@@ -132,8 +136,9 @@ function nc_import_users(PDO $pdo): array
             $byEmail[strtolower(trim((string)$u['email']))][] = (int)$u['id'];
         }
         $byName[nc_norm((string)$u['name'])][] = (int)$u['id'];
+        $names[(int)$u['id']] = (string)$u['name'];
     }
-    return ['byEmail' => $byEmail, 'byName' => $byName];
+    return ['byEmail' => $byEmail, 'byName' => $byName, 'names' => $names];
 }
 
 /** Vendedor: e-mail exato, depois nome normalizado exato ÚNICO. Nunca o usuário que importa. */
@@ -148,6 +153,38 @@ function nc_import_find_user(array $ctx, string $email, string $name): ?int
         return $ctx['users']['byName'][$n][0];
     }
     return null;
+}
+
+/** Responsável da planilha: com "@" é e-mail exato; senão, nome normalizado exato e único. Nunca quem importa. */
+function nc_import_owner_id(array $ctx, string $raw): ?int
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return null;
+    }
+    return str_contains($raw, '@') ? nc_import_find_user($ctx, $raw, '') : nc_import_find_user($ctx, '', $raw);
+}
+
+/** "São Paulo/SP", "Campinas - SP" ou só "SP" => ['city'=>..., 'state'=>...]. */
+function nc_import_split_city_state(string $raw): array
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return ['city' => '', 'state' => ''];
+    }
+    if (preg_match('#^(.*?)\s*[/\-–,]\s*([A-Za-z]{2})$#u', $raw, $m)) {
+        return ['city' => trim($m[1]), 'state' => strtoupper($m[2])];
+    }
+    if (preg_match('/^[A-Za-z]{2}$/', $raw)) {
+        return ['city' => '', 'state' => strtoupper($raw)];
+    }
+    return ['city' => $raw, 'state' => ''];
+}
+
+/** Colunas lidas de contacts (first_name só existe depois da migração 010). */
+function nc_import_contact_cols(PDO $pdo): string
+{
+    return 'id, name, email, phone, job_title, external_id, company_id' . (nc_column_exists($pdo, 'contacts', 'first_name') ? ', first_name' : '');
 }
 
 /** Maior semelhança entre a chave e os nomes (nome, fantasia, mesclados) da empresa. */
@@ -330,7 +367,7 @@ function nc_import_match_company(PDO $pdo, array $ctx, array $in, string $type):
 /* ------------------------------------------------------------------ */
 
 /** Normaliza os valores da linha de Contatos. Erros de obrigatórios saem em 'errors'. */
-function nc_import_normalize_contact(array $v): array
+function nc_import_normalize_contact(array $v, array $cfg = []): array
 {
     $warnings = [];
     $errors = [];
@@ -347,20 +384,68 @@ function nc_import_normalize_contact(array $v): array
         $warnings[] = 'E-mail inválido ignorado: ' . $emailRaw;
     }
     $phone = (string)($v['contact_phone'] ?? '');
-    $state = trim((string)($v['company_state'] ?? ''));
+
+    // Cidade e UF: colunas separadas valem mais que "Cidade/UF" junto.
+    $split = nc_import_split_city_state((string)($v['company_city_state'] ?? ''));
+    $city = trim((string)($v['company_city'] ?? '')) !== '' ? (string)$v['company_city'] : $split['city'];
+    $state = trim((string)($v['company_state'] ?? '')) !== '' ? trim((string)$v['company_state']) : $split['state'];
     if (strlen($state) === 2) {
         $state = strtoupper($state);
     }
+
+    // Nome do contato: se "Nome" vier vazio, o primeiro nome salva a linha (com aviso).
+    $name = (string)($v['contact_name'] ?? '');
+    $first = (string)($v['contact_first_name'] ?? '');
+    if ($name === '' && $first !== '') {
+        $name = $first;
+        $warnings[] = 'Nome vazio: usei o primeiro nome.';
+    }
+
+    // Dados de origem da planilha (quantidade, última data, origem, linhas de interesse, conferir).
+    $qtyRaw = (string)($v['company_quote_count'] ?? '');
+    $qty = null;
+    if ($qtyRaw !== '') {
+        $digits = (string)preg_replace('/[.\s]/', '', $qtyRaw);
+        if (preg_match('/^\d{1,9}$/', $digits)) {
+            $qty = (int)$digits;
+        } else {
+            $warnings[] = 'Qtde de orçamentos inválida ignorada: ' . $qtyRaw;
+        }
+    }
+    $lastRaw = (string)($v['company_last_quote'] ?? '');
+    $last = '';
+    if ($lastRaw !== '') {
+        $last = (string)nc_parse_date($lastRaw, !empty($cfg['date1904']));
+        if ($last === '') {
+            $warnings[] = 'Data "Última em" inválida ignorada: ' . $lastRaw;
+        }
+    }
+    $review = nc_import_cut((string)($v['company_review'] ?? ''), 500, $warnings, 'Conferir');
+    if ($review !== '' && !in_array(nc_norm($review), ['nao', 'n', 'ok', 'false', '0', 'sem pendencia'], true)) {
+        $warnings[] = 'Conferir (planilha): ' . $review;
+    } else {
+        $review = '';
+    }
+    $ownerRaw = trim((string)($v['owner_email'] ?? ''));
+    if ($ownerRaw !== '' && str_contains($ownerRaw, '@')) {
+        $ownerRaw = strtolower($ownerRaw);
+    }
+
     $n = [
         'kind' => 'contatos',
         'company' => [
             'name' => nc_import_cut((string)($v['company_name'] ?? ''), 190, $warnings, 'Nome da empresa'),
             'alias' => nc_import_cut((string)($v['company_alias'] ?? ''), 190, $warnings, 'Nome fantasia'), 'doc' => $doc,
-            'city' => nc_import_cut((string)($v['company_city'] ?? ''), 120, $warnings, 'Cidade'), 'state' => nc_import_cut($state, 40, $warnings, 'UF'),
-            'ext' => nc_import_cut((string)($v['company_external_id'] ?? ''), 120, $warnings, 'ID da empresa'), 'owner_email' => strtolower((string)($v['owner_email'] ?? '')),
+            'city' => nc_import_cut($city, 120, $warnings, 'Cidade'), 'state' => nc_import_cut($state, 40, $warnings, 'UF'),
+            'phone' => nc_import_cut((string)($v['company_phone'] ?? ''), 80, $warnings, 'Telefone da empresa'),
+            'ext' => nc_import_cut((string)($v['company_external_id'] ?? ''), 120, $warnings, 'ID da empresa'), 'owner_email' => $ownerRaw,
+            'interest' => nc_import_cut((string)($v['company_interest'] ?? ''), 500, $warnings, 'Linhas de interesse'),
+            'quote_count' => $qty, 'last_quote' => $last,
+            'origin' => nc_import_cut((string)($v['company_origin'] ?? ''), 190, $warnings, 'Origem'), 'review' => $review,
         ],
         'contact' => [
-            'name' => nc_import_cut((string)($v['contact_name'] ?? ''), 160, $warnings, 'Nome do contato'), 'email' => $email,
+            'name' => nc_import_cut($name, 160, $warnings, 'Nome do contato'), 'email' => $email,
+            'first' => nc_import_cut($first, 100, $warnings, 'Primeiro nome'),
             'phone' => nc_import_cut($phone, 60, $warnings, 'Telefone'),
             'job' => nc_import_cut((string)($v['contact_job_title'] ?? ''), 120, $warnings, 'Cargo'),
             'ext' => nc_import_cut((string)($v['contact_external_id'] ?? ''), 120, $warnings, 'ID do contato'),
@@ -384,7 +469,7 @@ function nc_import_normalize_contact(array $v): array
 function nc_import_company_contacts(PDO $pdo, array &$ctx, int $companyId): array
 {
     if (!isset($ctx['contactsByCompany'][$companyId])) {
-        $q = $pdo->prepare('SELECT id, name, email, phone, job_title, external_id, company_id FROM contacts WHERE company_id = ?');
+        $q = $pdo->prepare('SELECT ' . nc_import_contact_cols($pdo) . ' FROM contacts WHERE company_id = ?');
         $q->execute([$companyId]);
         $ctx['contactsByCompany'][$companyId] = $q->fetchAll();
     }
@@ -404,7 +489,7 @@ function nc_import_find_contact(PDO $pdo, array &$ctx, array $c, ?int $companyId
 
     // 1) ID externo do contato
     if ($c['ext'] !== '') {
-        $q = $pdo->prepare('SELECT id, name, email, phone, job_title, external_id, company_id FROM contacts WHERE external_id = ?');
+        $q = $pdo->prepare('SELECT ' . nc_import_contact_cols($pdo) . ' FROM contacts WHERE external_id = ?');
         $q->execute([$c['ext']]);
         $rows = $q->fetchAll();
         if (count($rows) > 1) {
@@ -421,7 +506,7 @@ function nc_import_find_contact(PDO $pdo, array &$ctx, array $c, ?int $companyId
     }
     // 2) E-mail
     if ($c['email'] !== '') {
-        $q = $pdo->prepare('SELECT id, name, email, phone, job_title, external_id, company_id FROM contacts WHERE email = ?');
+        $q = $pdo->prepare('SELECT ' . nc_import_contact_cols($pdo) . ' FROM contacts WHERE email = ?');
         $q->execute([$c['email']]);
         $rows = $q->fetchAll();
         $same = array_values(array_filter($rows, static fn($r) => $companyId && (int)($r['company_id'] ?? 0) === $companyId));
@@ -477,9 +562,9 @@ function nc_import_find_contact(PDO $pdo, array &$ctx, array $c, ?int $companyId
  *
  * @return array<string,mixed> class, reason, rule, company_id, candidates, norm
  */
-function nc_import_classify_contact(PDO $pdo, array &$ctx, array $v, ?array $force): array
+function nc_import_classify_contact(PDO $pdo, array &$ctx, array $v, ?array $force, array $cfg = []): array
 {
-    $n = nc_import_normalize_contact($v);
+    $n = nc_import_normalize_contact($v, $cfg);
     $out = static function (string $class, string $reason, string $rule, ?int $companyId, array $cand, array $n): array {
         return ['class' => $class, 'reason' => $reason, 'rule' => $rule, 'company_id' => $companyId, 'candidates' => $cand, 'norm' => $n];
     };
@@ -540,6 +625,7 @@ function nc_import_classify_contact(PDO $pdo, array &$ctx, array $v, ?array $for
 
     // Diferenças
     $companyDiff = [];
+    $labels = [];
     if ($companyId) {
         $cur = $ctx['co'][$companyId];
         $fill = static function (string $field, string $before, string $after) use (&$companyDiff): void {
@@ -553,9 +639,30 @@ function nc_import_classify_contact(PDO $pdo, array &$ctx, array $v, ?array $for
         $fill('city', (string)$cur['city'], $co['city']);
         $fill('state', (string)$cur['state'], $co['state']);
         $fill('external_id', (string)$cur['external_id'], $co['ext']);
-        $ownerId = $co['owner_email'] !== '' ? nc_import_find_user($ctx, $co['owner_email'], '') : null;
+        $fill('phone', (string)$cur['phone'], $co['phone']);
+        $ownerId = nc_import_owner_id($ctx, $co['owner_email']);
+        if ($co['owner_email'] !== '' && !$ownerId) {
+            $n['warnings'][] = 'Vendedor "' . $co['owner_email'] . '" não encontrado: a empresa fica sem responsável.';
+        }
         if ($ownerId && !(int)$cur['owner']) {
             $companyDiff['owner_user_id'] = ['', (string)$ownerId];
+            $labels['owner_user_id'] = $ctx['users']['names'][$ownerId] ?? ('#' . $ownerId);
+        }
+        // Dados de origem: a planilha é a fonte, então atualizam quando mudam (não há edição deles no CRM).
+        $upd = static function (string $field, string $before, string $after) use (&$companyDiff): void {
+            if ($after !== '' && $after !== $before) {
+                $companyDiff[$field] = [$before, $after];
+            }
+        };
+        $upd('interest_lines', (string)$cur['interest_lines'], $co['interest']);
+        $upd('source_quote_count', (string)$cur['source_quote_count'], $co['quote_count'] !== null ? (string)$co['quote_count'] : '');
+        $upd('source_last_quote_at', (string)$cur['source_last_quote_at'], $co['last_quote']);
+        $upd('source_origin', (string)$cur['source_origin'], $co['origin']);
+        $upd('import_note', (string)$cur['import_note'], $co['review']);
+    } else {
+        $ownerId = nc_import_owner_id($ctx, $co['owner_email']);
+        if ($co['owner_email'] !== '' && !$ownerId) {
+            $n['warnings'][] = 'Vendedor "' . $co['owner_email'] . '" não encontrado: a empresa fica sem responsável.';
         }
     }
     $contactDiff = [];
@@ -579,13 +686,16 @@ function nc_import_classify_contact(PDO $pdo, array &$ctx, array $v, ?array $for
         if ($c['ext'] !== '' && $c['ext'] !== (string)$row['external_id']) {
             $contactDiff['external_id'] = [(string)$row['external_id'], $c['ext']];
         }
+        if ($c['first'] !== '' && $c['first'] !== (string)($row['first_name'] ?? '')) {
+            $contactDiff['first_name'] = [(string)($row['first_name'] ?? ''), $c['first']];
+        }
         if ($companyId && (int)($row['company_id'] ?? 0) !== $companyId) {
             $contactDiff['company_id'] = [(string)($row['company_id'] ?? ''), (string)$companyId];
         }
     }
     $n['target'] = [
         'company_id' => $companyId, 'new_company' => $newCompany, 'contact_id' => $contactId,
-        'company_diff' => $companyDiff, 'contact_diff' => $contactDiff,
+        'company_diff' => $companyDiff, 'contact_diff' => $contactDiff, 'labels' => $labels,
     ];
     if ($newCompany || $contactId === null) {
         $class = 'novo';
