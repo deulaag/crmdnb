@@ -43,34 +43,10 @@ $p = [$period['from'], $period['to']];
 $sql = 'SELECT COUNT(*) FROM visits WHERE visit_date BETWEEN ? AND ?' . $scope('seller_user_id', $p);
 $q = $pdo->prepare($sql); $q->execute($p); $visits = (int)$q->fetchColumn();
 
-// --- Faturamento por semana: período atual × anterior ---
-$buckets = (int)ceil($period['days'] / 7);
-$labels = [];
-for ($i = 1; $i <= $buckets; $i++) {
-    $labels[] = 'S' . $i;
-}
-$cur = array_fill(0, $buckets, 0.0);
-$prev = array_fill(0, $buckets, 0.0);
-$p = [$period['prev_from'], $period['to']];
-$sql = 'SELECT invoice_date, amount FROM orders WHERE invoiced=1 AND invoice_date BETWEEN ? AND ?' . $scope('seller_user_id', $p);
-$q = $pdo->prepare($sql); $q->execute($p);
-$curFrom = new DateTimeImmutable($period['from']);
-$prevFrom = new DateTimeImmutable($period['prev_from']);
-$curTo = new DateTimeImmutable($period['to']);
-foreach ($q->fetchAll() as $row) {
-    $d = new DateTimeImmutable((string)$row['invoice_date']);
-    if ($d >= $curFrom && $d <= $curTo) {
-        $idx = min($buckets - 1, intdiv((int)$curFrom->diff($d)->days, 7));
-        $cur[$idx] += (float)$row['amount'];
-    } elseif ($d >= $prevFrom && $d < $curFrom) {
-        $idx = min($buckets - 1, intdiv((int)$prevFrom->diff($d)->days, 7));
-        $prev[$idx] += (float)$row['amount'];
-    }
-}
-$chartSeries = [
-    ['name' => 'Período atual', 'class' => 'is-current', 'values' => $cur],
-    ['name' => 'Período anterior', 'class' => 'is-previous', 'values' => $prev],
-];
+// --- Evolução de Faturamento (V2): Meta do mês | Meta do ano ---
+$grafico = ($_GET['grafico'] ?? 'mes') === 'ano' ? 'ano' : 'mes';
+$evo = nc_evolution_data($pdo, $grafico, $period['month'], $sellerId);
+$canSetGoal = nc_is_manager($user);
 
 // --- Pipeline aberto por linha de produto ---
 $p = [$period['from'], $period['to']];
@@ -140,12 +116,14 @@ nc_page_header($sub, 'Painel', '<a class="nc-btn nc-btn-primary" href="' . e(nc_
         <a class="nc-seg<?= $period['key'] === '90' ? ' is-active' : '' ?>" href="<?= e(nc_query_url(['periodo' => '90', 'mes' => null])) ?>"<?= $period['key'] === '90' ? ' aria-current="true"' : '' ?>>90 dias</a>
     </div>
     <form method="get" class="nc-inline-field">
+        <?php if ($evo['mode'] === 'ano'): ?><input type="hidden" name="grafico" value="ano"><?php endif; ?>
         <?php if ($sellerId !== null && $canPickSeller): ?><input type="hidden" name="vendedor" value="<?= $sellerId ?>"><?php endif; ?>
         <label for="nc-mes">Mês</label>
         <input class="nc-input" id="nc-mes" type="month" name="mes" value="<?= e($period['month']) ?>" data-nc-autosubmit>
     </form>
     <?php if ($canPickSeller): ?>
         <form method="get" class="nc-inline-field">
+            <?php if ($evo['mode'] === 'ano'): ?><input type="hidden" name="grafico" value="ano"><?php endif; ?>
             <?php if ($period['key'] === '30' || $period['key'] === '90'): ?><input type="hidden" name="periodo" value="<?= e($period['key']) ?>">
             <?php elseif ($period['key'] === 'custom'): ?><input type="hidden" name="mes" value="<?= e($period['month']) ?>"><?php endif; ?>
             <label for="nc-vendedor">Vendedor</label>
@@ -188,18 +166,47 @@ nc_page_header($sub, 'Painel', '<a class="nc-btn nc-btn-primary" href="' . e(nc_
     </article>
 </div>
 
-<div class="nc-grid-2">
-    <section class="nc-card" aria-labelledby="h-fat">
-        <h2 class="nc-card-title" id="h-fat">Faturamento por semana</h2>
-        <div class="nc-legend">
-            <span><i class="nc-swatch is-current"></i> Período atual</span>
-            <span><i class="nc-swatch is-previous"></i> Período anterior</span>
+<div class="nc-grid-evo">
+    <section class="nc-card nc-evo-card" aria-labelledby="h-fat">
+        <div class="nc-evo-head">
+            <div>
+                <h2 class="nc-evo-title" id="h-fat">Evolução de Faturamento</h2>
+                <p class="nc-evo-summary">
+                    <?= e(money($evo['real'])) ?><?php if ($evo['has_goal']): ?> de <?= e(money($evo['goal'])) ?><?php endif; ?>
+                    <?php if ($evo['pct'] !== null): ?> · <strong><?= e(number_format($evo['pct'], 1, ',', '.')) ?>%</strong> <?= $evo['mode'] === 'ano' ? 'da meta do ano' : 'da meta' ?><?php endif; ?>
+                </p>
+                <p class="nc-evo-note">
+                    <?php if ($evo['mode'] === 'ano' && $evo['projection'] !== null): ?>
+                        Projeção para dezembro: <strong class="nc-num"><?= e(money($evo['projection'])) ?></strong> · <?php endif; ?>
+                    <?php if ($evo['pace'] !== null): ?><?= e($evo['pace']) ?> · <?php endif; ?>
+                    <?= e($evo['mode'] === 'ano' ? 'Ano de ' . substr($period['month'], 0, 4) : nc_month_label($period['month'])) ?>
+                </p>
+            </div>
+            <div class="nc-segmented" role="group" aria-label="Escala da meta">
+                <a class="nc-seg<?= $evo['mode'] === 'mes' ? ' is-active' : '' ?>" href="<?= e(nc_query_url(['grafico' => null])) ?>"<?= $evo['mode'] === 'mes' ? ' aria-current="true"' : '' ?>>Meta do mês</a>
+                <a class="nc-seg<?= $evo['mode'] === 'ano' ? ' is-active' : '' ?>" href="<?= e(nc_query_url(['grafico' => 'ano'])) ?>"<?= $evo['mode'] === 'ano' ? ' aria-current="true"' : '' ?>>Meta do ano</a>
+            </div>
         </div>
-        <?php if ((float)$invoiced['total'] <= 0 && $invoicedPrev <= 0): ?>
-            <p class="nc-muted">Nenhum pedido faturado neste período nem no anterior.</p>
+
+        <div class="nc-legend">
+            <?php if ($evo['bars'] !== null): ?><span><i class="nc-swatch is-bar"></i> Faturado no mês</span><?php endif; ?>
+            <?php foreach ($evo['series'] as $s): ?>
+                <span><i class="nc-swatch <?= $s['class'] === 'is-real' ? 'is-current' : ($s['class'] === 'is-goal' ? 'is-goal' : 'is-prev') ?>"></i> <?= e($s['name']) ?></span>
+            <?php endforeach; ?>
+        </div>
+
+        <?php if ($evo['real'] <= 0 && !$evo['has_goal']): ?>
+            <p class="nc-muted">Nenhum pedido faturado neste período.</p>
         <?php else: ?>
-            <?= nc_svg_line($labels, $chartSeries, 'Faturamento por semana, período atual comparado ao anterior') ?>
-            <?= nc_chart_table($labels, $chartSeries, 'Faturamento por semana') ?>
+            <?= nc_svg_evolution($evo['labels'], $evo['series'], $evo['bars'], $evo['tips'], 'Evolução de faturamento ' . $evo['title']) ?>
+            <?= nc_chart_table($evo['labels'], $evo['series'], 'Evolução de faturamento ' . $evo['title'], $evo['table_header']) ?>
+        <?php endif; ?>
+
+        <?php if (!$evo['has_goal']): ?>
+            <p class="nc-alert-inline">
+                Sem meta cadastrada: mostrando só o realizado × período anterior.
+                <?php if ($canSetGoal): ?><a href="<?= e(nc_url('equipe.php?mes=' . $period['month'])) ?>">Cadastre a meta em Equipe &amp; Comissões</a>.<?php endif; ?>
+            </p>
         <?php endif; ?>
     </section>
 

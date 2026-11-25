@@ -67,4 +67,15 @@ if ($id > 0) {
     }
 }
 
+// Cliente pré-preenchido (usado pela Cadência: "Criar oportunidade").
+if ($id === 0 && (int)($_GET['from_visit'] ?? 0) < 1 && trim((string)($_GET['cliente'] ?? '')) !== '') {
+    $values['client_name'] = trim((string)$_GET['cliente']);
+    $q = $pdo->prepare('SELECT cnpj FROM companies WHERE name = ? ORDER BY id LIMIT 1');
+    $q->execute([$values['client_name']]);
+    $cnpj = $q->fetchColumn();
+    if ($cnpj) {
+        $values['client_cnpj'] = (string)$cnpj;
+    }
+}
+
 nc_opp_form($pdo, $values);

@@ -47,8 +47,45 @@ $groups = [
             <li><a class="nc-shortcut" href="/usuarios.php"><strong>Usuários</strong><span class="nc-muted">Criar, editar e desativar usuários e papéis. Versão clássica.</span></a></li>
             <li><a class="nc-shortcut" href="<?= e(nc_url('migrations/run.php')) ?>"><strong>Migrações do NOVOCRM</strong><span class="nc-muted">Aplica as alterações aditivas de banco usadas pela nova interface.</span></a></li>
         <?php endif; ?>
-        <li><a class="nc-shortcut" href="/cadencia.php"><strong>Cadência · Agente</strong><span class="nc-muted">Sequências e automações comerciais. Versão clássica.</span></a></li>
     </ul>
 </section>
-<?php
+<?php if ($isAdmin):
+    $pdo = db();
+    $hasProb = nc_column_exists($pdo, 'funnel_stages', 'probability');
+    $stages = $pdo->query('SELECT f.label funnel_label, fs.id, fs.name' . ($hasProb ? ', fs.probability' : ', NULL probability') . '
+        FROM funnel_stages fs JOIN funnels f ON f.id = fs.funnel_id WHERE f.active = 1 ORDER BY f.sort_order, fs.sort_order')->fetchAll(); ?>
+<section class="nc-card nc-section" aria-labelledby="h-prob">
+    <h2 class="nc-card-title" id="h-prob">Probabilidade por etapa</h2>
+    <p class="nc-muted">Percentual exibido nos cards do kanban de Oportunidades. Deixe em branco para não exibir.</p>
+    <?php if (!$hasProb): ?>
+        <div class="nc-alert nc-alert-warning" role="status">A coluna de probabilidade ainda não existe. <a href="<?= e(nc_url('migrations/run.php')) ?>">Aplicar migrações</a>.</div>
+    <?php elseif (!$stages): ?>
+        <p class="nc-muted">Nenhum funil ativo.</p>
+    <?php else: ?>
+        <div class="nc-table-wrap nc-flat">
+            <table class="nc-table">
+                <thead><tr><th>Funil</th><th>Etapa</th><th class="is-num">Probabilidade (%)</th><th><span class="nc-sr-only">Salvar</span></th></tr></thead>
+                <tbody>
+                <?php foreach ($stages as $st): ?>
+                    <tr>
+                        <td><?= e((string)$st['funnel_label']) ?></td>
+                        <td><?= e((string)$st['name']) ?></td>
+                        <td colspan="2">
+                            <form class="nc-inline-fields" method="post" hx-post="<?= e(nc_url('acoes/etapa-probabilidade.php')) ?>" hx-swap="none">
+                                <input type="hidden" name="stage_id" value="<?= (int)$st['id'] ?>">
+                                <label class="nc-sr-only" for="pb-<?= (int)$st['id'] ?>">Probabilidade da etapa <?= e((string)$st['name']) ?></label>
+                                <input class="nc-input nc-auto" id="pb-<?= (int)$st['id'] ?>" type="number" name="probability" min="0" max="100" step="1" inputmode="numeric"
+                                       value="<?= $st['probability'] !== null ? (int)$st['probability'] : '' ?>" placeholder="—">
+                                <button class="nc-btn nc-btn-secondary" type="submit">Salvar</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php endif; ?>
+</section>
+<?php endif;
+
 nc_footer();

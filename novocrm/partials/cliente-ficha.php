@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../_empresas_merge.php'; // nc_merged_names(), nc_origin_label()
+
 /** O nome candidato corresponde (normalizado) a algum dos nomes da empresa? */
 function nc_name_matches(string $candidate, array $norms): bool
 {
@@ -26,23 +28,37 @@ function nc_name_token(string $name): string
 function nc_cliente_dados(PDO $pdo, array $co): array
 {
     $id = (int)$co['id'];
-    $norms = array_values(array_filter(array_unique([
-        normalized_name((string)$co['name']),
-        normalized_name((string)($co['alias'] ?? '')),
-    ])));
-    $token = nc_name_token((string)$co['name']);
-    $like = $token !== '' ? nc_like($token) : '';
+    // Nome, nome fantasia e nomes de empresas já mescladas nesta (V3, seção 7).
+    $names = array_merge([(string)$co['name'], (string)($co['alias'] ?? '')], nc_merged_names($co));
+    $norms = array_values(array_filter(array_unique(array_map('normalized_name', $names))));
+    $likes = [];
+    foreach ($names as $n) {
+        $token = nc_name_token($n);
+        if ($token !== '') {
+            $likes[$token] = nc_like($token);
+        }
+    }
+    $likes = array_values($likes);
+    $like = $likes[0] ?? '';
+    // "(col LIKE ? OR col LIKE ?)" para todos os termos; vazio => condição sempre falsa.
+    $likeSql = static fn(string $col): string => $likes ? '(' . implode(' OR ', array_fill(0, count($likes), "$col LIKE ?")) . ')' : '1=0';
 
     $contacts = $pdo->prepare('SELECT * FROM contacts WHERE company_id = ? ORDER BY name');
     $contacts->execute([$id]);
 
+    $oppExtra = '';
+    foreach (['source', 'import_batch_id', 'external_ref'] as $col) {
+        if (nc_column_exists($pdo, 'opportunities', $col)) {
+            $oppExtra .= ',o.' . $col;
+        }
+    }
     $opps = [];
     $q = $pdo->prepare(
-        'SELECT o.id,o.number,o.opportunity_date,o.client_name,o.company_id,o.amount,o.status,pl.name line_name
+        "SELECT o.id,o.number,o.opportunity_date,o.client_name,o.company_id,o.amount,o.status,pl.name line_name$oppExtra
          FROM opportunities o JOIN product_lines pl ON pl.id = o.product_line_id
-         WHERE o.company_id = ?' . ($like !== '' ? ' OR o.client_name LIKE ?' : '') . ' ORDER BY o.id DESC LIMIT 300'
+         WHERE (o.company_id = ? OR " . $likeSql('o.client_name') . ') ORDER BY o.id DESC LIMIT 300'
     );
-    $q->execute($like !== '' ? [$id, $like] : [$id]);
+    $q->execute(array_merge([$id], $likes));
     foreach ($q->fetchAll() as $row) {
         if ((int)$row['company_id'] === $id || nc_name_matches((string)$row['client_name'], $norms)) {
             $opps[] = $row;
@@ -53,9 +69,9 @@ function nc_cliente_dados(PDO $pdo, array $co): array
     $orders = [];
     $q = $pdo->prepare(
         'SELECT ord.id,ord.number,ord.order_date,ord.client_name,ord.opportunity_id,ord.amount,ord.invoiced,ord.invoice_date,ord.modality
-         FROM orders ord WHERE 1=1' . ($like !== '' ? ' AND ord.client_name LIKE ?' : ' AND 1=0') . ' ORDER BY ord.id DESC LIMIT 300'
+         FROM orders ord WHERE ' . $likeSql('ord.client_name') . ' ORDER BY ord.id DESC LIMIT 300'
     );
-    $q->execute($like !== '' ? [$like] : []);
+    $q->execute($likes);
     $seen = [];
     foreach ($q->fetchAll() as $row) {
         if (nc_name_matches((string)$row['client_name'], $norms) || in_array((int)$row['opportunity_id'], $oppIds, true)) {
@@ -78,15 +94,15 @@ function nc_cliente_dados(PDO $pdo, array $co): array
     $visits = [];
     $agenda = [];
     if ($like !== '') {
-        $q = $pdo->prepare('SELECT id,os_number,visit_date,client_name,visit_type,lead_status FROM visits WHERE client_name LIKE ? ORDER BY visit_date DESC LIMIT 200');
-        $q->execute([$like]);
+        $q = $pdo->prepare('SELECT id,os_number,visit_date,client_name,visit_type,lead_status FROM visits WHERE ' . $likeSql('client_name') . ' ORDER BY visit_date DESC LIMIT 200');
+        $q->execute($likes);
         foreach ($q->fetchAll() as $row) {
             if (nc_name_matches((string)$row['client_name'], $norms)) {
                 $visits[] = $row;
             }
         }
-        $q = $pdo->prepare('SELECT id,event_date,event_time,client_name,objective,status,event_type FROM agenda WHERE client_name LIKE ? ORDER BY event_date DESC LIMIT 200');
-        $q->execute([$like]);
+        $q = $pdo->prepare('SELECT id,event_date,event_time,client_name,objective,status,event_type FROM agenda WHERE ' . $likeSql('client_name') . ' ORDER BY event_date DESC LIMIT 200');
+        $q->execute($likes);
         foreach ($q->fetchAll() as $row) {
             if (nc_name_matches((string)$row['client_name'], $norms)) {
                 $agenda[] = $row;
@@ -187,15 +203,23 @@ function nc_cliente_ficha(array $co, array $d, bool $isAdmin): void
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
+            <button type="button" class="nc-btn nc-btn-secondary"
+                    hx-get="<?= e(nc_url('acoes/contato-form.php?empresa=' . (int)$co['id'] . '&return=' . rawurlencode(nc_url('cliente.php?id=' . (int)$co['id'])))) ?>"
+                    hx-target="#nc-drawer-body" hx-swap="innerHTML">+ Novo contato</button>
         </section>
 
-        <section class="nc-ficha-section" aria-label="Oportunidades">
-            <h3>Oportunidades <span class="nc-tab-count"><?= count($d['opps']) ?></span></h3>
-            <?php if (!$d['opps']): ?><p class="nc-muted">Nenhuma oportunidade.</p><?php else: ?>
+        <section class="nc-ficha-section" aria-label="Orçamentos e propostas">
+            <h3>Orçamentos e propostas <span class="nc-tab-count"><?= count($d['opps']) ?></span></h3>
+            <?php if (!$d['opps']): ?><p class="nc-muted">Nenhum orçamento ou proposta.</p><?php else: ?>
                 <ul class="nc-list">
-                    <?php foreach (array_slice($d['opps'], 0, 10) as $o): ?>
+                    <?php foreach (array_slice($d['opps'], 0, 10) as $o):
+                        $byName = (int)($o['company_id'] ?? 0) !== (int)$co['id']; ?>
                         <li>
-                            <span><strong><?= e((string)$o['number']) ?></strong> <span class="nc-muted"><?= e((string)$o['line_name']) ?> · <?= e(nc_date((string)$o['opportunity_date'])) ?></span></span>
+                            <span>
+                                <strong><?= e((string)$o['number']) ?></strong>
+                                <span class="nc-muted"><?= e((string)$o['line_name']) ?> · <?= e(nc_date((string)$o['opportunity_date'])) ?></span><br>
+                                <small class="nc-muted">Origem: <?= e(nc_origin_label($o)) ?><?= !empty($o['external_ref']) ? ' · Ref. origem ' . e((string)$o['external_ref']) : '' ?><?= $byName ? ' · vínculo só pelo nome' : '' ?></small>
+                            </span>
                             <span class="nc-row-end"><span class="nc-num"><?= e(money($o['amount'])) ?></span> <?= nc_status_badge((string)$o['status']) ?></span>
                         </li>
                     <?php endforeach; ?>

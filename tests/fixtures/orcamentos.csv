@@ -1,0 +1,3 @@
+Número;Data da emissão;Cliente;Total (R$);Status;Conta no valor
+CSV-1;05/01/2025 14:30;Gamma Peças;1.234,56;Aberto;sim
+CSV-2;06/01/2025 09:00;Gamma Peças;2.000,00;Aberto;não (reemitida depois)
