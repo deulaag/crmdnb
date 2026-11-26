@@ -315,16 +315,18 @@ function nc_import_process_chunk(PDO $pdo, array $batch, int $limit = NC_IMPORT_
     }
 
     $ctx = nc_import_context($pdo);
+    $hasKey = nc_column_exists($pdo, 'import_rows', 'client_key');
     $upd = $pdo->prepare(
-        'UPDATE import_rows SET normalized_json = ?, classification = ?, reason = ?, match_rule = ?, company_id = ?, candidates_json = ? WHERE id = ?'
+        'UPDATE import_rows SET normalized_json = ?, classification = ?, reason = ?, match_rule = ?, company_id = ?, candidates_json = ?'
+        . ($hasKey ? ', client_key = ?' : '') . ' WHERE id = ?'
     );
     foreach ($pending as $row) {
         $cells = nc_import_decode($row['raw_json']);
         $values = nc_import_row_values($cells, $cfg['mapping']);
         $empty = !array_filter($values, static fn($v) => $v !== '');
         if ($empty || nc_import_row_is_total($cells)) {
-            $upd->execute([nc_import_json(['kind' => $type, 'skipped' => true]),
-                'ignorar', $empty ? 'Linha vazia.' : 'Linha de total/subtotal.', null, null, null, (int)$row['id']]);
+            $upd->execute(array_merge([nc_import_json(['kind' => $type, 'skipped' => true]),
+                'ignorar', $empty ? 'Linha vazia.' : 'Linha de total/subtotal.', null, null, null], $hasKey ? [null] : [], [(int)$row['id']]));
             continue;
         }
         $res = $type === 'contatos'
@@ -379,10 +381,10 @@ function nc_import_process_chunk(PDO $pdo, array $batch, int $limit = NC_IMPORT_
             $n['_sig'] = nc_import_opp_signature($n);
         }
         $n['warnings'] = array_values(array_unique((array)($n['warnings'] ?? [])));
-        $upd->execute([
+        $upd->execute(array_merge([
             nc_import_json($n), $class, $reason, $res['rule'] !== '' ? $res['rule'] : null, $res['company_id'],
-            $res['candidates'] ? nc_import_json($res['candidates']) : null, (int)$row['id'],
-        ]);
+            $res['candidates'] ? nc_import_json($res['candidates']) : null,
+        ], $hasKey ? [nc_import_client_key($n) ?: null] : [], [(int)$row['id']]));
     }
     return nc_import_finish_processing($pdo, $batch, count($pending));
 }
@@ -468,14 +470,16 @@ function nc_import_reclassify(PDO $pdo, array &$ctx, array $batch, array $row, ?
             'escolhida' => 'escolhida', 'criada' => 'criada', 'ignorada' => 'ignorada', default => null,
         };
     }
+    $hasKey = nc_column_exists($pdo, 'import_rows', 'client_key');
     $pdo->prepare(
         'UPDATE import_rows SET normalized_json = ?, classification = ?, reason = ?, match_rule = ?, company_id = ?, candidates_json = ?,
-         resolved_company_id = ?, resolution = ?, resolved_by = ?, resolved_at = ' . ($resolution ? 'NOW()' : 'NULL') . ' WHERE id = ?'
-    )->execute([
+         resolved_company_id = ?, resolution = ?, resolved_by = ?, resolved_at = ' . ($resolution ? 'NOW()' : 'NULL')
+        . ($hasKey ? ', client_key = ?' : '') . ' WHERE id = ?'
+    )->execute(array_merge([
         nc_import_json($n), $res['class'], $res['reason'], $res['rule'] !== '' ? $res['rule'] : null, $res['company_id'],
         $res['candidates'] ? nc_import_json($res['candidates']) : null,
-        ($force['mode'] ?? '') === 'escolhida' ? (int)$force['company_id'] : null, $resolution, $resolution ? $userId : null, (int)$row['id'],
-    ]);
+        ($force['mode'] ?? '') === 'escolhida' ? (int)$force['company_id'] : null, $resolution, $resolution ? $userId : null,
+    ], $hasKey ? [nc_import_client_key($n) ?: null] : [], [(int)$row['id']]));
     return $res;
 }
 
@@ -490,11 +494,24 @@ function nc_import_row_force(array $row): ?array
     };
 }
 
-/** Nome do cliente na planilha (para "aplicar às outras linhas com o mesmo nome"). */
-function nc_import_row_client_name(array $row): string
+/** Chave do cliente de uma linha já normalizada: a mesma chave usada nos índices de nome e nos apelidos. */
+function nc_import_client_key(array $normalized): string
+{
+    return nc_company_key((string)($normalized['client_name'] ?? ($normalized['company']['name'] ?? '')));
+}
+
+/** Nome do cliente na planilha, como texto de exibição. */
+function nc_import_row_client_label(array $row): string
 {
     $n = nc_import_decode($row['normalized_json'] ?? null);
-    return nc_norm((string)($n['client_name'] ?? ($n['company']['name'] ?? '')));
+    return trim((string)($n['client_name'] ?? ($n['company']['name'] ?? '')));
+}
+
+/** Chave do cliente (para agrupar e para "aplicar às outras linhas com o mesmo nome"). Usa a coluna client_key quando existe. */
+function nc_import_row_client_name(array $row): string
+{
+    $k = (string)($row['client_key'] ?? '');
+    return $k !== '' ? $k : nc_import_client_key(nc_import_decode($row['normalized_json'] ?? null));
 }
 
 /**
@@ -517,9 +534,6 @@ function nc_import_resolve(PDO $pdo, array $batch, int $rowId, string $op, ?int 
         'limpar' => null,
         default => throw new RuntimeException('Ação de revisão inválida.'),
     };
-    if ($op === 'criar' && $batch['import_type'] !== 'contatos') {
-        throw new RuntimeException('Orçamento nunca cria empresa sozinho: escolha uma empresa existente (cadastre-a antes em Clientes).');
-    }
     if ($op === 'escolher') {
         $q = $pdo->prepare('SELECT COUNT(*) FROM companies WHERE id = ?');
         $q->execute([(int)$companyId]);
@@ -531,8 +545,14 @@ function nc_import_resolve(PDO $pdo, array $batch, int $rowId, string $op, ?int 
     if ($applySame && $op !== 'limpar') {
         $name = nc_import_row_client_name($row);
         if ($name !== '') {
-            $q = $pdo->prepare("SELECT * FROM import_rows WHERE batch_id = ? AND classification = 'revisar' AND id <> ?");
-            $q->execute([(int)$batch['id'], $rowId]);
+            if (nc_column_exists($pdo, 'import_rows', 'client_key')) {
+                // Só as do mesmo cliente (ou sem chave gravada, de lotes anteriores à migração 011).
+                $q = $pdo->prepare("SELECT * FROM import_rows WHERE batch_id = ? AND classification = 'revisar' AND id <> ? AND (client_key = ? OR client_key IS NULL)");
+                $q->execute([(int)$batch['id'], $rowId, $name]);
+            } else {
+                $q = $pdo->prepare("SELECT * FROM import_rows WHERE batch_id = ? AND classification = 'revisar' AND id <> ?");
+                $q->execute([(int)$batch['id'], $rowId]);
+            }
             foreach ($q->fetchAll() as $other) {
                 if (nc_import_row_client_name($other) === $name) {
                     $targets[] = $other;
@@ -555,6 +575,225 @@ function nc_import_resolve(PDO $pdo, array $batch, int $rowId, string $op, ?int 
     }
     nc_import_recount($pdo, (int)$batch['id']);
     return count($targets);
+}
+
+/* ------------------------------------------------------------------ */
+/* Resolver em massa: um clique decide todos os clientes de uma faixa  */
+/* ------------------------------------------------------------------ */
+
+/** Semelhança mínima (%) para vincular sozinho à melhor candidata. */
+const NC_IMPORT_BULK_MIN_SIM = 90;
+/** Diferença mínima (pontos) entre a melhor e a segunda candidata. */
+const NC_IMPORT_BULK_GAP = 10;
+/** Tempo máximo de uma chamada em massa; o que sobrar fica para o próximo clique. */
+const NC_IMPORT_BULK_SECONDS = 20;
+/** Regras de vínculo que o resolver em massa pode decidir pela melhor candidata. */
+const NC_IMPORT_BULK_RULES = ['none', 'name_exact', 'cnpj', 'contact_email'];
+
+/**
+ * Faixa de uma linha em Revisar: alta (vincula à melhor candidata), sem (não há empresa parecida: criar),
+ * media (há candidatas, mas não com segurança) ou manual (o motivo exige decisão individual).
+ *
+ * @return array{tier:string,cid:?int,why:string,sim:int,key:string,label:string,sum:float,best:?array}
+ */
+function nc_import_bulk_eval(array $row, string $type): array
+{
+    $n = nc_import_decode($row['normalized_json'] ?? null);
+    $ev = ['tier' => 'manual', 'cid' => null, 'why' => '', 'sim' => 0, 'best' => null,
+        'key' => nc_import_row_client_name($row), 'label' => nc_import_row_client_label($row), 'sum' => (float)($n['amount'] ?? 0)];
+    $rule = (string)($row['match_rule'] ?? '');
+    if (!in_array($rule, NC_IMPORT_BULK_RULES, true)) {
+        $ev['why'] = 'O motivo desta linha exige decisão individual.';
+        return $ev;
+    }
+    $doc = $type === 'contatos' ? (array)($n['company']['doc'] ?? []) : (array)($n['doc'] ?? []);
+    $docKind = (string)($doc['kind'] ?? '');
+    $docDigits = (string)($doc['digits'] ?? '');
+    if ($docKind === 'invalido') {
+        $ev['why'] = 'CNPJ inválido na planilha.';
+        return $ev;
+    }
+    if ($type === 'orcamentos' && (string)($n['date'] ?? '') > date('Y-m-d', strtotime(NC_IMPORT_MAX_FUTURE))) {
+        $ev['why'] = 'Data a mais de 1 ano no futuro.';
+        return $ev;
+    }
+    $cands = array_values(array_filter(nc_import_decode($row['candidates_json'] ?? null), 'is_array'));
+    usort($cands, static fn($a, $b) => (int)($b['sim'] ?? 0) <=> (int)($a['sim'] ?? 0));
+    $meaningful = array_values(array_filter($cands, static fn($c) => !empty($c['root']) || (int)($c['sim'] ?? 0) >= NC_IMPORT_SIMILAR_SIM));
+    if (!$meaningful) {
+        $ev['tier'] = 'sem';
+        $ev['why'] = 'Nenhuma empresa parecida no cadastro.';
+        return $ev;
+    }
+    $top = $cands[0];
+    $second = $cands[1] ?? null;
+    $ev['tier'] = 'media';
+    $ev['best'] = $top;
+    $ev['sim'] = (int)($top['sim'] ?? 0);
+    $stateRow = strtoupper(trim((string)($type === 'contatos' ? ($n['company']['state'] ?? '') : '')));
+    $stateTop = strtoupper(trim((string)($top['state'] ?? '')));
+    if ($ev['sim'] < NC_IMPORT_BULK_MIN_SIM) {
+        $ev['why'] = 'Melhor candidata com ' . $ev['sim'] . '% de semelhança.';
+    } elseif ($second && $ev['sim'] - (int)($second['sim'] ?? 0) < NC_IMPORT_BULK_GAP) {
+        $ev['why'] = 'Duas candidatas muito parecidas.';
+    } elseif ($docKind === 'cnpj' && strlen((string)($top['cnpj'] ?? '')) === 14 && (string)$top['cnpj'] !== $docDigits) {
+        $ev['why'] = 'A candidata tem outro CNPJ (pode ser outra filial).';
+    } elseif ($stateRow !== '' && $stateTop !== '' && $stateRow !== $stateTop) {
+        $ev['why'] = 'A candidata é de outra UF.';
+    } else {
+        $ev['tier'] = 'alta';
+        $ev['cid'] = (int)$top['id'];
+        $ev['why'] = $ev['sim'] . '% de semelhança';
+    }
+    return $ev;
+}
+
+/**
+ * Agrupa as linhas em Revisar por cliente e conta as faixas.
+ *
+ * @return array{groups:array<string,array<string,mixed>>,rows:array<int,array<string,mixed>>,counts:array<string,int>}
+ */
+function nc_import_bulk_plan(PDO $pdo, array $batch): array
+{
+    $type = (string)$batch['import_type'];
+    $hasKey = nc_column_exists($pdo, 'import_rows', 'client_key');
+    $q = $pdo->prepare('SELECT id, normalized_json, match_rule, candidates_json' . ($hasKey ? ', client_key' : '')
+        . " FROM import_rows WHERE batch_id = ? AND classification = 'revisar'");
+    $q->execute([(int)$batch['id']]);
+    $rows = [];
+    $groups = [];
+    while ($r = $q->fetch()) {
+        $ev = nc_import_bulk_eval($r, $type);
+        if ($ev['key'] === '') {
+            $ev['key'] = '#' . $r['id'];
+        }
+        $rows[(int)$r['id']] = $ev;
+        $g = $groups[$ev['key']] ?? ['key' => $ev['key'], 'label' => $ev['label'], 'count' => 0, 'sum' => 0.0, 'tiers' => [], 'best' => null, 'cid' => null, 'why' => '', 'row_ids' => []];
+        $g['count']++;
+        $g['sum'] += $ev['sum'];
+        $g['tiers'][$ev['tier']] = ($g['tiers'][$ev['tier']] ?? 0) + 1;
+        $g['row_ids'][] = (int)$r['id'];
+        if ($g['best'] === null && $ev['best'] !== null) {
+            $g['best'] = $ev['best'];
+        }
+        if ($ev['tier'] === 'alta' && $g['cid'] === null) {
+            $g['cid'] = $ev['cid'];
+        }
+        if ($g['why'] === '') {
+            $g['why'] = $ev['why'];
+        }
+        $groups[$ev['key']] = $g;
+    }
+    $counts = ['rows' => count($rows), 'groups' => count($groups), 'alta_rows' => 0, 'alta_groups' => 0, 'sem_rows' => 0, 'sem_groups' => 0,
+        'media_rows' => 0, 'media_groups' => 0, 'manual_rows' => 0, 'manual_groups' => 0];
+    foreach ($groups as $k => $g) {
+        // Faixa do grupo: a única presente, ou "media" se houver mistura.
+        $tiers = array_keys($g['tiers']);
+        $groups[$k]['tier'] = count($tiers) === 1 ? $tiers[0] : 'media';
+        $counts[$groups[$k]['tier'] . '_groups']++;
+    }
+    foreach ($rows as $ev) {
+        $counts[$ev['tier'] . '_rows']++;
+    }
+    uasort($groups, static fn($a, $b) => $b['count'] <=> $a['count'] ?: strcmp((string)$a['label'], (string)$b['label']));
+    return ['groups' => $groups, 'rows' => $rows, 'counts' => $counts];
+}
+
+/**
+ * Decide várias linhas em Revisar de uma vez.
+ * $mode: vincular (faixa alta -> melhor candidata) | criar (sem candidata -> empresa nova) | ignorar (sem + média) |
+ * escolher ($choices: chave do cliente => id da empresa, para linhas de faixa média ou sem candidata).
+ *
+ * @param array<string,int> $choices
+ * @return array{done:int,left:int,still_review:int}
+ */
+function nc_import_resolve_bulk(PDO $pdo, array $batch, string $mode, int $userId, array $choices = []): array
+{
+    if (!in_array($batch['status'], ['em_revisao', 'mapeado'], true)) {
+        throw new RuntimeException('Este lote não aceita mais revisão.');
+    }
+    if (!in_array($mode, ['vincular', 'criar', 'ignorar', 'escolher'], true)) {
+        throw new RuntimeException('Ação em massa inválida.');
+    }
+    $plan = nc_import_bulk_plan($pdo, $batch);
+    $targets = [];
+    foreach ($plan['rows'] as $rowId => $ev) {
+        $force = null;
+        if ($mode === 'vincular' && $ev['tier'] === 'alta') {
+            $force = ['mode' => 'escolhida', 'company_id' => (int)$ev['cid']];
+        } elseif ($mode === 'criar' && $ev['tier'] === 'sem') {
+            $force = ['mode' => 'criada'];
+        } elseif ($mode === 'ignorar' && in_array($ev['tier'], ['sem', 'media'], true)) {
+            $force = ['mode' => 'ignorada'];
+        } elseif ($mode === 'escolher' && in_array($ev['tier'], ['sem', 'media'], true) && (int)($choices[$ev['key']] ?? 0) > 0) {
+            $force = ['mode' => 'escolhida', 'company_id' => (int)$choices[$ev['key']]];
+        }
+        if ($force) {
+            $targets[$rowId] = $force;
+        }
+    }
+    $done = 0;
+    $still = 0;
+    if ($targets) {
+        $ctx = nc_import_context($pdo);
+        $t0 = microtime(true);
+        $pdo->beginTransaction();
+        try {
+            foreach ($targets as $rowId => $force) {
+                if (microtime(true) - $t0 > NC_IMPORT_BULK_SECONDS) {
+                    break;
+                }
+                $row = nc_import_row($pdo, (int)$rowId);
+                if (!$row || (int)$row['batch_id'] !== (int)$batch['id'] || $row['classification'] !== 'revisar') {
+                    unset($targets[$rowId]);
+                    continue;
+                }
+                $res = nc_import_reclassify($pdo, $ctx, $batch, $row, $force, $userId);
+                $done++;
+                unset($targets[$rowId]);
+                if ($res['class'] === 'revisar') {
+                    $still++;
+                }
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+        nc_import_recount($pdo, (int)$batch['id']);
+    }
+    return ['done' => $done, 'left' => count($targets), 'still_review' => $still];
+}
+
+/**
+ * Grava os apelidos aprendidos nas decisões "escolhida" do lote (nome da planilha -> empresa).
+ * Só cria apelido de nome que ainda não pertence a nenhuma empresa. Roda dentro da transação da confirmação.
+ */
+function nc_import_save_aliases(PDO $pdo, array $ctx, int $batchId, int $userId, array $rows): int
+{
+    if (!nc_table_exists($pdo, 'company_aliases')) {
+        return 0;
+    }
+    $ins = $pdo->prepare('INSERT IGNORE INTO company_aliases (company_id, alias_key, alias_name, batch_id, created_by) VALUES (?,?,?,?,?)');
+    $saved = 0;
+    $seen = [];
+    foreach ($rows as $row) {
+        if ((string)($row['resolution'] ?? '') !== 'escolhida') {
+            continue;
+        }
+        $cid = (int)($row['resolved_company_id'] ?? 0);
+        $key = nc_import_row_client_name($row);
+        if ($cid < 1 || $key === '' || isset($seen[$key]) || !isset($ctx['co'][$cid]) || !empty($ctx['byKey'][$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $label = nc_import_row_client_label($row);
+        $ins->execute([$cid, $key, mb_substr($label !== '' ? $label : $key, 0, 190), $batchId, $userId]);
+        $saved += $ins->rowCount();
+    }
+    return $saved;
 }
 
 /** "Manter CRM" ou "Usar planilha" numa linha de Atualizar editada no CRM. */
@@ -644,6 +883,9 @@ function nc_import_confirm_summary(PDO $pdo, array $batch): array
             } else {
                 $s['opps_new']++;
                 $s['amount_new'] += (float)($n['amount'] ?? 0);
+                if (!empty($n['target']['new_company'])) {
+                    $tokens['o' . nc_company_key((string)($n['client_name'] ?? ''))] = true;
+                }
             }
         } elseif ($c === 'atualizar') {
             if ($type === 'orcamentos' && !empty($n['target']['crm_edited']) && nc_import_row_mode($r) === 'crm') {
@@ -811,11 +1053,53 @@ function nc_import_write_contact(PDO $pdo, array &$ctx, array &$reg, array $res,
 }
 
 /**
+ * Empresa nova de um orçamento (decisão humana "criar empresa"): uma por cliente dentro do lote, sem CNPJ confirmado.
+ * O Saneamento completa o CNPJ depois. Devolve [id da empresa, id criado ou 0 se reaproveitou a do lote].
+ *
+ * @return array{0:int,1:int}
+ */
+function nc_import_opp_company(PDO $pdo, array $n, array $p, int $batchId, array &$reg): array
+{
+    $doc = (array)($n['doc'] ?? []);
+    $cnpj = ($doc['kind'] ?? '') === 'cnpj' ? (string)$doc['digits'] : '';
+    $name = (string)$n['client_name'];
+    $key = nc_company_key($name);
+    if ($cnpj !== '' && isset($reg['cnpj'][$cnpj])) {
+        return [(int)$reg['cnpj'][$cnpj], 0];
+    }
+    $ids = $reg['key'][$key] ?? [];
+    if ($cnpj === '' && count($ids) === 1) {
+        return [(int)$ids[0], 0];
+    }
+    if ($cnpj !== '') {
+        $q = $pdo->prepare('SELECT id FROM companies WHERE cnpj = ?');
+        $q->execute([$cnpj]);
+        if ($q->fetchColumn()) {
+            throw new RuntimeException('O CNPJ ' . format_cnpj($cnpj) . ' passou a existir durante a importação. Reabra a revisão.');
+        }
+    }
+    $pdo->prepare(
+        "INSERT INTO companies (name, cnpj, person_document, owner_user_id, source, import_batch_id, import_synced_at, updated_at)
+         VALUES (?,?,?,?,'xlsx',?,NOW(),NOW())"
+    )->execute([
+        $name, $cnpj !== '' ? $cnpj : null, ($doc['kind'] ?? '') === 'cpf' ? (string)$doc['digits'] : null,
+        !empty($p['seller_id']) ? (int)$p['seller_id'] : null, $batchId,
+    ]);
+    $id = (int)$pdo->lastInsertId();
+    $reg['key'][$key][] = $id;
+    $reg['data'][$id] = ['cnpj' => $cnpj];
+    if ($cnpj !== '') {
+        $reg['cnpj'][$cnpj] = $id;
+    }
+    return [$id, $id];
+}
+
+/**
  * Grava uma linha de Orçamentos. Devolve [result, previous].
  *
  * @return array{0:array,1:array}
  */
-function nc_import_write_opp(PDO $pdo, array $row, array $res, array $batch, int $userId): array
+function nc_import_write_opp(PDO $pdo, array $row, array $res, array $batch, int $userId, array &$reg = []): array
 {
     $n = $res['norm'];
     $t = $n['target'];
@@ -826,6 +1110,10 @@ function nc_import_write_opp(PDO $pdo, array $row, array $res, array $batch, int
     if (empty($t['opp_id'])) {
         if (!$p['line_id'] || !$p['funnel_id'] || !$p['stage_id']) {
             throw new RuntimeException('Linha ' . $row['sheet_row'] . ': sem linha de produto/funil/etapa para criar o orçamento.');
+        }
+        $createdCompany = 0;
+        if (!empty($p['new_company'])) {
+            [$p['company_id'], $createdCompany] = nc_import_opp_company($pdo, $n, $p, $batchId, $reg);
         }
         $number = generate_opportunity_number($pdo, $p['seller_id'] ?: null, (string)$n['date']);
         $pdo->prepare(
@@ -840,7 +1128,11 @@ function nc_import_write_opp(PDO $pdo, array $row, array $res, array $batch, int
             $n['quote_reference'] !== '' ? $n['quote_reference'] : null, $p['notes'] !== '' ? $p['notes'] : null, $userId,
             $source, $n['ref'], $batchId,
         ]);
-        return [['opp_created' => (int)$pdo->lastInsertId(), 'number' => $number, 'company_id' => $p['company_id']], []];
+        $result = ['opp_created' => (int)$pdo->lastInsertId(), 'number' => $number, 'company_id' => $p['company_id']];
+        if ($createdCompany > 0) {
+            $result['company_created'] = $createdCompany;
+        }
+        return [$result, []];
     }
 
     $oppId = (int)$t['opp_id'];
@@ -971,12 +1263,14 @@ function nc_import_confirm(PDO $pdo, array $batch, int $userId): array
                     $save->execute([nc_import_json(['mantido_crm' => true]), null, (int)$row['id']]);
                     continue;
                 }
-                [$result, $previous] = nc_import_write_opp($pdo, $row, $res, $batch, $userId);
+                [$result, $previous] = nc_import_write_opp($pdo, $row, $res, $batch, $userId, $reg);
+                $counts['empresas_criadas'] += isset($result['company_created']) ? 1 : 0;
                 $counts['orcamentos_criados'] += isset($result['opp_created']) ? 1 : 0;
                 $counts['orcamentos_atualizados'] += isset($result['opp_updated']) ? 1 : 0;
             }
             $save->execute([nc_import_json($result), $previous ? nc_import_json($previous) : null, (int)$row['id']]);
         }
+        $counts['apelidos_salvos'] = nc_import_save_aliases($pdo, $ctx, $id, $userId, $rows);
         $pdo->prepare("UPDATE import_batches SET status = 'confirmado', confirmed_by = ?, confirmed_at = NOW(), error_message = NULL WHERE id = ?")
             ->execute([$userId, $id]);
         $pdo->commit();
@@ -1128,6 +1422,9 @@ function nc_import_undo(PDO $pdo, array $batch, int $userId): array
             if (!empty($prev['company'])) {
                 $done += nc_import_restore($pdo, 'companies', 'Empresa', $prev['company'], $id, $confirmedAt, $skipped);
             }
+        }
+        if (nc_table_exists($pdo, 'company_aliases')) {
+            $pdo->prepare('DELETE FROM company_aliases WHERE batch_id = ?')->execute([$id]);
         }
         $pdo->prepare("UPDATE import_batches SET status = 'desfeito', undone_by = ?, undone_at = NOW() WHERE id = ?")->execute([$userId, $id]);
         $pdo->commit();
