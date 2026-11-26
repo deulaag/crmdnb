@@ -44,6 +44,8 @@ $groups = [
     <ul class="nc-shortcuts">
         <li><a class="nc-shortcut" href="/configuracoes.php"><strong>Configurações do CRM</strong><span class="nc-muted">Integrações (RD Station, e-mail, IA), segurança, marca e políticas de comissão por pessoa. Versão clássica.</span></a></li>
         <?php if ($isAdmin): ?>
+            <li><a class="nc-shortcut" href="#integracoes"><strong>Integrações</strong><span class="nc-muted">BrasilAPI, CNPJá, OpenAI e n8n (agendamento do Saneamento).</span></a></li>
+            <li><a class="nc-shortcut" href="<?= e(nc_url('saneamento.php')) ?>"><strong>Saneamento de CNPJ e duplicadas</strong><span class="nc-muted">Fila de CNPJ, sugestões da IA e mesclagem de empresas.</span></a></li>
             <li><a class="nc-shortcut" href="/usuarios.php"><strong>Usuários</strong><span class="nc-muted">Criar, editar e desativar usuários e papéis. Versão clássica.</span></a></li>
             <li><a class="nc-shortcut" href="<?= e(nc_url('migrations/run.php')) ?>"><strong>Migrações do NOVOCRM</strong><span class="nc-muted">Aplica as alterações aditivas de banco usadas pela nova interface.</span></a></li>
         <?php endif; ?>
@@ -51,6 +53,21 @@ $groups = [
 </section>
 <?php if ($isAdmin):
     $pdo = db();
+    $sanFile = __DIR__ . '/_saneamento.php';
+    $sanPartial = __DIR__ . '/partials/saneamento.php'; ?>
+<div id="integracoes"></div>
+<?php if (is_file($sanFile) && is_file($sanPartial)):
+    require_once $sanFile;
+    require_once $sanPartial;
+    if (nc_san_ready($pdo)):
+        nc_san_settings_section($pdo, true, 'config');
+    else: ?>
+<section class="nc-card nc-section" aria-labelledby="h-integ">
+    <h2 class="nc-card-title" id="h-integ">Integrações</h2>
+    <div class="nc-alert nc-alert-warning" role="status">As tabelas do Saneamento ainda não existem. <a href="<?= e(nc_url('migrations/run.php')) ?>">Aplicar a migração 011</a> para liberar BrasilAPI, OpenAI e n8n.</div>
+</section>
+    <?php endif;
+endif;
     $hasProb = nc_column_exists($pdo, 'funnel_stages', 'probability');
     $stages = $pdo->query('SELECT f.label funnel_label, fs.id, fs.name' . ($hasProb ? ', fs.probability' : ', NULL probability') . '
         FROM funnel_stages fs JOIN funnels f ON f.id = fs.funnel_id WHERE f.active = 1 ORDER BY f.sort_order, fs.sort_order')->fetchAll(); ?>

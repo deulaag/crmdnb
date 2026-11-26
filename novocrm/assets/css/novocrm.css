@@ -773,3 +773,7 @@ td.is-actions { text-align: right; }
 .nc-stats dt { font-size: 12px; color: var(--text-muted); font-weight: 700; }
 .nc-stats dd { margin: 2px 0 0; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .nc-valuemap { grid-template-columns: 1fr; } }
+/* Saneamento e resolver em massa (v4) */
+.nc-bulk-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; align-items: flex-start; }
+.nc-bulk-form { margin: 0; }
+.nc-ia-list .nc-cands li label { display: flex; gap: 10px; align-items: flex-start; }

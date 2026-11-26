@@ -79,12 +79,15 @@ function nc_clientes_tabs(string $aba, array $totals, bool $isManager): void
     ];
     if ($isManager) {
         $tabs['importacoes'] = ['Importações', null];
+        if (is_file(__DIR__ . '/saneamento.php')) {
+            $tabs['saneamento'] = ['Saneamento', null];
+        }
     }
     ?>
     <div class="nc-tabs" role="tablist" aria-label="Clientes">
         <?php foreach ($tabs as $key => [$label, $count]): ?>
             <a class="nc-tab<?= $aba === $key ? ' is-active' : '' ?>" role="tab" aria-selected="<?= $aba === $key ? 'true' : 'false' ?>"
-               href="<?= e(nc_url('clientes.php' . ($key === 'empresas' ? '' : '?aba=' . $key))) ?>">
+               href="<?= e(nc_url($key === 'saneamento' ? 'saneamento.php' : 'clientes.php' . ($key === 'empresas' ? '' : '?aba=' . $key))) ?>">
                 <?= e($label) ?><?php if ($count !== null): ?> <span class="nc-tab-count"><?= (int)$count ?></span><?php endif; ?>
             </a>
         <?php endforeach; ?>

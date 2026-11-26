@@ -390,6 +390,12 @@ function nc_import_step_review(PDO $pdo, array $batch, array $user): void
     </section>
     <?php
 
+    if ($filtro === 'revisar') {
+        nc_import_review_groups($pdo, $batch, $page);
+        nc_import_confirm_panel($batch, $blockers, $summary);
+        return;
+    }
+
     $where = 'batch_id = ?';
     $params = [$id];
     if ($filtro !== '') {
@@ -423,6 +429,120 @@ function nc_import_step_review(PDO $pdo, array $batch, array $user): void
     }
 
     nc_import_confirm_panel($batch, $blockers, $summary);
+}
+
+/** Rótulo e cor da faixa de confiança de um grupo de revisão. @return array{string,string} */
+function nc_import_tier_badge(string $tier): array
+{
+    return match ($tier) {
+        'alta' => ['Alta confiança', 'success'],
+        'sem' => ['Sem empresa parecida', 'info'],
+        'media' => ['Confira', 'warning'],
+        default => ['Decisão individual', 'danger'],
+    };
+}
+
+/**
+ * Revisão por CLIENTE (não por linha): um painel para decidir tudo de uma vez e um grupo por nome de cliente.
+ * As decisões valem para todas as linhas do cliente e, na confirmação, viram apelidos que a próxima importação já reconhece.
+ */
+function nc_import_review_groups(PDO $pdo, array $batch, int $page): void
+{
+    $id = (int)$batch['id'];
+    $type = (string)$batch['import_type'];
+    $isOrc = $type === 'orcamentos';
+    $plan = nc_import_bulk_plan($pdo, $batch);
+    $c = $plan['counts'];
+    $groups = array_values($plan['groups']);
+    $action = nc_url('acoes/importar-resolver-massa.php');
+    $btn = static function (string $mode, string $label, string $confirm, int $enabled, string $style = 'nc-btn-primary') use ($action, $id): void {
+        ?>
+        <form method="post" action="<?= e($action) ?>" class="nc-bulk-form">
+            <?= csrf_field() ?><input type="hidden" name="lote" value="<?= $id ?>"><input type="hidden" name="modo" value="<?= e($mode) ?>">
+            <button type="submit" class="nc-btn <?= e($style) ?>"<?= $enabled > 0 ? '' : ' disabled' ?>
+                    data-nc-confirm="<?= e($confirm) ?>" data-nc-confirm-title="<?= e($label) ?>" data-nc-confirm-ok="Aplicar"><?= e($label) ?></button>
+        </form>
+        <?php
+    };
+    ?>
+    <section class="nc-card nc-bulk-panel" aria-labelledby="nc-bulk-title">
+        <h2 class="nc-card-title" id="nc-bulk-title">Resolver tudo de uma vez</h2>
+        <?php if ($c['rows'] === 0): ?>
+            <p>Nenhuma linha em Revisar. ✓</p>
+        <?php else: ?>
+            <p class="nc-help"><strong><?= (int)$c['rows'] ?></strong> linha(s) em Revisar, de <strong><?= (int)$c['groups'] ?></strong> cliente(s) diferente(s).
+                Cada decisão vale para todas as linhas do cliente. Nada é gravado no CRM antes de confirmar a importação.</p>
+            <div class="nc-bulk-actions">
+                <?php
+                $btn('vincular', 'Vincular ' . (int)$c['alta_groups'] . ' cliente(s) de alta confiança',
+                    'Vincular cada cliente de alta confiança (' . (int)$c['alta_rows'] . ' linha(s)) à empresa mais parecida do CRM. Só entram nomes com ' . NC_IMPORT_BULK_MIN_SIM . '% ou mais de semelhança, uma candidata clara e sem conflito de CNPJ ou UF.',
+                    (int)$c['alta_rows']);
+                $btn('criar', 'Criar empresa nova para ' . (int)$c['sem_groups'] . ' cliente(s) sem candidata',
+                    'Criar uma empresa nova para cada cliente sem empresa parecida (' . (int)$c['sem_rows'] . ' linha(s)). '
+                    . ($isOrc ? 'As empresas ficam sem CNPJ; o Saneamento completa o CNPJ depois. ' : '') . 'Só é gravado na confirmação.',
+                    (int)$c['sem_rows'], 'nc-btn-secondary');
+                $btn('ignorar', 'Ignorar ' . ((int)$c['sem_rows'] + (int)$c['media_rows']) . ' linha(s) sem decisão segura',
+                    'Ignorar as linhas dos clientes sem candidata ou de confiança média. Elas não entram na importação.',
+                    (int)$c['sem_rows'] + (int)$c['media_rows'], 'nc-btn-danger-outline');
+                ?>
+            </div>
+            <p class="nc-help">
+                Alta confiança: <?= (int)$c['alta_groups'] ?> · Sem empresa parecida: <?= (int)$c['sem_groups'] ?> ·
+                Confira: <?= (int)$c['media_groups'] ?> · Decisão individual: <?= (int)$c['manual_groups'] ?>.
+            </p>
+            <?php if ((int)$c['media_groups'] + (int)$c['sem_groups'] > 0): ?>
+                <form method="post" hx-post="<?= e(nc_url('acoes/importar-ia.php')) ?>" hx-target="#nc-ia-result" hx-swap="innerHTML" hx-indicator="#nc-ia-wait">
+                    <?= csrf_field() ?><input type="hidden" name="lote" value="<?= $id ?>">
+                    <button type="submit" class="nc-btn nc-btn-secondary">Sugerir com IA os clientes que sobraram</button>
+                    <small id="nc-ia-wait" class="nc-help htmx-indicator">Consultando a IA…</small>
+                    <small class="nc-help">Envia só o nome dos clientes e das empresas candidatas (sem dados de pessoas). Você aprova a lista com um clique.</small>
+                </form>
+                <div id="nc-ia-result"></div>
+            <?php endif; ?>
+        <?php endif; ?>
+    </section>
+    <?php
+    if (!$groups) {
+        nc_empty('Nenhuma linha neste filtro', 'Escolha outra classificação acima.');
+        return;
+    }
+    $pages = max(1, (int)ceil(count($groups) / NC_IMPORT_PER_PAGE));
+    $page = min($page, $pages);
+    $slice = array_slice($groups, ($page - 1) * NC_IMPORT_PER_PAGE, NC_IMPORT_PER_PAGE);
+    ?>
+    <div class="nc-table-wrap">
+        <table class="nc-table nc-import-table">
+            <thead><tr><th>Cliente na planilha</th><th class="is-num">Linhas</th><?= $isOrc ? '<th class="is-num">Valor</th>' : '' ?><th>Melhor candidata</th><th>Faixa</th><th class="is-actions">Ação</th></tr></thead>
+            <tbody>
+            <?php foreach ($slice as $g):
+                [$tierLabel, $tierKind] = nc_import_tier_badge((string)$g['tier']);
+                $best = $g['best']; ?>
+                <tr>
+                    <td><strong><?= e((string)$g['label']) ?></strong></td>
+                    <td class="is-num"><?= (int)$g['count'] ?></td>
+                    <?php if ($isOrc): ?><td class="is-num"><?= e(money((float)$g['sum'])) ?></td><?php endif; ?>
+                    <td>
+                        <?php if ($best): ?>
+                            <?= e((string)$best['name']) ?><br>
+                            <small class="nc-muted"><?= e(implode(' · ', array_filter([
+                                ($best['cnpj'] ?? '') !== '' ? format_cnpj((string)$best['cnpj']) : 'Sem CNPJ',
+                                trim((string)($best['city'] ?? '') . (($best['state'] ?? '') !== '' ? '/' . $best['state'] : '')),
+                                (int)($best['sim'] ?? 0) . '% parecido',
+                            ]))) ?></small>
+                        <?php else: ?><span class="nc-muted">—</span><?php endif; ?>
+                    </td>
+                    <td><?= nc_badge($tierLabel, $tierKind) ?><?php if ((string)$g['why'] !== ''): ?><br><small class="nc-muted"><?= e((string)$g['why']) ?></small><?php endif; ?></td>
+                    <td class="is-actions">
+                        <button type="button" class="nc-btn nc-btn-sm nc-btn-primary" hx-get="<?= e(nc_url('acoes/importar-revisar-form.php?linha=' . (int)$g['row_ids'][0])) ?>"
+                                hx-target="#nc-drawer-body" hx-swap="innerHTML">Resolver…</button>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php
+    nc_pagination($page, $pages);
 }
 
 /** "Linha padrão para este lote": obrigatória se houver orçamento sem linha identificada. */
@@ -562,7 +682,8 @@ function nc_import_confirm_panel(array $batch, array $blockers, array $s): void
     if ($type === 'contatos') {
         $lines[] = 'Criar ' . $s['companies_new'] . ' empresa(s) e ' . $s['contacts_new'] . ' contato(s)';
     } else {
-        $lines[] = 'Criar ' . $s['opps_new'] . ' orçamento(s) (' . money((float)$s['amount_new']) . ')';
+        $lines[] = 'Criar ' . $s['opps_new'] . ' orçamento(s) (' . money((float)$s['amount_new']) . ')'
+            . ($s['companies_new'] > 0 ? ' e ' . $s['companies_new'] . ' empresa(s) nova(s) sem CNPJ' : '');
     }
     $lines[] = 'atualizar ' . $s['updates'];
     if ($s['kept_crm'] > 0) {
@@ -599,10 +720,11 @@ function nc_import_review_drawer(PDO $pdo, array $batch, array $row, string $err
     $cands = nc_import_decode($row['candidates_json'] ?? null);
     $name = $type === 'orcamentos' ? (string)($n['client_name'] ?? '') : (string)($n['company']['name'] ?? '');
     $same = 0;
+    $myKey = nc_import_row_client_name($row);
     $q = $pdo->prepare("SELECT * FROM import_rows WHERE batch_id = ? AND classification = 'revisar' AND id <> ?");
     $q->execute([(int)$batch['id'], (int)$row['id']]);
     foreach ($q->fetchAll() as $o) {
-        if (nc_import_row_client_name($o) === nc_norm($name) && $name !== '') {
+        if ($myKey !== '' && nc_import_row_client_name($o) === $myKey) {
             $same++;
         }
     }
@@ -644,7 +766,7 @@ function nc_import_review_drawer(PDO $pdo, array $batch, array $row, string $err
                                     ]))) ?></small>
                                 </div>
                                 <?php if ($same > 0): ?>
-                                    <label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1"> Aplicar às outras <?= $same ?> linha(s) com “<?= e(nc_truncate($name, 30)) ?>”</label>
+                                    <label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1" checked> Aplicar às outras <?= $same ?> linha(s) com “<?= e(nc_truncate($name, 30)) ?>”</label>
                                 <?php endif; ?>
                                 <button type="submit" class="nc-btn nc-btn-primary nc-btn-sm">Usar esta</button>
                             </form>
@@ -659,25 +781,23 @@ function nc_import_review_drawer(PDO $pdo, array $batch, array $row, string $err
                 <input type="hidden" name="lote" value="<?= (int)$batch['id'] ?>"><input type="hidden" name="linha_id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="op" value="escolher">
                 <?php nc_company_picker('imp-pick'); ?>
                 <?php if ($same > 0): ?>
-                    <label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1"> Aplicar às outras <?= $same ?> linha(s) com “<?= e(nc_truncate($name, 30)) ?>”</label>
+                    <label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1" checked> Aplicar às outras <?= $same ?> linha(s) com “<?= e(nc_truncate($name, 30)) ?>”</label>
                 <?php endif; ?>
                 <div class="nc-form-actions"><button type="submit" class="nc-btn nc-btn-primary">Vincular à empresa escolhida</button></div>
             </form>
 
             <div class="nc-review-more">
-                <?php if ($type === 'contatos'): ?>
-                    <form method="post" hx-post="<?= e($action) ?>" hx-target="#nc-drawer-body" hx-swap="innerHTML">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="lote" value="<?= (int)$batch['id'] ?>"><input type="hidden" name="linha_id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="op" value="criar">
-                        <?php if ($same > 0): ?><label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1"> Aplicar às outras <?= $same ?> linha(s) com o mesmo nome</label><?php endif; ?>
-                        <button type="submit" class="nc-btn nc-btn-secondary">Criar empresa nova com os dados da linha</button>
-                        <small class="nc-help">Só é gravada na confirmação. A consulta ao CNPJá é feita depois, em fila, para as empresas criadas.</small>
-                    </form>
-                <?php endif; ?>
+                <form method="post" hx-post="<?= e($action) ?>" hx-target="#nc-drawer-body" hx-swap="innerHTML">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="lote" value="<?= (int)$batch['id'] ?>"><input type="hidden" name="linha_id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="op" value="criar">
+                    <?php if ($same > 0): ?><label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1" checked> Aplicar às outras <?= $same ?> linha(s) com o mesmo nome</label><?php endif; ?>
+                    <button type="submit" class="nc-btn nc-btn-secondary">Criar empresa nova com os dados da linha</button>
+                    <small class="nc-help">Só é gravada na confirmação<?= $type === 'orcamentos' ? ', sem CNPJ (o Saneamento completa depois)' : '; o CNPJ é consultado depois, em fila' ?>.</small>
+                </form>
                 <form method="post" hx-post="<?= e($action) ?>" hx-target="#nc-drawer-body" hx-swap="innerHTML">
                     <?= csrf_field() ?>
                     <input type="hidden" name="lote" value="<?= (int)$batch['id'] ?>"><input type="hidden" name="linha_id" value="<?= (int)$row['id'] ?>"><input type="hidden" name="op" value="ignorar">
-                    <?php if ($same > 0): ?><label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1"> Aplicar às outras <?= $same ?> linha(s) com o mesmo nome</label><?php endif; ?>
+                    <?php if ($same > 0): ?><label class="nc-check"><input type="checkbox" name="aplicar_mesmo" value="1" checked> Aplicar às outras <?= $same ?> linha(s) com o mesmo nome</label><?php endif; ?>
                     <button type="submit" class="nc-btn nc-btn-danger-outline">Ignorar esta linha</button>
                 </form>
                 <?php if (!empty($row['resolution'])): ?>

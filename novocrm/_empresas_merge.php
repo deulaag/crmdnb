@@ -146,6 +146,25 @@ function nc_company_merge(PDO $pdo, int $principalId, array $dupIds, array $pick
         }
         $set['merged_ids_json'] = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
+        // Registro da mesclagem (migração 011): a linha completa de cada empresa apagada e o que foi movido dela.
+        if (nc_table_exists($pdo, 'company_merge_log')) {
+            $log = $pdo->prepare(
+                'INSERT INTO company_merge_log (principal_id, dup_id, dup_json, moved_contacts_json, moved_opps_json, merged_by) VALUES (?,?,?,?,?,?)'
+            );
+            foreach ($dupIds as $dupId) {
+                $ids = [];
+                foreach (['contacts', 'opportunities'] as $table) {
+                    $s = $pdo->prepare("SELECT id FROM $table WHERE company_id = ?");
+                    $s->execute([$dupId]);
+                    $ids[$table] = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+                }
+                $log->execute([
+                    $principalId, $dupId, json_encode($rows[$dupId], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
+                    json_encode($ids['contacts']), json_encode($ids['opportunities']), $userId > 0 ? $userId : null,
+                ]);
+            }
+        }
+
         // Move contatos e oportunidades.
         $inDup = implode(',', array_fill(0, count($dupIds), '?'));
         $moved = [];

@@ -120,6 +120,26 @@ function nc_import_context(PDO $pdo): array
             $add($ctx['byRoot'], substr($digits, 0, 8), $id);
         }
     }
+
+    // Apelidos aprendidos nas revisões anteriores (migração 011): o nome da planilha passa a valer como nome da empresa.
+    if (nc_table_exists($pdo, 'company_aliases')) {
+        foreach ($pdo->query('SELECT company_id, alias_key FROM company_aliases')->fetchAll() as $a) {
+            $cid = (int)$a['company_id'];
+            $k = (string)$a['alias_key'];
+            if ($k === '' || !isset($ctx['co'][$cid])) {
+                continue;
+            }
+            if (!in_array($k, $ctx['co'][$cid]['keys'], true)) {
+                $ctx['co'][$cid]['keys'][] = $k;
+            }
+            $add($ctx['byKey'], $k, $cid);
+            foreach (explode(' ', $k) as $t) {
+                if (strlen($t) >= 3) {
+                    $add($ctx['tokens'], $t, $cid);
+                }
+            }
+        }
+    }
     return $ctx;
 }
 
@@ -801,8 +821,9 @@ function nc_import_resolve_line(PDO $pdo, string $text, array $valueMaps): ?int
 }
 
 /**
- * Classifica uma linha de Orçamentos. Orçamento nunca cria empresa: sem vínculo certo vai para Revisar.
- * $force: null | ['mode'=>'escolhida','company_id'=>N].
+ * Classifica uma linha de Orçamentos. Orçamento não cria empresa sozinho: sem vínculo certo vai para Revisar.
+ * Só a decisão humana ("criada", individual ou em massa) cria a empresa, sem CNPJ, na confirmação.
+ * $force: null | ['mode'=>'escolhida','company_id'=>N] | ['mode'=>'criada'].
  *
  * @return array<string,mixed>
  */
@@ -839,6 +860,7 @@ function nc_import_classify_opp(PDO $pdo, array &$ctx, array $batch, array $cfg,
 
     // Empresa
     $companyId = null;
+    $newCompany = false;
     $rule = '';
     $cand = [];
     $forced = false;
@@ -847,6 +869,14 @@ function nc_import_classify_opp(PDO $pdo, array &$ctx, array $batch, array $cfg,
         if (!isset($ctx['co'][$companyId])) {
             return $out('revisar', 'A empresa escolhida na revisão não existe mais. Escolha novamente.', 'manual', null, [], $n);
         }
+        $rule = 'manual';
+        $forced = true;
+    } elseif ($force && ($force['mode'] ?? '') === 'criada') {
+        // Decisão humana em bloco: cria a empresa (sem CNPJ confirmado) na confirmação. O Saneamento completa o CNPJ depois.
+        if ($opp) {
+            return $out('revisar', 'Este orçamento já existe no CRM (número "' . $n['ref'] . '"). Escolha a empresa dele em vez de criar uma nova.', 'external_ref', null, [], $n);
+        }
+        $newCompany = true;
         $rule = 'manual';
         $forced = true;
     } else {
@@ -867,7 +897,7 @@ function nc_import_classify_opp(PDO $pdo, array &$ctx, array $batch, array $cfg,
             return $out('revisar', $reason, $m['rule'], null, $m['candidates'], $n);
         }
     }
-    $company = $ctx['co'][$companyId];
+    $company = $newCompany ? ['name' => $n['client_name']] : $ctx['co'][$companyId];
 
     // Data muito no futuro (a escolha manual da empresa também confirma esta data)
     if (!$forced && $n['date'] > date('Y-m-d', strtotime(NC_IMPORT_MAX_FUTURE))) {
@@ -937,12 +967,12 @@ function nc_import_classify_opp(PDO $pdo, array &$ctx, array $batch, array $cfg,
         'funnel_id' => $funnelId, 'stage_id' => $stageId, 'stage_default' => $stageDefault, 'stage_explicit' => $stageExplicit,
         'seller_id' => $sellerId, 'status' => $status, 'loss_reason' => $lossReason, 'loss_default' => $lossDefault,
         'notes' => $notes, 'item_type' => $lineRow ? (string)$lineRow['item_type'] : null,
-        'needs_default_line' => $lineDefault && !$lineId,
+        'needs_default_line' => $lineDefault && !$lineId, 'new_company' => $newCompany,
     ];
 
     if ($opp === null) {
-        $n['target'] = ['company_id' => $companyId, 'opp_id' => null, 'diff' => [], 'crm_edited' => false];
-        return $out('novo', 'Orçamento novo.', $rule, $companyId, [], $n);
+        $n['target'] = ['company_id' => $companyId, 'opp_id' => null, 'diff' => [], 'crm_edited' => false, 'new_company' => $newCompany];
+        return $out('novo', $newCompany ? 'Orçamento novo, com empresa nova (sem CNPJ confirmado).' : 'Orçamento novo.', $rule, $companyId, [], $n);
     }
 
     // Já existe: só campos mapeados que mudaram

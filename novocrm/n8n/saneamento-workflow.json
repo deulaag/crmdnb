@@ -1,0 +1,134 @@
+{
+  "name": "CRM DNB - Saneamento de CNPJ (agendado)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 2
+            }
+          ]
+        }
+      },
+      "id": "5c1f0a10-0001-4000-8000-000000000001",
+      "name": "Todo dia às 02h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-DOMINIO/novocrm/api/saneamento.php",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"acao\":\"processar\",\"limite\":10}",
+        "options": {
+          "timeout": 150000
+        }
+      },
+      "id": "5c1f0a10-0002-4000-8000-000000000002",
+      "name": "Processar um passo da fila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Saneamento CRM (X-Saneamento-Token)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-0003-4000-8000-000000000003",
+              "leftValue": "={{ $json.continuar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c1f0a10-0003-4000-8000-000000000003",
+      "name": "Ainda há fila?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "id": "5c1f0a10-0004-4000-8000-000000000004",
+      "name": "Pausa de 3 s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [720, -100],
+      "webhookId": "5c1f0a10-0004-4000-8000-0000000000a4"
+    },
+    {
+      "parameters": {},
+      "id": "5c1f0a10-0005-4000-8000-000000000005",
+      "name": "Fim (fila vazia, limite da API ou erro)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 100]
+    },
+    {
+      "parameters": {
+        "content": "## Saneamento de CNPJ\n\n1. No CRM: Clientes > Saneamento > Integrações do Saneamento > Gerar token.\n2. No n8n crie uma credencial **Header Auth** com Name = `X-Saneamento-Token` e Value = o token.\n3. Troque `SEU-DOMINIO` na URL do nó HTTP pelo domínio do CRM e selecione a credencial.\n\nCada chamada processa um passo da fila (10 empresas). O fluxo repete enquanto a resposta trouxer `continuar = true`.\nSe a BrasilAPI atingir o limite, `continuar` vem `false` e o fluxo termina; a próxima execução agendada retoma de onde parou.",
+        "height": 300,
+        "width": 420
+      },
+      "id": "5c1f0a10-0006-4000-8000-000000000006",
+      "name": "Como configurar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -360]
+    }
+  ],
+  "connections": {
+    "Todo dia às 02h": {
+      "main": [[{ "node": "Processar um passo da fila", "type": "main", "index": 0 }]]
+    },
+    "Processar um passo da fila": {
+      "main": [[{ "node": "Ainda há fila?", "type": "main", "index": 0 }]]
+    },
+    "Ainda há fila?": {
+      "main": [
+        [{ "node": "Pausa de 3 s", "type": "main", "index": 0 }],
+        [{ "node": "Fim (fila vazia, limite da API ou erro)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Pausa de 3 s": {
+      "main": [[{ "node": "Processar um passo da fila", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
